@@ -84,7 +84,6 @@ def generate_sample_kmer_profile(biohansel_df,scheme_kmer_target_keys,min_cov=20
                 samples[sample]['counts'][target]['positive'] += freq
             else:
                 samples[sample]['counts'][target]['negative'] += freq
-    #print(samples[sample])
 
 
     return samples
@@ -558,7 +557,7 @@ def get_scheme_genotypes(scheme_df):
 
 
 
-def main():
+def run():
     cmd_args = parse_args()
     logger = init_console_logger(2)
     is_args_ok = validate_args(cmd_args,logger)
@@ -590,6 +589,15 @@ def main():
     genotype_dist_cutoff = cmd_args.genotype_dist_cutoff
     genotype_dist_cutoff = cmd_args.genotype_dist_cutoff
 
+    #output filenames
+    report_sample_composition_detailed = os.path.join(outdir,"{}.sample_composition.report.detailed.txt".format(prefix))
+    report_sample_composition_summary = os.path.join(outdir,"{}.sample_composition.report.summary.txt".format(prefix))
+    report_run_kmer_composition = os.path.join(outdir, "{}.run_composition.report.txt".format(prefix))
+    report_individual_sample_html_prefix = os.path.join(outdir,"{}.sample_#.report.html".format(prefix))
+
+
+
+
     # initialize analysis directory
     if not os.path.isdir(outdir):
         logger.info("Creating analysis results directory {}".format(outdir))
@@ -611,7 +619,7 @@ def main():
     scheme_kmer_target_keys = list(scheme_kmer_target_info.keys())
     scheme_kmer_target_keys.sort()
     scheme_kmer_target_keys = [str(i) for i in scheme_kmer_target_keys]
-    #scheme_kmer_names = generate_biohansel_kmer_names(scheme_kmer_target_keys)
+
 
     #Identify kmers which are present in the no template control for masking purposes later
     no_template_kmers = {}
@@ -692,7 +700,6 @@ def main():
     sample_kmer_data = calc_mixed_sites(sample_kmer_data,min_cov_frac)
 
 
-
     #subtract contamination kmers in the no template control
     if len(no_template_kmers) > 0:
         sample_kmer_data = subtract_contamination_kmers(sample_kmer_data, no_template_kmers, min_cov_frac)
@@ -710,10 +717,11 @@ def main():
 
     sample_kmer_data = calc_type_coverage(sample_kmer_data, scheme_df)
     sample_kmer_data = type_occamization(sample_kmer_data,scheme_df)
-    #sample_kmer_data = calc_type_coverage(sample_kmer_data, scheme_df)
 
-
+    sample_report = {}
     for sample in sample_kmer_data:
+        if not sample in sample_report:
+            sample_report[sample] = {}
 
         total_ratio = 0
         sample_kmer_data[sample]['genotypes']['candidate_data']
@@ -725,19 +733,27 @@ def main():
                 continue
             data['targets'].sort()
             total_ratio += data['average_ratio']
-            print("{}\t{}\t{}\t{}\t{}\t{}\t{}".format(sample,
-                                      genotype,
-                                      data['num_targets'],
-                                      data['targets'],
-                                      data['average_target_freq'],
-                                      data['target_freq_stdev'],
-                                      data['average_ratio'],
-                                      data['ratio_stdev']))
+            sample_report[sample][genotype] = {
+                'num_targets':data['num_targets'],
+                'targets':data['targets'],
+                'average_target_freq':data['average_target_freq'],
+                'target_freq_stdev':data['average_target_freq'],
+                'average_ratio':data['average_ratio'],
+                'ratio_stdev':data['ratio_stdev']
+            }
+
         unknown_fraq = 1 - total_ratio
         if unknown_fraq >= min_cov_frac:
-            print("{}\tunknown\t0\t0\t0\t{}\t{}".format(sample,unknown_fraq,0))
+            sample_report[sample]['unknown'] = {
+                'num_targets':0,
+                'targets':0,
+                'average_target_freq':0,
+                'target_freq_stdev':0,
+                'average_ratio':unknown_fraq,
+                'ratio_stdev':0
+            }
+
+        sample_report_df = pd.DataFrame().from_dict(sample_report,orient='index')
+        sample_report_df.to_csv(report_sample_composition_detailed,sep="\t",header=True)
 
 
-    # call main function
-if __name__ == '__main__':
-    main()
