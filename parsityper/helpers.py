@@ -3,6 +3,19 @@ import pandas as pd
 import logging, os, copy
 from scipy.spatial.distance import cdist
 from parsityper.constants import HTML_TEMPLATE_FILE, LOG_FORMAT, TYPING_SCHEMES
+from parsityper.words import NOUNS, COLORS, DESCRIPTORS
+import random, hashlib
+
+def generate_random_phrase():
+    '''
+    Generates a random phrase for naming kmer profiles
+    '''
+    phrase = []
+    phrase.append(DESCRIPTORS[random.randrange(0, len(DESCRIPTORS) - 1)])
+    phrase.append(COLORS[random.randrange(0, len(COLORS) - 1)])
+    phrase.append(NOUNS[random.randrange(0,len(NOUNS)-1)])
+    return(phrase)
+
 
 def init_console_logger(lvl=2):
     '''
@@ -70,6 +83,11 @@ def filter_biohansel_kmer_df(df,min_freq,min_frac):
     df = df[df['pos_ratio'] > min_freq]
     return df
 
+def calc_md5(string):
+    seq = str(string).encode()
+    md5 = hashlib.md5()
+    md5.update(seq)
+    return md5.hexdigest()
 
 def validate_args(cmd_args,logger):
     '''
