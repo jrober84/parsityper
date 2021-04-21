@@ -291,7 +291,7 @@ def identify_compatible_types(scheme_df,sample_data,min_cov_frac,detection_limit
         if len(include) > 0:
             sample_data[sample]['genotypes']['candidates'] = list(set(include) - set(exclude))
             sample_data[sample]['genotypes']['candidates'].sort()
-            sample_data[sample]['genotypes']['candidates'] = list(set(sample_data[sample]['genotypes']['candidates'] ) & set(informative))
+            #sample_data[sample]['genotypes']['candidates'] = list(set(sample_data[sample]['genotypes']['candidates'] ) & set(informative))
             sample_data[sample]['genotypes']['candidates'].sort()
 
     return sample_data
@@ -407,6 +407,10 @@ def type_occamization(sample_data,scheme_df,min_cov_frac=0.05,min_cov=20):
         candidate_data = sample_data[sample]['genotypes']['candidate_data']
 
         for genotype in genotype_unique_counts:
+            if not genotype in candidate_data:
+                print(simplified_type_set)
+                print(sample_data[sample]['genotypes'])
+                continue
             targets = candidate_data[genotype]['targets']
 
             if len(targets) == 0:
