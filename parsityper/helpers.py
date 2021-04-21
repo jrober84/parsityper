@@ -5,6 +5,7 @@ from scipy.spatial.distance import cdist
 from parsityper.constants import HTML_TEMPLATE_FILE, LOG_FORMAT, TYPING_SCHEMES
 from parsityper.words import NOUNS, COLORS, DESCRIPTORS
 import random, hashlib
+import numpy as np
 
 def generate_random_phrase():
     '''
@@ -117,9 +118,9 @@ def validate_args(cmd_args,logger):
         logger.error("Error specified operating mode is invalid, enter 'single' or 'batch'")
         is_valid = False
 
-    type = cmd_args.mode
+    type = cmd_args.type
     if type != 'single' and type != 'multi':
-        logger.error("Error specified sample type is invalid, enter 'single' or 'multi'")
+        logger.error("Error specified sample type is invalid, enter 'single' or 'multi' you entered {}".format(type))
         is_valid = False
 
     R1 = cmd_args.R1
@@ -223,5 +224,29 @@ def identify_candidate_genotypes_by_dist(sample_profile,genotype_profiles,max_di
             continue
         candidates[samples[i]] = dists[i]
     return candidates
+
+def profile_pairwise_distmatrix(profile_st):
+    '''
+    Computes pairwise jaccard distances between sample profiles
+    '''
+    samples = list(profile_st.keys())
+    num_samples = len(samples)
+    matrix = np.zeros((num_samples, num_samples))
+    for i in range(0,len(samples)):
+        for k in range(i,len(samples)):
+            if len(profile_st[samples[i]]) > 0 or len(profile_st[samples[k]]) >0:
+                jaccard = 1 - (len(list(set(profile_st[samples[i]])  &  set(profile_st[samples[k]]))) / \
+                          len(list(set(profile_st[samples[i]]) | set(profile_st[samples[k]]))))
+            else:
+                jaccard = 1
+
+            matrix[i,k] = jaccard
+            matrix[k, i] = jaccard
+
+
+    return matrix
+
+
+
 
 
