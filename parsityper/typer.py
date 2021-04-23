@@ -665,7 +665,7 @@ def write_sample_summary_report(sample_report,outfile,sample_kmer_data,scheme_km
 
         num_mixed_sites = len(kmer_summary[sample_id]['mixed'])
 
-        if num_mixed_sites > max_mixed_sites:
+        if num_mixed_sites > max_mixed_sites or len(data) > 1:
             sample_type = 'multi'
         else:
             sample_type = 'single'
@@ -810,7 +810,7 @@ def run():
         summary_file = os.path.join(outdir,"{}.sample.bh.summary.txt".format(prefix))
         simple_file = os.path.join(outdir,"{}.sample.bh.simple.txt".format(prefix))
         logger.info("Identifying kmers which are found in input {}".format(data_dir))
-        #bio_hansel.run_biohansel_directory(biohansel_fasta_file, data_dir, kmer_file, summary_file, simple_file, min_cov, nthreads)
+        bio_hansel.run_biohansel_directory(biohansel_fasta_file, data_dir, kmer_file, summary_file, simple_file, min_cov, nthreads)
     elif SE is not None:
         kmer_file = os.path.join(outdir,"{}.sample.bh.kmer.txt".format(prefix))
         summary_file = os.path.join(outdir,"{}.sample.bh.summary.txt".format(prefix))
