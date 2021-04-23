@@ -785,7 +785,7 @@ def run():
         summary_file = os.path.join(outdir,"primers.bh.summary.txt")
         simple_file = os.path.join(outdir,"primers.bh.simple.txt")
         logger.info("Identifying kmers which are found in selected primer set {}".format(primers))
-        bio_hansel.run_biohansel_single(biohansel_fasta_file, primer_file, kmer_file, summary_file, simple_file, min_cov, nthreads)
+        #bio_hansel.run_biohansel_single(biohansel_fasta_file, primer_file, kmer_file, summary_file, simple_file, min_cov, nthreads)
         primer_df = read_tsv(kmer_file)
         primer_kmers = {}
         for kmer in primer_df['kmername'].to_list():
@@ -810,7 +810,7 @@ def run():
         summary_file = os.path.join(outdir,"{}.sample.bh.summary.txt".format(prefix))
         simple_file = os.path.join(outdir,"{}.sample.bh.simple.txt".format(prefix))
         logger.info("Identifying kmers which are found in input {}".format(data_dir))
-        bio_hansel.run_biohansel_directory(biohansel_fasta_file, data_dir, kmer_file, summary_file, simple_file, min_cov, nthreads)
+        #bio_hansel.run_biohansel_directory(biohansel_fasta_file, data_dir, kmer_file, summary_file, simple_file, min_cov, nthreads)
     elif SE is not None:
         kmer_file = os.path.join(outdir,"{}.sample.bh.kmer.txt".format(prefix))
         summary_file = os.path.join(outdir,"{}.sample.bh.summary.txt".format(prefix))
@@ -857,13 +857,20 @@ def run():
     sample_kmer_data = type_occamization(sample_kmer_data,scheme_df)
     sample_kmer_data = calc_type_coverage(sample_kmer_data, scheme_df,recalc=True)
     profile_st = {}
+
+    #get positive kmer signature for each sample
+    kmer_summary = get_detected_target_summary(sample_kmer_data, min_cov, min_cov_frac)
+    for sample_id in kmer_summary:
+        profile_st[sample_id] = kmer_summary[sample_id]['positive']
+
     sample_report = {}
 
+
     for sample in sample_kmer_data:
-        profile_st[sample] = []
         if not sample in sample_report:
             sample_report[sample] = {}
         total_ratio = 0
+        unassigned_positive_kmers = kmer_summary[sample_id]['positive']
 
         for genotype in sample_kmer_data[sample]['genotypes']['candidate_data']:
             data = sample_kmer_data[sample]['genotypes']['candidate_data'][genotype]
@@ -873,7 +880,7 @@ def run():
                 continue
 
             data['targets'].sort()
-            profile_st[sample] = data['targets'] + profile_st[sample]
+            unassigned_positive_kmers = list(set(unassigned_positive_kmers) - set(data['targets']))
             total_ratio += data['average_ratio']
             sample_report[sample][genotype] = {
                 'num_targets':data['num_targets'],
@@ -884,22 +891,29 @@ def run():
                 'ratio_stdev':data['ratio_stdev']
             }
 
+        #Assign kmers not assigned to a genotype to unknown genotype
         unknown_fraq = 1 - total_ratio
-        if unknown_fraq >= min_cov_frac:
-            sample_report[sample]['unknown'] = {
-                'num_targets':0,
-                'targets':[],
-                'average_target_freq':0,
-                'target_freq_stdev':0,
-                'target_freq_stdev':0,
-                'average_ratio':unknown_fraq,
-                'ratio_stdev':0
-            }
+        if len(unassigned_positive_kmers) > 0 and unknown_fraq > min_cov_frac:
+            counts = []
+            ratios = []
+            for kmer_id in unassigned_positive_kmers:
+                if kmer_id in sample_kmer_data[sample]['counts']:
+                    counts.append(sample_kmer_data[sample]['counts'][kmer_id]['positive'])
+                    ratios.append(sample_kmer_data[sample]['ratios'][kmer_id])
 
-    #get positive kmer signature for each sample
-    kmer_summary = get_detected_target_summary(sample_kmer_data, min_cov=20, min_cov_frac=0.05)
-    for sample_id in kmer_summary:
-        profile_st[sample_id] = kmer_summary[sample_id]['positive']
+            ave_count = sum(counts) / len(counts)
+            std_count = statistics.pstdev(counts)
+            ave_ratio = sum(ratios) / len(ratios)
+            std_ratio = statistics.pstdev(counts)
+
+            sample_report[sample]['unknown'] = {
+                'num_targets':len(unassigned_positive_kmers),
+                'targets':unassigned_positive_kmers,
+                'average_target_freq':ave_count,
+                'target_freq_stdev':std_count,
+                'average_ratio':ave_ratio ,
+                'ratio_stdev':std_ratio
+            }
 
 
     write_sample_detailed_report(sample_report, report_sample_composition_detailed,scheme_kmer_target_info)

@@ -10,7 +10,6 @@ PRIMER_SCHEMES = {
     'arctic_v2':os.path.join(default_database_dir,'arctic_v2_primers.txt'),
     'arctic_v3':os.path.join(default_database_dir,'arctic_v3_primers.txt'),
     'freed_v1':os.path.join(default_database_dir,'freed_v1_primers.txt')
-
 }
 
 TYPING_SCHEMES = {
