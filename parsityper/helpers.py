@@ -1,12 +1,16 @@
 from Bio import SeqIO
 import pandas as pd
-import logging, os, copy
+import logging, os, sys, re, collections, operator, math, shutil, datetime
+from collections import Counter
 from scipy.spatial.distance import cdist
 from parsityper.constants import HTML_TEMPLATE_FILE, LOG_FORMAT, TYPING_SCHEMES, RUN_INFO, NEGATE_BASE_IUPAC, IUPAC_LOOK_UP
 from parsityper.words import NOUNS, COLORS, DESCRIPTORS
 import random, hashlib
 import numpy as np
 from datetime import datetime
+from Bio import GenBank
+from Bio import SeqIO
+from Bio.Seq import Seq
 
 def generate_random_phrase():
     '''
@@ -676,7 +680,7 @@ def optimize_kmer(pos,reference_sequence,min_length,max_length,max_ambig=5,min_c
     opt_kmer = [-1,-1]
     rlen = len(reference_sequence)
     start = find_initial_start(pos, reference_sequence, max_length) +1
-
+    istart = start
     for length_target in range(min_length,max_length):
 
         for k in range(start ,pos):
@@ -742,7 +746,11 @@ def optimize_kmer(pos,reference_sequence,min_length,max_length,max_ambig=5,min_c
             if prev_score < score:
                 prev_score = score
                 opt_kmer = [rel_start,rel_end]
-
+    if opt_kmer[0] == -1:
+        if pos < len(reference_sequence) - (pos + min_length):
+            opt_kmer = [istart, pos + min_length]
+        else:
+            opt_kmer = [istart, len(reference_sequence)-1]
     return opt_kmer
 
 
@@ -883,7 +891,6 @@ def find_indel_kmers(input_alignment,indels,consensus_seq,reference_info,ref_nam
 
             variant_pos = []
             variant_neg = []
-
 
             if type == 'ins':
                 for i in range(rel_start,rel_end):

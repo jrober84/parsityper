@@ -25,14 +25,14 @@ def parse_args():
                         help='output directory')
     parser.add_argument('--prefix', type=str, required=False,
                         help='output file prefix',default='parsityper')
-    parser.add_argument('--input_reference_gbk', type=str, required=True,
-                        help='GenBank file of reference sequence to use')
     parser.add_argument('--min_len', type=int, required=False,
                         help='Absolute minimum length of acceptable k-mer',default=17)
     parser.add_argument('--max_len', type=int, required=False,
                         help='Absolute minimum length of acceptable k-mer',default=21)
     parser.add_argument('--max_ambig', type=int, required=False,
                         help='Absolute maximum of degenerate bases allowed in a k-mer',default=4)
+    parser.add_argument('--max_states', type=int, required=False,
+                        help='Absolute maximum of states allowed per kmer',default=256)
     parser.add_argument('--min_complexity', type=int, required=False,
                         help='Absolute maximum of degenerate bases allowed in a k-mer',default=0.2)
 
@@ -45,7 +45,10 @@ def print_scheme(scheme,file):
     :param file: file path
     :return:
     """
-    pd.DataFrame().from_dict(scheme,orient='index').to_csv(file,sep="\t",index=False)
+    df = pd.DataFrame().from_dict(scheme,orient='index')
+    df.reset_index(inplace=True)
+    df['key'] = df.index
+    df.to_csv(file,sep="\t",index=False)
 
 def build_kmer_profiles(scheme):
     '''
@@ -183,6 +186,9 @@ def qa_scheme(scheme,missing_targets, multiplicity_targets,min_len,max_len,max_a
         scheme[kmer_id]['is_unique'] = True
         scheme[kmer_id]['is_detectable'] = True
         scheme[kmer_id]['is_valid'] = True
+
+        if not scheme[kmer_id]['pos_kmer_len'] > min_len or scheme[kmer_id]['neg_kmer_len'] > min_len:
+            scheme[kmer_id]['is_valid'] = False
 
         if not scheme[kmer_id]['pos_complexity_ok']:
             scheme[kmer_id]['is_valid'] = False
@@ -334,11 +340,19 @@ def run():
     max_ambig = cmd_args.max_ambig
     min_complexity = cmd_args.min_complexity
 
+    # initialize analysis directory
+    if not os.path.isdir(outdir):
+        logger.info("Creating analysis results directory {}".format(outdir))
+        os.mkdir(outdir, 0o755)
+    else:
+        logger.info("Results directory {} already exits, will overwrite any results files here".format(outdir))
+
+
     #output files
     scheme_file = os.path.join(outdir,"{}-scheme.txt".format(prefix))
     genotypes_file = os.path.join(outdir,"{}-mutations.txt".format(prefix))
     genotype_dendrogram = os.path.join(outdir, "{}-dendropgram.png".format(prefix))
-    reference_fasta_file = os.path.join(outdir, "{}-{}}.fasta".format(prefix,ref_id))
+    reference_fasta_file = os.path.join(outdir, "{}-{}.fasta".format(prefix,ref_id))
     biohansel_fasta_file = os.path.join(outdir,"{}-biohansel-scheme.fasta".format(prefix))
 
     #Get the Gene features from the reference sequence
@@ -370,22 +384,28 @@ def run():
 
     # write scheme to file to run biohansel on
     logger.info("Writing biohansel compatible kmer scheme to {}".format(biohansel_fasta_file))
-    scheme_df = read_tsv(scheme)
+    scheme_df = read_tsv(scheme_file)
+    scheme_df = scheme_df[scheme_df['is_valid'] == True]
     scheme_to_biohansel_fasta(scheme_df,biohansel_fasta_file )
     scheme_kmer_target_info = init_kmer_targets(scheme_df)
     scheme_kmer_target_keys = list(scheme_kmer_target_info.keys())
     scheme_kmer_target_keys.sort()
+
+    #write reference sequence to fasta
+    seq = input_alignment[ref_id].replace('-','')
+    fh = open(reference_fasta_file,'w')
+    fh.write(">{}\n{}\n".format(ref_id,seq))
+
 
     # run kmer detection on reference sequence
     kmer_file = os.path.join(outdir, "bh.kmer.txt")
     summary_file = os.path.join(outdir, "bh.summary.txt")
     simple_file = os.path.join(outdir, "bh.simple.txt")
     logger.info("Identifying occurance of scheme kmers which are found in the reference {}".format(ref_id))
-    bio_hansel.run_biohansel_single(biohansel_fasta_file, reference_fasta_file, kmer_file, summary_file, simple_file, nthreads=1)
-
+    (stdout,stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, reference_fasta_file, kmer_file, summary_file, simple_file)
     ref_kmer_biohansel_df = read_tsv(kmer_file)
-    missing_targets = list(set(scheme_kmer_target_keys) - set(ref_kmer_biohansel_df['refposition'].values()))
-    target_counts = ref_kmer_biohansel_df.groupby('refposition').value_counts().to_dict()
+    missing_targets = list(set(scheme_kmer_target_keys) - set(ref_kmer_biohansel_df['refposition'].tolist()))
+    target_counts = ref_kmer_biohansel_df['refposition'].value_counts().to_dict()
     multiplicity_targets = []
     for target in target_counts:
         if target_counts[target] > 1:
