@@ -1,6 +1,7 @@
 from subprocess import Popen, PIPE
 class bio_hansel:
     def run_biohansel_directory(scheme_fasta,directory,kmer_file,summary_file,simple_file,min_cov=8,min_frac=0.05,n_threads=1):
+        print(n_threads)
         p = Popen(['hansel',
                    '-s', scheme_fasta,
                    '-D', directory,
@@ -15,11 +16,14 @@ class bio_hansel:
                   stdout=PIPE,
                   stderr=PIPE)
         stdout = str(p.stdout.read())
+        print(stdout)
         stderr = str(p.stderr.read())
+        print(stderr)
 
         return (stdout, stderr)
 
     def run_biohansel_single(scheme_fasta,seq_file,kmer_file,summary_file,simple_file,min_cov=8,min_frac=0.05,n_threads=1):
+        print(n_threads)
         p = Popen(['hansel',
                    '-s', scheme_fasta,
                    '-o',summary_file,
@@ -38,7 +42,7 @@ class bio_hansel:
 
         return (stdout, stderr)
 
-    def run_biohansel_paire(scheme_fasta,fwd,rev,kmer_file,summary_file,simple_file,min_cov=8,min_frac=0.05,n_threads=1):
+    def run_biohansel_pair(scheme_fasta,fwd,rev,kmer_file,summary_file,simple_file,min_cov=8,min_frac=0.05,n_threads=1):
         p = Popen(['hansel',
                    '-s', scheme_fasta,
                    '-o',summary_file,

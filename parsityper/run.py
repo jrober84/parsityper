@@ -5,6 +5,7 @@ import sys
 
 tasks = {
     'typer': 'Reconstruct sample genotype(s) from isolate or metagenomic sample',
+    'creator': 'Create a kmer scheme based on labeled data',
     'test': 'Test parsityper functionality on a small dataset',
     'version': 'Print version and exit',
 }
@@ -12,6 +13,7 @@ tasks = {
 
 ordered_tasks = [
     'typer',
+    'creator',
     'test',
     'version'
 ]

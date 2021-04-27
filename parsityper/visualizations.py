@@ -11,8 +11,9 @@ class dendrogram_visualization:
         Z = linkage(ssd.squareform(matrix), 'single')
         # Plot with Custom leaves
         dendrogram(Z, leaf_font_size=5,orientation="left", labels=sample_ids)
-        plt.tight_layout()
-        plt.savefig(outfile)
+        fig = plt.figure(figsize=(20,80))
+        fig.tight_layout()
+        fig.savefig(outfile)
 
 
 
