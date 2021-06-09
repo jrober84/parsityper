@@ -33,7 +33,7 @@ Usage
 =====
 If you run ``parsityper``, you should see the following usage statement:
 
-.. code-block::
+.. code-block::bash
     Usage: parsityper <command> [options] <required arguments>
 
     To get minimal usage for a command use:
