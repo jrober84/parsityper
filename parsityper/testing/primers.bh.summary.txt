@@ -1,2 +1,0 @@
-sample	scheme	scheme_version	subtype	all_subtypes	kmers_matching_subtype	are_subtypes_consistent	inconsistent_subtypes	n_kmers_matching_all	n_kmers_matching_all_expected	n_kmers_matching_positive	n_kmers_matching_positive_expected	n_kmers_matching_subtype	n_kmers_matching_subtype_expected	file_path	qc_status	qc_message
-primers	testing/SARS-COV-2_kmer_analysis.biohansel.fasta		#N/A			True		198		0		0		/Users/jrobertson/PycharmProjects/sars_cov_2_kmer_typing/sars_cov_2_kmer_typing/testing/primers.fasta	FAIL	No subtype result!

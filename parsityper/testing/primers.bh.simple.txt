@@ -1,2 +1,0 @@
-sample	subtype	qc_status	qc_message
-primers	#N/A	FAIL	No subtype result!
