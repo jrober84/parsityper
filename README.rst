@@ -14,10 +14,7 @@ Dev     |ci-dev|
 
 Introduction
 ============
-Not all biological sample types are true isolates whether that is due to the unculurability of the organism or the analysis
-of complex biological samples such as food matricies or primary clinical samples.
-Occam's razor or law of parsimony — "entities should not be multiplied without necessity"
-
+Not all biological sample types are true isolates whether that is due to the uncultivability of the organism or the analysisof complex biological samples such as food matrices or primary clinical samples. Occam's razor or law of parsimony — "entities should not be multiplied without necessity". Parsityper applies k-mer genotyping schemes to assembled or raw sequence data to find the smallest number of compatible genotypes which explain the provided data. In cases where a k-mer target cannot be assigned to a genotype it will be labelled as “unknown”.
 
 
 Citation
