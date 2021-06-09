@@ -66,10 +66,10 @@ If you run ``parsityper``, you should see the following usage statement:
 
     Available commands:
 
-    typer    Reconstruct sample genotype(s) from isolate or metagenomic sample
-    creator  Create a kmer scheme based on labeled data
-    trainer  Train a kmer scheme on labeled genotype data to derive kmer patterns for genotypes
-    test     Test parsityper functionality on a small dataset
+    typer    Reconstruct sample genotype(s) from isolate or metagenomic sample [alpha]
+    creator  Create a kmer scheme based on labeled data [ alpha]
+    trainer  Train a kmer scheme on labeled genotype data to derive kmer patterns for genotypes [not implemented]
+    test     Test parsityper functionality on a small dataset [ not implemented]
     version  Print version and exit
 
 Legal
