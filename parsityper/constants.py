@@ -28,14 +28,12 @@ RUN_INFO = {
 }
 
 
-
-
-
 PRIMER_SCHEMES = {
     'arctic_v1':os.path.join(default_database_dir,'arctic_v1_primers.txt'),
     'arctic_v2':os.path.join(default_database_dir,'arctic_v2_primers.txt'),
     'arctic_v3':os.path.join(default_database_dir,'arctic_v3_primers.txt'),
-    'freed_v1':os.path.join(default_database_dir,'freed_v1_primers.txt')
+    'freed_v1':os.path.join(default_database_dir,'freed_v1_primers.txt'),
+    'resende_v1':os.path.join(default_database_dir,'resende_v1_primers.txt')
 }
 
 TYPING_SCHEMES = {
@@ -51,6 +49,23 @@ PANGOLIN_KMER_PROFILES = {
 }
 
 HTML_TEMPLATE_FILE = os.path.join(default_database_dir,'report.template.html')
+
+bases_dict = {
+    'A': ['A'],
+    'C': ['C'],
+    'G': ['G'],
+    'T': ['T'],
+    'R': ['A', 'G'],
+    'Y': ['C', 'T'],
+    'S': ['G', 'C'],
+    'W': ['A', 'T'],
+    'K': ['G', 'T'],
+    'M': ['A', 'C'],
+    'B': ['C', 'G', 'T'],
+    'D': ['A', 'G', 'T'],
+    'H': ['A', 'C', 'T'],
+    'V': ['A', 'C', 'G'],
+    'N': ['A', 'C', 'G', 'T'], }
 
 
 IUPAC_LOOK_UP = {
@@ -72,3 +87,14 @@ IUPAC_LOOK_UP = {
     }
 
 NEGATE_BASE_IUPAC = {'A':'B', 'C':'D','G':'H','T':'V'}
+
+
+KMER_DF_HEADERS = [
+    'sample',
+    'kmername',
+    'seq',
+    'freq',
+    'match_index',
+    'is_pos_kmer',
+    'file_path',
+]

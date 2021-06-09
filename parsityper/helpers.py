@@ -1,9 +1,11 @@
 from Bio import SeqIO
 import pandas as pd
-import logging, os, sys, re, collections, operator, math, shutil, datetime
+import logging, os, sys, re, collections, operator, math, shutil, datetime, copy
+from itertools import product
+
 from collections import Counter
 from scipy.spatial.distance import cdist
-from parsityper.constants import HTML_TEMPLATE_FILE, LOG_FORMAT, TYPING_SCHEMES, RUN_INFO, NEGATE_BASE_IUPAC, IUPAC_LOOK_UP
+from parsityper.constants import HTML_TEMPLATE_FILE, LOG_FORMAT, TYPING_SCHEMES, RUN_INFO, NEGATE_BASE_IUPAC, IUPAC_LOOK_UP, bases_dict
 from parsityper.words import NOUNS, COLORS, DESCRIPTORS
 import random, hashlib
 import numpy as np
@@ -11,6 +13,81 @@ from datetime import datetime
 from Bio import GenBank
 from Bio import SeqIO
 from Bio.Seq import Seq
+import glob
+NT_SUB = str.maketrans('acgtrymkswhbvdnxACGTRYMKSWHBVDNX',
+                       'tgcayrkmswdvbhnxTGCAYRKMSWDVBHNX')
+
+
+
+def get_sequence_files(directory):
+    '''
+    Globs a directory and files sequence files
+    :param directory: path
+    :type directory: string
+    :return: list of found files
+    :rtype: list
+    '''
+    files = {'fasta':[],'fastq':[]}
+    file_types = {
+        '.fa':'fasta',
+        '.fas':'fasta',
+        'fasta':'fasta',
+        '.fq': 'fastq',
+        '.fastq': 'fastq',
+    }
+    for name in glob.glob(os.path.join(directory,"*")):
+        for extension in file_types:
+            if extension in name:
+                file_type = file_types[extension]
+                files[file_type].append(name)
+                break
+    return files
+
+
+
+
+def expand_degenerate_bases(seq):
+    """List all possible kmers for a scheme given a degenerate base
+
+    Args:
+         Scheme_kmers from SNV scheme fasta file
+
+    Returns:
+         List of all possible kmers given a degenerate base or not
+    """
+
+    return list(map("".join, product(*map(bases_dict.get, seq))))
+
+
+def revcomp(s):
+    """Reverse complement nucleotide sequence
+
+    Args:
+        s (str): nucleotide sequence
+
+    Returns:
+        str: reverse complement of `s` nucleotide sequence
+    """
+    return s.translate(NT_SUB)[::-1]
+
+def get_expanded_kmer_number(scheme):
+    """Checks that the number of kmers about to be created is not at too high a computation or time cost
+
+    Args:
+         scheme: kmer scheme dict
+
+    """
+    kmer_number = 0
+    for kmer_id in scheme:
+        seqs = [scheme[kmer_id]['positive'],scheme[kmer_id]['negative']]
+        for seq in seqs:
+            value = 1
+            for char in seq:
+                length_key = len(bases_dict[char])
+                value *= length_key
+            kmer_number += value
+    return kmer_number
+
 
 def generate_random_phrase():
     '''
@@ -21,6 +98,35 @@ def generate_random_phrase():
     phrase.append(COLORS[random.randrange(0, len(COLORS) - 1)])
     phrase.append(NOUNS[random.randrange(0,len(NOUNS)-1)])
     return(phrase)
+
+def get_list_item(string,list_len):
+    md5 = hashlib.md5()
+    md5.update(string.encode())
+    v = int(md5.hexdigest(), 16)
+    r = v % list_len
+    if r >= list_len -1:
+        r = list_len -1
+
+    return r
+
+def generate_phase_md5(md5):
+    '''
+    Generates a random phrase for naming kmer profiles
+    '''
+    phrase = []
+    list_len = len(DESCRIPTORS)
+    i = get_list_item(md5, list_len)
+    phrase.append(DESCRIPTORS[i])
+
+    list_len = len(COLORS)
+    i = get_list_item(md5, list_len)
+    phrase.append(COLORS[i])
+
+    list_len = len(NOUNS)
+    i = get_list_item(md5, list_len)
+    phrase.append(NOUNS[i])
+    return(phrase)
+
 
 
 def init_console_logger(lvl=2):
@@ -173,9 +279,9 @@ def init_kmer_targets(scheme_df):
     :return: dict of kmer targets
     '''
     targets = {}
-    fields = list(set(scheme_df.columns.tolist()) - set(['key']))
+    fields = list(set(scheme_df.columns.tolist()) )
     for row in scheme_df.itertuples():
-        key = row.key
+        key = str(row.key)
         if not key in targets:
             targets[key] = {}
         for field in fields:
@@ -239,7 +345,9 @@ def profile_pairwise_distmatrix(profile_st):
     matrix = np.zeros((num_samples, num_samples))
     for i in range(0,len(samples)):
         for k in range(i,len(samples)):
-            if len(profile_st[samples[i]]) > 0 or len(profile_st[samples[k]]) >0:
+            if i == k:
+                jaccard = 0
+            elif len(profile_st[samples[i]]) > 0 or len(profile_st[samples[k]]) >0:
                 jaccard = 1 - (len(list(set(profile_st[samples[i]])  &  set(profile_st[samples[k]]))) / \
                           len(list(set(profile_st[samples[i]]) | set(profile_st[samples[k]]))))
             else:
@@ -247,7 +355,6 @@ def profile_pairwise_distmatrix(profile_st):
 
             matrix[i,k] = jaccard
             matrix[k, i] = jaccard
-
 
     return matrix
 
@@ -378,15 +485,10 @@ def get_aa_delta(start, end, variant, ref_info,ref_name,trans_table=1):
             if cds_start  >= s and cds_end  <= e:
 
                 gene = feat['gene_name']
-                #print(gene)
-                #print("gene start {} cds start {}".format(gene_start,cds_start))
                 cds_start -= gene_start
-                #print("gene start {} cds start {}".format(gene_start, cds_start))
                 r = int(cds_start % 3)
-                #print("gene start {} cds start {} R {}".format(gene_start, cds_start,r))
                 cds_start -= r
                 spacer = r
-                #print("gene start {} cds start {} R {}".format(gene_start, cds_start, r))
                 vlen += r
                 r = vlen % 3
                 num_codons = int((vlen - r) / 3)
@@ -397,16 +499,10 @@ def get_aa_delta(start, end, variant, ref_info,ref_name,trans_table=1):
                 num_codons = int((cds_end - cds_start ) / 3)
                 is_cds = True
                 found = True
-               # print("R {} {}...........{}   {}".format(r,length,s,e))
-                #print("{}...{}..{}".format(cds_start,cds_end,num_codons))
-                #print("{}".format(dna_seq[cds_start-10:cds_end+10]))
                 ref_target = list(dna_seq[cds_start:cds_end])
                 alt_target = list(dna_seq[cds_start:cds_end])
                 aa_start = int(cds_start / 3)
                 aa_end = aa_start + num_codons - 1
-                #print("{}.....{}".format(aa_start,aa_end))
-
-
                 break
         if found:
             break
@@ -675,20 +771,25 @@ def optimize_kmer(pos,reference_sequence,min_length,max_length,max_ambig=5,min_c
     :param min_complexity: float maximum percentage composition of one 2-mer
     :return:
     """
-
     prev_score = 0
     opt_kmer = [-1,-1]
     rlen = len(reference_sequence)
     start = find_initial_start(pos, reference_sequence, max_length) +1
+
+    #set fall back kmer
     istart = start
+    iend = pos + min_length
+
+    if iend > rlen:
+        iend = rlen - 1
+    if istart < 0:
+        istart = 0
+
     for length_target in range(min_length,max_length):
-
         for k in range(start ,pos):
-
             s = pos - k
             if s > length_target :
                 continue
-            valid = True
             rel_start = k
             nt_count = 0
             rel_end = k
@@ -708,7 +809,6 @@ def optimize_kmer(pos,reference_sequence,min_length,max_length,max_ambig=5,min_c
             kmer = reference_sequence[rel_start:rel_end].replace('-','')
             klen = len(kmer)
 
-
             if klen > max_length :
                 continue
 
@@ -720,8 +820,6 @@ def optimize_kmer(pos,reference_sequence,min_length,max_length,max_ambig=5,min_c
                 if b in mers:
                     nt_count+=mers[b]
             count_ambig = klen - nt_count
-            if count_ambig > max_ambig:
-                valid = False
 
             #determine the complexity of the sequence and remove kmers composed heavily of the same 2-mer
             mers = count_kmers(kmer, K=2)
@@ -729,46 +827,115 @@ def optimize_kmer(pos,reference_sequence,min_length,max_length,max_ambig=5,min_c
             mer_perc = []
 
             for m in mers:
-                if mers[m]/num_mers > min_complexity:
-                    valid = False
-                    break
                 mer_perc.append(mers[m]/num_mers )
 
-            if not valid:
-                continue
-
-            minimum = min(mer_perc)
-            if max_ambig > 0:
-                score = 5*(1 - ((nt_count+count_ambig)/max_length)) + (1 - minimum) + (1 - count_ambig/max_ambig)
+            if len(mer_perc) > 0:
+                minimum = min(mer_perc)
             else:
-                score = 5*(1 - ((nt_count+count_ambig)/max_length)) + (1 - minimum) + 1
+                minimum = 1
+            score = (1 - ((nt_count+count_ambig)/max_length)) + (1 - minimum) + count_ambig/max_length
 
             if prev_score < score:
                 prev_score = score
                 opt_kmer = [rel_start,rel_end]
     if opt_kmer[0] == -1:
-        if pos < len(reference_sequence) - (pos + min_length):
-            opt_kmer = [istart, pos + min_length]
-        else:
-            opt_kmer = [istart, len(reference_sequence)-1]
+        opt_kmer = [istart, iend]
+    kmer = reference_sequence[opt_kmer[0]:opt_kmer[1]].replace('-', '')
+    if len(kmer) < min_length or len(kmer) > max_length:
+        opt_kmer = [istart, iend]
+
     return opt_kmer
 
 
 
-def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig):
+def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_complexity=0.6):
     scheme = {}
     anything_but_bases = NEGATE_BASE_IUPAC
+    ref_len = len(input_alignment[ref_name])
     ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_name])
+    start_positions = []
+    used_kmer_positions = []
+
     # Add snps into the kmer scheme
     for pos in snp_positions:
-        (start,end) = optimize_kmer(pos, consensus_seq, min_len, max_len, max_ambig, min_complexity=0.6)
-        if start == -1 or end == -1:
-            continue
+        #is_used = False
+        (start,end) = optimize_kmer(pos, consensus_seq, min_len, max_len, max_ambig, min_complexity)
+        #for s,e in used_kmer_positions:
+        #    if s == start and e == end:
+        #        is_used = True
+
+        #no_gap_start_base = ref_non_gap_lookup[start]
+        #no_gap_start_pos = start
+        #i = start
+        #while no_gap_start_base == -1:
+        #    i -= 1
+        #    no_gap_start_base = ref_non_gap_lookup[i]
+        #    no_gap_start_pos = i
+
+        #is_end_used = True
+        #is_start_used = True
+
+        #BH does not allow the same start position for a kmer  so need to unique it
+        #while no_gap_start_pos in start_positions and start < pos and is_used:
+        #    delta = False
+        #    if is_start_used or not delta:
+        #        start += 1
+        #        delta = True
+        #    if is_end_used or not delta:
+        #        end += 1
+        #        delta = True
+        #    no_gap_start_pos = ref_non_gap_lookup[start]
+        #    no_gap_start_base = ref_non_gap_lookup[start]
+        #    i = start
+         #   while no_gap_start_base == -1:
+         #       no_gap_start_base = ref_non_gap_lookup[i]
+         #       no_gap_start_pos = no_gap_start_base
+         #       i -= 1
+
+          #  is_used == False
+           # is_end_used = False
+           # is_start_used = False
+
+            #for s, e in used_kmer_positions:
+            #    if s == start and e == end:
+            #        is_used = True
+            #        if e == end:
+            #            is_end_used = True
+            #        if s == start:
+            #            is_start_used = True
+
+        if start < 0:
+            start = 0
+
+        #i = start
+        #no_gap_start_base = ref_non_gap_lookup[i]
+        #while no_gap_start_base == -1:
+        #    no_gap_start_base = ref_non_gap_lookup[i]
+        #    i -= 1
+        #if end >= ref_len:
+        #    end = ref_len -1
+        #i = end
+        #no_gap_end_base = ref_non_gap_lookup[i]
+        #while no_gap_end_base == -1 and i > 0:
+        #    no_gap_start_base = ref_non_gap_lookup[i]
+        #    i -= 1
+        #if abs(no_gap_start_base - no_gap_end_base) < min_len:
+        #    (start, end) = optimize_kmer(pos, consensus_seq, min_len, max_len, max_ambig, min_complexity)
+        #    i = start
+        #    no_gap_start_base = ref_non_gap_lookup[i]
+        #    while no_gap_start_base == -1:
+        #        no_gap_start_base = ref_non_gap_lookup[i]
+        #        no_gap_start_pos = no_gap_start_base
+        #        i -= 1
+
+        #start_positions.append(no_gap_start_pos)
+        #used_kmer_positions.append([start,end])
 
         rel_start = start
         rel_end = end + 1
         bases = consensus_bases[pos]
 
+        #remove any cases of variable site where it is a IUPAC character as the delta
         snps = []
         for base in bases:
             if base in ['A', 'T', 'C', 'G']:
@@ -779,8 +946,35 @@ def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,r
         if count_states == 1:
             continue
 
-        rel_pos = pos - rel_start
-        for base in snps:
+        for i in range(0, len(snps)):
+            base = snps[i]
+            if i > 0:
+                is_used = False
+                is_end_used = False
+                is_start_used = False
+                #for s, e in used_kmer_positions:
+                #    if s == rel_start and e == rel_end:
+                #        is_used = True
+
+                while is_used:
+                    is_used = False
+                    for s, e in used_kmer_positions:
+                        if s == rel_start and e == rel_end:
+                            is_used = True
+                            if e == rel_end:
+                                rel_end += 1
+                            if s == rel_start:
+                                rel_start += 1
+                            break
+                    if rel_start > pos or rel_end > ref_len:
+                        break
+
+                if rel_start > pos or rel_end > ref_len:
+                    rel_start = start
+                    rel_end = end + 1
+
+
+            rel_pos = pos - rel_start
             pos_kmer = list(consensus_seq[rel_start:rel_end])
             pos_kmer[rel_pos] = base
             neg_kmer = list(consensus_seq[rel_start:rel_end])
@@ -791,10 +985,11 @@ def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,r
 
             non_gap_pos = ref_non_gap_lookup[pos]
             while non_gap_pos == -1:
+
                 pos -= 1
                 non_gap_pos = ref_non_gap_lookup[pos]
 
-            #non_gap_pos+=1
+
             kmer_name = "{}{}{}".format(base, non_gap_pos, ref_base)
             aa_info = get_aa_delta(non_gap_pos, non_gap_pos, base, reference_info,ref_name,trans_table=1)
 
@@ -828,6 +1023,8 @@ def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,r
                 'partial_positive_seqs': [],
 
             }
+            #print("{}\t{}\t{}\t{}\t{}\t{}".format(start, end, pos, rel_start, rel_end, rel_pos))
+
             seq_bases = get_kmers(pos, pos + 1, input_alignment)
             for seq_id in seq_bases:
                 if seq_bases[seq_id] == base:
@@ -899,7 +1096,6 @@ def find_indel_kmers(input_alignment,indels,consensus_seq,reference_info,ref_nam
                     variant_neg.append('-')
                     variant_pos.append(pos_kmer[i])
 
-
             if type == 'del':
                 for i in range(rel_start,rel_end):
 
@@ -925,6 +1121,9 @@ def find_indel_kmers(input_alignment,indels,consensus_seq,reference_info,ref_nam
                         end = start + i
                     if diff and i >= max_len:
                         break
+                if (end - start) < min_len:
+                    end = start + min_len
+                    i = min_len
 
             neg_kmer = neg_kmer[0:i+1]
             pos_kmer = pos_kmer[0:i+1]
@@ -933,11 +1132,13 @@ def find_indel_kmers(input_alignment,indels,consensus_seq,reference_info,ref_nam
                 #Trim any degenerate sites at the end of the sequence as long as that isn't a difference
                 if neg_kmer[0] == pos_kmer[0]:
                     if neg_kmer[0] not in ['A','T','C','G']:
+                        start-=1
                         neg_kmer = neg_kmer[1:len(neg_kmer)]
                         pos_kmer = pos_kmer[1:len(neg_kmer)]
                 if len(neg_kmer) == len(pos_kmer):
                     if neg_kmer[len(neg_kmer)-1] == pos_kmer[len(pos_kmer)-1]:
                         if neg_kmer[len(neg_kmer)-1] not in ['A','T','C','G']:
+                            end -=1
                             neg_kmer = neg_kmer[0:len(neg_kmer)-1]
                             pos_kmer = pos_kmer[0:len(pos_kmer)-1]
 
@@ -1017,3 +1218,102 @@ def get_kmer_complexity(kmer,K=2):
         return {'average':0,'min':0,'max':0}
     else:
         return {'average': sum(mer_perc)/len(mer_perc), 'min': min(mer_perc), 'max': max(mer_perc)}
+
+
+def get_kmer_groups(scheme):
+    groups = {}
+    for kmer_id in scheme:
+        group = scheme[kmer_id]['group_id']
+        if not group in groups:
+            groups[group] = []
+        groups[group].append(str(scheme[kmer_id]['key']))
+    return groups
+
+def get_kmer_group_mapping(scheme):
+    groups = {}
+    for kmer_id in scheme:
+        group = scheme[kmer_id]['group_id']
+        groups[str(scheme[kmer_id]['key'])] = group
+    return groups
+
+def add_key(scheme):
+    i = 0
+    for kmer_id in scheme:
+        scheme[kmer_id]['key'] = i
+        i+=1
+    return scheme
+
+def is_seq_in(target,query):
+    len_target = len(target)
+    if len_target != len(query):
+        return False
+    for i in range(0,len(query)):
+
+        baseT = bases_dict[target[i]]
+        baseQ = bases_dict[query[i]]
+        intersect = list(set(baseT) & set(baseQ))
+        if len(intersect) == 0:
+            return False
+
+    return True
+
+
+
+def process_biohansel_kmer(scheme_kmer_groups,scheme_target_to_group_mapping,scheme,kmer_df,min_cov=20):
+    data = {}
+    columns = kmer_df.columns
+    if not 'seq' in columns:
+        return data
+    for row in kmer_df.itertuples():
+        seq = row.seq
+        target_id = str(row.refposition)
+        is_pos_kmer = row.is_pos_kmer
+        sample = row.sample
+        if 'freq' in columns:
+            freq = row.freq
+        else:
+            freq = min_cov
+        if not sample in data:
+            data[sample] = {
+            }
+        if not target_id in data[sample]:
+            data[sample][target_id] = {}
+
+        if not seq in data[sample][target_id]:
+            data[sample][target_id][seq] = {
+                'freq': freq,
+                'is_pos_kmer': is_pos_kmer
+            }
+        else:
+            data[sample][target_id][seq]['freq']+= freq
+
+        if target_id in scheme_target_to_group_mapping:
+            group_id = scheme_target_to_group_mapping[target_id]
+            if group_id in scheme_kmer_groups:
+                members = scheme_kmer_groups[group_id]
+                if len(members) == 1:
+                    continue
+                for member in members:
+                    if target_id == member:
+                        continue
+                    positive = scheme[member]['positive']
+                    negative = scheme[member]['negative']
+                    is_present = False
+                    if is_seq_in(seq, positive):
+                        is_present = True
+                        is_pos_kmer = True
+                    elif is_seq_in(seq, negative):
+                        is_present = True
+                        is_pos_kmer = False
+                    if is_present:
+                        if not member in data[sample]:
+                            data[sample][member] = {}
+
+                        if not seq in data[sample][member]:
+                            data[sample][member][seq] = {
+                                'freq': freq,
+                                'is_pos_kmer': is_pos_kmer
+                            }
+                        else:
+                            data[sample][member][seq]['freq'] += freq
+    return data

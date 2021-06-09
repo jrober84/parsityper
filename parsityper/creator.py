@@ -5,10 +5,12 @@ from collections import Counter
 import pandas as pd
 from parsityper.helpers import init_console_logger, read_tsv, parse_reference_sequence, read_fasta, calc_consensus, generate_consensus_seq,\
 find_snp_positions, find_snp_kmers, find_indel_kmers, find_internal_gaps, scheme_to_biohansel_fasta, init_kmer_targets, count_kmers, count_ambig, \
-get_kmer_complexity, calc_md5
+get_kmer_complexity, calc_md5, get_expanded_kmer_number, get_kmer_groups, get_kmer_group_mapping, add_key, generate_phase_md5
 from parsityper.bio_hansel import bio_hansel
-from parsityper.helpers import  profile_pairwise_distmatrix
+from parsityper.helpers import  profile_pairwise_distmatrix, expand_degenerate_bases, revcomp
 from parsityper.visualizations import dendrogram_visualization
+
+
 
 def parse_args():
     "Parse the input arguments, use '-h' for help"
@@ -26,15 +28,15 @@ def parse_args():
     parser.add_argument('--prefix', type=str, required=False,
                         help='output file prefix',default='parsityper')
     parser.add_argument('--min_len', type=int, required=False,
-                        help='Absolute minimum length of acceptable k-mer',default=17)
+                        help='Absolute minimum length of acceptable k-mer',default=15)
     parser.add_argument('--max_len', type=int, required=False,
                         help='Absolute minimum length of acceptable k-mer',default=21)
     parser.add_argument('--max_ambig', type=int, required=False,
-                        help='Absolute maximum of degenerate bases allowed in a k-mer',default=4)
+                        help='Absolute maximum of degenerate bases allowed in a k-mer',default=10)
     parser.add_argument('--max_states', type=int, required=False,
                         help='Absolute maximum of states allowed per kmer',default=256)
     parser.add_argument('--min_complexity', type=int, required=False,
-                        help='Absolute maximum of degenerate bases allowed in a k-mer',default=0.2)
+                        help='Absolute maximum of dimer composition',default=0.6)
 
     return parser.parse_args()
 
@@ -46,8 +48,6 @@ def print_scheme(scheme,file):
     :return:
     """
     df = pd.DataFrame().from_dict(scheme,orient='index')
-    df.reset_index(inplace=True)
-    df['key'] = df.index
     df.to_csv(file,sep="\t",index=False)
 
 def build_kmer_profiles(scheme):
@@ -67,6 +67,13 @@ def build_kmer_profiles(scheme):
     return profiles
 
 def get_genotype_mapping(metadata_df):
+    '''
+
+    :param metadata_df:
+    :type metadata_df:
+    :return:
+    :rtype:
+    '''
     mapping = {}
     for row in metadata_df.itertuples():
         sample_id = row.sample_id
@@ -75,10 +82,28 @@ def get_genotype_mapping(metadata_df):
     return mapping
 
 
+def build_kmer_groups(scheme):
+    '''
+
+    :param scheme:
+    :type scheme:
+    :return:
+    :rtype:
+    '''
+    kmer_ids = list(scheme.keys())
+    num_ids = len(kmer_ids)
+    for i in range(0,num_ids):
+        kmer_id = kmer_ids[i]
+        start = scheme[kmer_id]['kmer_start']
+        end = scheme[kmer_id]['kmer_end']
+        key = "{}:{}".format(start,end)
+        scheme[kmer_id]['group_id'] = key
+
+    return scheme
+
 
 def qa_scheme(scheme,missing_targets, multiplicity_targets,min_len,max_len,max_ambig,min_complexity):
     '''
-
     :param scheme:
     :type scheme:
     :param missing_targets:
@@ -102,58 +127,13 @@ def qa_scheme(scheme,missing_targets, multiplicity_targets,min_len,max_len,max_a
         neg_kmer = scheme[kmer_id]['negative'].replace('-','')
         pos_kmer_len = len(pos_kmer)
         scheme[kmer_id]['pos_kmer_len'] = pos_kmer_len
-        scheme[kmer_id]['pos_kmer_len'] = pos_kmer_len >= min_len and pos_kmer_len <= max_len
+        scheme[kmer_id]['is_pos_kmer_len_ok'] = pos_kmer_len >= min_len and pos_kmer_len <= max_len
         neg_kmer_len = len(neg_kmer)
         scheme[kmer_id]['neg_kmer_len'] = neg_kmer_len
-        scheme[kmer_id]['neg_kmer_len'] = neg_kmer_len >= min_len and neg_kmer_len <= max_len
+        scheme[kmer_id]['is_neg_kmer_len_ok'] = neg_kmer_len >= min_len and neg_kmer_len <= max_len
         bases = ['A','T','C','G']
         pos_kmer = list(scheme[kmer_id]['positive'])
         neg_kmer = list(scheme[kmer_id]['negative'])
-
-        #remove degenerate bases which are common and at the begining or end
-        for i in range(0,pos_kmer_len):
-            pbase = pos_kmer[i]
-            nbase = neg_kmer[i]
-
-            if pbase != nbase or \
-                   pbase in bases or \
-                    nbase in bases:
-                break
-            if len(''.join(pos_kmer).replace('-','')) <= min_len or len(''.join(neg_kmer).replace('-','')) <= min_len :
-                break
-
-            scheme[kmer_id]['kmer_start']-=1
-            pos_kmer[i] = '-'
-            neg_kmer[i] = '-'
-
-        for i in range(pos_kmer_len-1,0):
-            pbase = pos_kmer[i]
-            nbase = neg_kmer[i]
-
-            if pbase != nbase or \
-                   pbase in bases or \
-                    nbase in bases:
-                break
-            if len(''.join(pos_kmer).replace('-','')) <= min_len or len(''.join(neg_kmer).replace('-','')) <= min_len :
-                break
-            scheme[kmer_id]['kmer_end'] -= 1
-            pos_kmer[i] = '-'
-            neg_kmer[i] = '-'
-
-        if not scheme[kmer_id]['kmer_start'] in kmer_start:
-            kmer_start.append(scheme[kmer_id]['kmer_start'])
-        else :
-            i = 0
-            while scheme[kmer_id]['kmer_start'] in kmer_start:
-                if pos_kmer_len < min_len or pos_kmer[i] != neg_kmer[i]:
-                    break
-                scheme[kmer_id]['kmer_start'] -= 1
-                pos_kmer[i] = '-'
-                neg_kmer[i] = '-'
-                pos_kmer_len = len(''.join(pos_kmer).replace('-', ''))
-                i+=1
-            kmer_start.append(scheme[kmer_id]['kmer_start'])
-
 
         pos_kmer = ''.join(pos_kmer).replace('-','')
         neg_kmer = ''.join(neg_kmer).replace('-','')
@@ -183,61 +163,94 @@ def qa_scheme(scheme,missing_targets, multiplicity_targets,min_len,max_len,max_a
         scheme[kmer_id]['pos_complexity_ok'] = pos_complexity['average'] <= min_complexity
         scheme[kmer_id]['neg_complexity'] = neg_complexity['average']
         scheme[kmer_id]['neg_complexity_ok'] = neg_complexity['average'] <= min_complexity
-        scheme[kmer_id]['is_unique'] = True
-        scheme[kmer_id]['is_detectable'] = True
-        scheme[kmer_id]['is_valid'] = True
+        if not 'is_unique' in scheme[kmer_id]:
+            scheme[kmer_id]['is_unique'] = True
+        if not 'is_detectable' in scheme[kmer_id]:
+            scheme[kmer_id]['is_detectable'] = True
+        if not 'is_valid' in scheme[kmer_id]:
+            scheme[kmer_id]['is_valid'] = True
 
-        if not scheme[kmer_id]['pos_kmer_len'] > min_len or scheme[kmer_id]['neg_kmer_len'] > min_len:
+        if (pos_kmer_len < min_len or neg_kmer_len < min_len) or (pos_kmer_len > max_len or neg_kmer_len > max_len):
             scheme[kmer_id]['is_valid'] = False
-
-        if not scheme[kmer_id]['pos_complexity_ok']:
+        if not scheme[kmer_id]['pos_complexity_ok'] and scheme[kmer_id]['is_valid']:
             scheme[kmer_id]['is_valid'] = False
-        if not scheme[kmer_id]['neg_complexity_ok']:
+        if not scheme[kmer_id]['neg_complexity_ok'] and scheme[kmer_id]['is_valid']:
             scheme[kmer_id]['is_valid'] = False
-        if not scheme[kmer_id]['pos_ambig_count_ok']:
+        if not scheme[kmer_id]['pos_ambig_count_ok'] and scheme[kmer_id]['is_valid']:
             scheme[kmer_id]['is_valid'] = False
-        if not scheme[kmer_id]['neg_ambig_count_ok']:
+        if not scheme[kmer_id]['neg_ambig_count_ok'] and scheme[kmer_id]['is_valid']:
             scheme[kmer_id]['is_valid'] = False
-
-        if kmer_id in multiplicity_targets:
+        key = str(scheme[kmer_id]['key'])
+        #print(multiplicity_targets)
+        if key in multiplicity_targets:
             scheme[kmer_id]['is_unique'] = False
             scheme[kmer_id]['is_valid'] = False
-        if kmer_id in missing_targets:
+        #print(missing_targets)
+        if key in missing_targets:
             scheme[kmer_id]['is_detectable'] = False
             scheme[kmer_id]['is_valid'] = False
-
     return scheme
 
-def identify_shared_kmer(genotype_mapping,kmer_profile,thresh=0.95):
+def identify_shared_kmer(genotype_mapping,kmer_profile,min_thresh=0.5,max_thresh=1):
+    '''
+
+    :param genotype_mapping:
+    :type genotype_mapping:
+    :param kmer_profile:
+    :type kmer_profile:
+    :param min_thresh:
+    :type min_thresh:
+    :param max_thresh:
+    :type max_thresh:
+    :return:
+    :rtype:
+    '''
     genotype_kmer_pool = {}
     genotype_counts = {}
     for sample_id in kmer_profile:
-        genotype = genotype_mapping[sample_id]
+        if sample_id in genotype_mapping:
+            genotype = genotype_mapping[sample_id]
+        else:
+            genotype = sample_id
         if not genotype in genotype_kmer_pool:
             genotype_kmer_pool[genotype] = {}
             genotype_counts[genotype] = 0
         genotype_counts[genotype]+=1
         for kmer_id in kmer_profile[sample_id]:
             if kmer_id not in genotype_kmer_pool[genotype]:
-                genotype_kmer_pool[genotype] = 0
+                genotype_kmer_pool[genotype][kmer_id] = 0
+            genotype_kmer_pool[genotype][kmer_id]+=1
 
     shared_kmers = {}
+
     for genotype in genotype_kmer_pool:
         count = genotype_counts[genotype]
         for kmer_id in genotype_kmer_pool[genotype]:
             value = genotype_kmer_pool[genotype][kmer_id] / count
-            if value > thresh:
+            if value >= min_thresh and value <= max_thresh:
                 if not genotype in shared_kmers:
                     shared_kmers[genotype] = []
                 shared_kmers[genotype].append(kmer_id)
+            #else:
+            #    print("{}\t{}\t{}\t{}\t{}".format(genotype,kmer_id,count,genotype_kmer_pool[genotype][kmer_id],value))
 
     return shared_kmers
 
 def identify_diagnostic_kmer(genotype_mapping,kmer_profile,thresh=0.95):
+    '''
+
+    :param genotype_mapping:
+    :type genotype_mapping:
+    :param kmer_profile:
+    :type kmer_profile:
+    :param thresh:
+    :type thresh:
+    :return:
+    :rtype:
+    '''
     shared_kmers = identify_shared_kmer(genotype_mapping,kmer_profile,thresh)
     diagnostic_kmers = {}
     genotype_kmer_pool = {}
-    report = {}
     for sample_id in kmer_profile:
         genotype = genotype_mapping[sample_id]
         if not genotype in genotype_kmer_pool:
@@ -249,12 +262,25 @@ def identify_diagnostic_kmer(genotype_mapping,kmer_profile,thresh=0.95):
         kmers = set(shared_kmers[genotype_1])
         for genotype_2 in genotype_kmer_pool:
             if genotype_1 != genotype_2:
-                kmers = kmers - genotype_kmer_pool[genotype_2]
+                kmers = list(set(kmers) - set(genotype_kmer_pool[genotype_2]))
         diagnostic_kmers[genotype_1] = kmers
 
     return diagnostic_kmers
 
 def qa_genotypes(genotype_mapping,kmer_profile,shared_kmers,diagnostic_kmers):
+    '''
+
+    :param genotype_mapping:
+    :type genotype_mapping:
+    :param kmer_profile:
+    :type kmer_profile:
+    :param shared_kmers:
+    :type shared_kmers:
+    :param diagnostic_kmers:
+    :type diagnostic_kmers:
+    :return:
+    :rtype:
+    '''
     report = {}
     unique_profiles_samples = {}
     unique_profiles_genotypes = {}
@@ -285,9 +311,9 @@ def qa_genotypes(genotype_mapping,kmer_profile,shared_kmers,diagnostic_kmers):
             report[genotype]['num_shared_kmers'] = len(shared_kmers[genotype])
             report[genotype]['shared_kmers'] = ', '.join(shared_kmers[genotype])
 
-        if genotype in shared_kmers:
-            report[genotype]['num_shared_kmers'] = len(diagnostic_kmers[genotype])
-            report[genotype]['shared_kmers'] = ', '.join(diagnostic_kmers[genotype])
+        if genotype in diagnostic_kmers:
+            report[genotype]['num_diagnostic_kmers'] = len(diagnostic_kmers[genotype])
+            report[genotype]['diagnostic_kmers'] = ', '.join(diagnostic_kmers[genotype])
 
     genotype_conflict_counts = {}
     problem_profiles = {}
@@ -320,8 +346,35 @@ def qa_genotypes(genotype_mapping,kmer_profile,shared_kmers,diagnostic_kmers):
             qc_message.append( 'WARNING: No diagnostic kmers' )
         if report[genotype]['num_conflicting_profiles'] > 0:
             qc_message.append( 'WARNING: Genotype involved in conflicts' )
+        report[genotype]['qc_message'] = '; '.join(qc_message)
+    return report
 
-    return '; '.join(qc_message )
+def convert_seqs_to_genotypes(scheme,genotype_mapping,column_name):
+    '''
+    :param scheme:
+    :type scheme:
+    :param genotype_mapping:
+    :type genotype_mapping:
+    :param column_name:
+    :type column_name:
+    :return:
+    :rtype:
+    '''
+    for kmer_id in scheme:
+        if column_name not in scheme[kmer_id]:
+            continue
+        if not type(scheme[kmer_id][column_name]) is list:
+            scheme[kmer_id][column_name] = list(scheme[kmer_id][column_name])
+        temp = []
+        for sample in scheme[kmer_id][column_name]:
+            if sample in genotype_mapping:
+                temp.append(genotype_mapping[sample])
+            else:
+                temp.append(sample)
+        scheme[kmer_id][column_name] = ','.join(list(set(temp)))
+    return scheme
+
+
 
 def run():
     #get arguments
@@ -363,6 +416,11 @@ def run():
     consensus_bases = calc_consensus(input_alignment)
     consensus_seq = generate_consensus_seq(consensus_bases)
 
+    #read the metadata associations
+    metadata_df = read_tsv(input_meta)
+    genotype_mapping = get_genotype_mapping(metadata_df)
+
+
     #Identify variable positions within the alignment
     snp_positions = find_snp_positions(consensus_seq)
 
@@ -375,9 +433,11 @@ def run():
                             min_len=min_len,max_len=max_len,max_ambig=max_ambig)
     scheme.update(find_indel_kmers(input_alignment, sequence_deletions, consensus_seq, ref_features, ref_id, \
                             min_len=min_len,max_len=max_len,max_ambig=max_ambig))
-
+    print_scheme(add_key(scheme), scheme_file)
+    scheme = build_kmer_groups(scheme)
     #Identify problems with selected kmers so that the user can filter them
     scheme = qa_scheme(scheme,missing_targets=[], multiplicity_targets=[], min_len=min_len,max_len=max_len,max_ambig=max_ambig,min_complexity=min_complexity)
+
 
     #write the initial scheme to a file
     print_scheme(scheme, scheme_file)
@@ -386,10 +446,16 @@ def run():
     logger.info("Writing biohansel compatible kmer scheme to {}".format(biohansel_fasta_file))
     scheme_df = read_tsv(scheme_file)
     scheme_df = scheme_df[scheme_df['is_valid'] == True]
+    scheme_df['key'] = scheme_df['key'].astype(str)
     scheme_to_biohansel_fasta(scheme_df,biohansel_fasta_file )
     scheme_kmer_target_info = init_kmer_targets(scheme_df)
     scheme_kmer_target_keys = list(scheme_kmer_target_info.keys())
     scheme_kmer_target_keys.sort()
+
+    #get number of kmer states in scheme
+    count_exp_kmers = get_expanded_kmer_number(scheme)
+    logger.info("Expected number of expanded kmers in this scheme is {}".format(count_exp_kmers))
+
 
     #write reference sequence to fasta
     seq = input_alignment[ref_id].replace('-','')
@@ -402,43 +468,100 @@ def run():
     summary_file = os.path.join(outdir, "bh.summary.txt")
     simple_file = os.path.join(outdir, "bh.simple.txt")
     logger.info("Identifying occurance of scheme kmers which are found in the reference {}".format(ref_id))
-    (stdout,stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, reference_fasta_file, kmer_file, summary_file, simple_file)
+    (stdout,stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, [reference_fasta_file], kmer_file, summary_file, simple_file,max_degenerate_kmers=count_exp_kmers*2)
+
     ref_kmer_biohansel_df = read_tsv(kmer_file)
-    missing_targets = list(set(scheme_kmer_target_keys) - set(ref_kmer_biohansel_df['refposition'].tolist()))
+    scheme_kmer_target_keys = range(0,len(scheme.keys()))
+
+    #needed for kmer seq collisions where same position is represented by multiple kmers
+    ref_kmer_biohansel_df['refposition'] = ref_kmer_biohansel_df['refposition'].astype(str)
+    found_kmer_targets = list(set(ref_kmer_biohansel_df['refposition'].tolist()))
+    kmer_groups = get_kmer_groups(scheme)
+    kmer_group_mapping = get_kmer_group_mapping(scheme)
+    temp = []
+    for i in range(0,len(found_kmer_targets)):
+        kmer_id = found_kmer_targets[i]
+        if kmer_id in kmer_group_mapping:
+            group_id = kmer_group_mapping[kmer_id]
+            if group_id in kmer_groups:
+                temp.extend(kmer_groups[group_id])
+
+    found_kmer_targets = list(set(temp))
+    #missing_targets = list(set(scheme_kmer_target_keys) - set(found_kmer_targets))
+    missing_targets = list(set(scheme_df[scheme_df['is_valid']]['key'].tolist()) - set(found_kmer_targets))
     target_counts = ref_kmer_biohansel_df['refposition'].value_counts().to_dict()
+
+
     multiplicity_targets = []
     for target in target_counts:
         if target_counts[target] > 1:
-            multiplicity_targets.append(target)
+            multiplicity_targets.append(str(target))
 
+    #needed for kmer seq collisions where same position is represented by multiple kmers
+    temp = []
+    for i in range(0,len(multiplicity_targets)):
+        kmer_id = multiplicity_targets[i]
+        if kmer_id in kmer_group_mapping:
+            group_id = kmer_group_mapping[kmer_id]
+            if group_id in kmer_groups:
+                temp.extend(kmer_groups[group_id])
+
+    multiplicity_targets = list(set(temp))
+
+
+    #print(scheme.keys())
     #Identify problems with selected kmers so that the user can filter them
     scheme = qa_scheme(scheme,missing_targets, multiplicity_targets, min_len=min_len,max_len=max_len,max_ambig=max_ambig,min_complexity=min_complexity)
 
-    #write the final scheme to a file
-    print_scheme(scheme, scheme_file)
 
-    #read the metadata associations
-    metadata_df = read_tsv(input_meta)
-    genotype_mapping = get_genotype_mapping(metadata_df)
 
     #get the kmer profile for each sample
     kmer_profile = build_kmer_profiles(scheme)
 
     #create a plot of sample similarity for a multi-sample run
-    if len(kmer_profile ) > 1:
-        dist_matrix = profile_pairwise_distmatrix(kmer_profile)
-        d = dendrogram_visualization()
-        d.build_tree_from_dist_matrix(list(kmer_profile.keys()),dist_matrix ,genotype_dendrogram)
+    #if len(kmer_profile ) > 1:
+    #    dist_matrix = profile_pairwise_distmatrix(kmer_profile)
+    #    print(dist_matrix)
+    #    d = dendrogram_visualization()
+    #    d.build_tree_from_dist_matrix(list(kmer_profile.keys()),dist_matrix ,genotype_dendrogram)
 
     #identify genotype shared kmers
-    shared_kmers = identify_shared_kmer(genotype_mapping,kmer_profile,thresh=0.95)
+    shared_kmers = identify_shared_kmer(genotype_mapping,kmer_profile,min_thresh=0.5,max_thresh=1)
+    positive_seqs = identify_shared_kmer(genotype_mapping,kmer_profile,min_thresh=0.95,max_thresh=1)
+    partial_positive_seqs = identify_shared_kmer(genotype_mapping, kmer_profile, min_thresh=0.01, max_thresh=0.94999)
 
     #identify genotype diagnostic kmers
-    diagnostic_kmers = identify_diagnostic_kmer(genotype_mapping, kmer_profile, thresh=0.95)
+    diagnostic_kmers = identify_diagnostic_kmer(genotype_mapping, kmer_profile, thresh=0.5)
+
 
     #Analyse the genotypes for conflicts
     genotype_report = qa_genotypes(genotype_mapping,kmer_profile,shared_kmers,diagnostic_kmers)
+    scheme = convert_seqs_to_genotypes(scheme, genotype_mapping,  'positive_seqs')
+
+    #Put genotype mapping into correct columns
+    for kmer_id in scheme:
+        genotypes = scheme[kmer_id]['positive_seqs'].split(',')
+        positives = []
+        partials = []
+        for genotype in genotypes:
+            if genotype in positive_seqs:
+                if kmer_id in positive_seqs[genotype]:
+                    positives.append(genotype)
+
+            if genotype in partial_positive_seqs:
+                if kmer_id in partial_positive_seqs[genotype]:
+                    partials.append(genotype)
+
+
+        positives.sort()
+        partials.sort()
+        scheme[kmer_id]['positive_seqs'] = ','.join(positives)
+        scheme[kmer_id]['partial_positive_seqs'] = ','.join(partials)
+
+    #write the final scheme to a file
+    print_scheme(scheme, scheme_file)
+
 
     # write the genotype file
-    print_scheme(genotype_report, genotype_report)
+    print_scheme(genotype_report, genotypes_file)
 
