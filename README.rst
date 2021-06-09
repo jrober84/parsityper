@@ -35,17 +35,12 @@ If you run ``parsityper``, you should see the following usage statement:
 
 .. code-block::bash
     Usage: parsityper <command> [options] <required arguments>
-
     To get minimal usage for a command use:
     parsityper command
-
     To get full help for a command use one of:
     parsityper command -h
     parsityper command --help
-
-
     Available commands:
-
     typer    Reconstruct sample genotype(s) from isolate or metagenomic sample
     creator  Create a kmer scheme based on labeled data
     validator  Train and validate a kmer scheme on labeled genotype data to derive kmer patterns for genotypes
