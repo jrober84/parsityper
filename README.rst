@@ -35,31 +35,23 @@ If you run ``parsityper``, you should see the following usage statement:
 
 .. code-block::
 
-    usage: hansel [-h] [-s SCHEME] [--scheme-name SCHEME_NAME]
-                  [-M SCHEME_METADATA] [-p forward_reads reverse_reads]
-                  [-i fasta_path genome_name] [-D INPUT_DIRECTORY]
-                  [-o OUTPUT_SUMMARY] [-O OUTPUT_KMER_RESULTS]
-                  [-S OUTPUT_SIMPLE_SUMMARY] [--force] [--json]
-                  [--min-kmer-freq MIN_KMER_FREQ] [--min-kmer-frac MIN_KMER_FRAC]
-                  [--max-kmer-freq MAX_KMER_FREQ]
-                  [--low-cov-depth-freq LOW_COV_DEPTH_FREQ]
-                  [--max-missing-kmers MAX_MISSING_KMERS]
-                  [--min-ambiguous-kmers MIN_AMBIGUOUS_KMERS]
-                  [--low-cov-warning LOW_COV_WARNING]
-                  [--max-intermediate-kmers MAX_INTERMEDIATE_KMERS]
-                  [--max-degenerate-kmers MAX_DEGENERATE_KMERS] [-t THREADS] [-v]
-                  [-V]
-                  [F [F ...]]
+    Usage: parsityper <command> [options] <required arguments>
 
-    BioHansel version 2.5.1: Subtype microbial genomes using SNV targeting k-mer subtyping schemes.
+    To get minimal usage for a command use:
+    parsityper command
 
-    Built-in schemes:
+    To get full help for a command use one of:
+    parsityper command -h
+    parsityper command --help
 
-    * heidelberg:  Salmonella enterica spp. enterica serovar Heidelberg
-    * enteritidis: Salmonella enterica spp. enterica serovar Enteritidis
-    * typhimurium: Salmonella enterica spp. enterica serovar Typhimurium
-    * typhi:       Salmonella enterica spp. enterica serovar Typhi
-    * tb_lineage:  Mycobacterium tuberculosis
+
+    Available commands:
+
+    typer    Reconstruct sample genotype(s) from isolate or metagenomic sample
+    creator  Create a kmer scheme based on labeled data
+    trainer  Train a kmer scheme on labeled genotype data to derive kmer patterns for genotypes
+    test     Test parsityper functionality on a small dataset
+    version  Print version and exit
 
 Legal
 =====
