@@ -25,9 +25,21 @@ Citation
 
 Requirements and Dependencies
 =============================
+- bio_hansel >= 2.6.1
+- Python_ (>=v3.6)
+    - numpy_ >=1.12.1
+    - pandas_ >=1.1.3
+    - pyahocorasick_ >=1.1.6
+    - attrs_
+    - biopython >= 1.7.0
+    - scipy >= 1.52
+
+
 
 Installation
 ============
+
+
 
 Usage
 =====
