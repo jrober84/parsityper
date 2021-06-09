@@ -24,7 +24,7 @@ def read(fname):
     return open(os.path.join(os.path.dirname(__file__), fname)).read()
 
 
-exec(open('sars_cov_2_kmer_typing/version.py').read())
+exec(open('parsityper/version.py').read())
 
 setup(
     name='sars_cov_2_kmer_typing',
@@ -33,17 +33,16 @@ setup(
     python_requires='>=3.7.0,<4',
     setup_requires=['pytest-runner'],
     tests_require=['pytest'],
-    packages=find_packages(exclude=['tests', 'databases']),
-    url='https://github.com/phac-nml/mob-suite',
+    packages=find_packages(exclude=['tests', 'data']),
+    url='https://github.com/jrober84/parsityper',
     license='GPLv3',
     author='James Robertson',
     author_email='james.robertson@canada.ca',
     description=(
-        'MOB-suite is a set of tools for finding, typing and reconstruction of plasmids from draft and complete genome assemblies.'),
-    keywords='Plasmids finding typing reconstruction',
+        'Parsityper: Parsimonous genotyper from simple and complex samples'),
+    keywords='Genotyping, mutation detection, k-mer, sars-cov-2',
     classifiers=classifiers,
-    package_dir={'sars_cov_2_kmer_typing': 'sars_cov_2_kmer_typing'},
-    package_data={'sars_cov_2_kmer_typing': ['config.json']},
+    package_dir={'parsityper': 'parsityper'},
 
     install_requires=[
         'numpy',
@@ -55,10 +54,7 @@ setup(
 
     entry_points={
         'console_scripts': [
-            'mob_init=mob_suite.mob_init:main',
-            'mob_recon=mob_suite.mob_recon:main',
-            'mob_cluster=mob_suite.mob_cluster:main',
-            'mob_typer=mob_suite.mob_typer:main',
+            'parsityper=parsityper.parsityper',
         ],
     },
 )

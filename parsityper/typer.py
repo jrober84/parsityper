@@ -46,7 +46,7 @@ def parse_args():
                         help='Minimum percentage of total pool required for k-mer detection range 0 - 1.0 (default=0.05)',
                         default=0.05)
     parser.add_argument('--max_mixed_sites', type=int, required=False,
-                        help='Maximum number of sites allowed to have both kmer states', default=5)
+                        help='Maximum number of sites allowed to have both kmer states', default=10)
     parser.add_argument('--max_missing_sites', type=int, required=False,
                         help='Maximum number of sites allowed to be missing', default=500)
     parser.add_argument('--sample_dist_cutoff', type=float, required=False,
