@@ -10,8 +10,7 @@ Dev     |ci-dev|
 
 .. |logo| image:: logo.png
     :target: https://github.com/jrober84/parsityper
-    :height: 200
-    :width: 400
+
 
 Introduction
 ============
@@ -32,7 +31,24 @@ Installation
 
 Usage
 =====
+.. code-block::
+Usage: parsityper <command> [options] <required arguments>
 
+To get minimal usage for a command use:
+parsityper command
+
+To get full help for a command use one of:
+parsityper command -h
+parsityper command --help
+
+
+Available commands:
+
+typer    Reconstruct sample genotype(s) from isolate or metagenomic sample
+creator  Create a kmer scheme based on labeled data
+validator  Train and validate a kmer scheme on labeled genotype data to derive kmer patterns for genotypes
+test     Test parsityper functionality on a small dataset
+version  Print version and exit
 
 Legal
 =====
