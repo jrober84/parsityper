@@ -31,6 +31,8 @@ Installation
 
 Usage
 =====
+If you run ``parsityper``, you should see the following usage statement:
+
 .. code-block::
     Usage: parsityper <command> [options] <required arguments>
 
