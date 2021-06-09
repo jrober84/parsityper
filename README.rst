@@ -39,7 +39,14 @@ Requirements and Dependencies
 Installation
 ============
 
+With pip_ from Github
+---------------------
 
+Install the latest master branch version directly from Github:
+
+.. code-block:: bash
+
+    pip install git+https://github.com/jrober84/parsityper.git
 
 Usage
 =====
