@@ -252,7 +252,10 @@ def identify_diagnostic_kmer(genotype_mapping,kmer_profile,thresh=0.95):
     diagnostic_kmers = {}
     genotype_kmer_pool = {}
     for sample_id in kmer_profile:
-        genotype = genotype_mapping[sample_id]
+        if not sample_id in genotype_mapping:
+            genotype = ''
+        else:
+            genotype = genotype_mapping[sample_id]
         if not genotype in genotype_kmer_pool:
             genotype_kmer_pool[genotype] = []
         genotype_kmer_pool[genotype].extend(kmer_profile[sample_id])
@@ -287,7 +290,10 @@ def qa_genotypes(genotype_mapping,kmer_profile,shared_kmers,diagnostic_kmers):
     genotypes = []
     for sample_id in kmer_profile:
         md5 = calc_md5(kmer_profile[sample_id])
-        genotype = genotype_mapping[sample_id]
+        if sample_id in genotype_mapping:
+            genotype = genotype_mapping[sample_id]
+        else:
+            genotype = ''
         genotypes.append(genotype)
         if not md5 in unique_profiles_samples:
             unique_profiles_samples[md5] = []

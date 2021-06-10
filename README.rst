@@ -51,14 +51,14 @@ If you run ``parsityper``, you should see the following usage statement:
 
 .. code-block::
 
-    Usage: parsityper <command> [options] <required arguments>
+    Usage: parsitype <command> [options] <required arguments>
 
     To get minimal usage for a command use:
-    parsityper command
+    parsitype command
 
     To get full help for a command use one of:
-    parsityper command -h
-    parsityper command --help
+    parsitype command -h
+    parsitype command --help
 
 
     Available commands:

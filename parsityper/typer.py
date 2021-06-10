@@ -781,13 +781,11 @@ def get_detected_target_summary(sample_kmer_data, min_cov=20, min_cov_frac=0.05)
                         targets[sample_id]['mixed'].append(target)
                 else:
                     targets[sample_id]['negative'].append(target)
-    # print("targets")
-    # print(targets['MN908947'])
     return targets
 
 
 def write_sample_summary_report(sample_report, outfile, sample_kmer_data, scheme_kmer_target_info, sample_complexity,
-                                max_mixed_sites=10, min_cov=20, min_cov_frac=0.05):
+                                max_mixed_sites=10, min_cov=20, min_cov_frac=0.05,sample_type='single'):
     '''
 
     :param sample_report:
@@ -841,7 +839,8 @@ def write_sample_summary_report(sample_report, outfile, sample_kmer_data, scheme
                          'detected_mutations_ORF7a_aa',
                          'detected_mutations_ORF8_aa',
                          'detected_mutations_N_aa',
-                         'detected_mutations_ORF10_aa', 'kmer_profile_st', 'kmer_profile_md5', 'kmer_profile_name'])]
+                         'detected_mutations_ORF10_aa', 'kmer_profile_st', 'kmer_profile_md5', 'kmer_profile_name','qc_sample_type',
+            'qc_max_missing_sites','qc_max_het_sites', 'qc_cov_stdev','qc_overall'])]
 
     for sample_id in sample_report:
         data = sample_report[sample_id]
@@ -906,7 +905,6 @@ def write_sample_summary_report(sample_report, outfile, sample_kmer_data, scheme
         primary_genotype_slope = 'n/a'
 
         if sample_id in sample_complexity:
-            # print(sample_complexity[sample_id])
             if len(sample_complexity[sample_id]['primary_genotype']) > 0:
                 primary_genotype = sample_complexity[sample_id]['primary_genotype']
                 primary_genotype_transition_ratio = abs(sample_complexity[sample_id]['primary_genesis_ratio'])
@@ -918,8 +916,8 @@ def write_sample_summary_report(sample_report, outfile, sample_kmer_data, scheme
             profile_names[kmer_profile_md5] = phrase
         else:
             phrase = profile_names[kmer_profile_md5]
-
-        report.append("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}".format(sample_id,
+        quality = sample_kmer_data[sample_id]['quality']
+        report.append("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}".format(sample_id,
                                                                                       genotype,
                                                                                       sample_type,
                                                                                       primary_genotype,
@@ -931,9 +929,13 @@ def write_sample_summary_report(sample_report, outfile, sample_kmer_data, scheme
                                                                                       num_mixed_sites,
                                                                                       "\t".join(mutations),
                                                                                       kmer_profile_st, kmer_profile_md5,
-                                                                                      phrase
+                                                                                      phrase,quality['qc_sample_type'],
+                                                                                      quality['qc_sample_type'],
+                                                                                      quality['qc_max_missing_sites'],
+                                                                                      quality['qc_max_het_sites'],
+                                                                                      quality['qc_cov_stdev'],
+                                                                                      quality['qc_overall'],
                                                                                       ))
-
     fh = open(outfile, 'w')
     fh.write("\n".join(report))
 
@@ -1050,6 +1052,46 @@ def process_directory(data_dir, biohansel_fasta_file, outdir, logger, prefix, sc
                         process_biohansel_kmer(scheme_kmer_groups, scheme_target_to_group_mapping,
                                                scheme_kmer_target_info, sample_kmer_biohansel_df, min_cov))
     return sample_kmer_results
+
+def sample_qc(sample_kmer_data,total_targets,min_cov=20,min_cov_frac=0.05,max_mixed_sites=10, max_missing_sites=1400, sample_type='single',sample_cov_stdev_perc=0.75):
+    kmer_summary = get_detected_target_summary(sample_kmer_data, min_cov=min_cov, min_cov_frac=min_cov_frac)
+    for sample in sample_kmer_data:
+        sample_kmer_data[sample]['quality'] = {
+            'qc_sample_type':'Pass',
+            'qc_max_missing_sites': 'Pass',
+            'qc_max_het_sites': 'Pass',
+            'qc_cov_stdev': 'Pass',
+            'qc_messages': [],
+            'qc_overall': 'Pass',
+        }
+        num_targets_detected = len(kmer_summary[sample]['targets'])
+        missing_targets = num_targets_detected - total_targets
+        if missing_targets > max_missing_sites:
+            sample_kmer_data[sample]['quality']['qc_max_missing_sites'] = 'Fail'
+            sample_kmer_data[sample]['quality']['qc_overall'] = 'Fail'
+
+        mixed_sites = len(kmer_summary[sample]['mixed'])
+        if mixed_sites > max_mixed_sites:
+            sample_kmer_data[sample]['quality']['qc_max_het_sites'] = 'Fail'
+            if sample_type == 'single':
+                sample_kmer_data[sample]['quality']['qc_sample_type'] = 'Fail'
+                sample_kmer_data[sample]['quality']['qc_overall'] = 'Fail'
+
+
+        num_targets_detected = len(kmer_summary[sample]['targets'])
+        if num_targets_detected > 0:
+            average_target_freq = sum(kmer_summary[sample]['counts']) / num_targets_detected
+            target_freq_stdev = statistics.pstdev(kmer_summary[sample]['counts'])
+        else:
+            average_target_freq = 0
+            target_freq_stdev = 0
+
+        if target_freq_stdev >= (average_target_freq*sample_cov_stdev_perc):
+            sample_kmer_data[sample]['quality']['qc_cov_stdev'] = 'Fail'
+            sample_kmer_data[sample]['quality']['qc_overall'] = 'Fail'
+
+
+    return sample_kmer_data
 
 def write_kmer_dict(kmer_data,out_file):
     fh = open(out_file,'w')
@@ -1333,6 +1375,8 @@ def run():
     # get positive kmer signature for each sample
     kmer_summary = get_detected_target_summary(sample_kmer_data, min_cov, min_cov_frac)
 
+    sample_kmer_data = sample_qc(sample_kmer_data, len(scheme_df), min_cov=min_cov, min_cov_frac=min_cov_frac, max_mixed_sites=max_mixed_sites,
+              max_missing_sites=max_missing_sites, sample_type=type, sample_cov_stdev_perc=0.75)
 
     for sample_id in kmer_summary:
         profile_st[sample_id] = kmer_summary[sample_id]['positive']
@@ -1391,6 +1435,7 @@ def run():
 
     sample_complexity = perform_sample_complexity_analysis(sample_report, sample_kmer_data, min_cov_frac=min_cov_frac,
                                                            min_cov=min_cov, step_size=0.05)
+
     write_sample_detailed_report(sample_report, report_sample_composition_detailed, scheme_kmer_target_info)
     write_sample_summary_report(sample_report, report_sample_composition_summary, sample_kmer_data,
                                 scheme_kmer_target_info, sample_complexity, max_mixed_sites=max_mixed_sites,
