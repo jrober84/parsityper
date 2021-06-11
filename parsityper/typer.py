@@ -1301,6 +1301,13 @@ def run():
         logger.warning("Missing {} kmers in positive control".format(len(scheme_df) - len(positive_control_kmers)))
         report_run_info_log.write(
             "Missing Positive countrol kmer targets\t{}\n".format(len(scheme_df) - len(positive_control_kmers)))
+        if (len(scheme_df) - len(positive_control_kmers)) > max_missing_sites:
+            check = 'Fail'
+            logger.warning("Positive control has lower than required number of k-mer targets")
+        else:
+            check = 'Pass'
+        report_run_info_log.write(
+            "Positive countrol QC Check\t{}\n".format(check))
 
         logger.info("Biohansel stdout: {}".format(stdout))
         logger.info("Biohansel sterr: {}".format(stderr))
@@ -1444,8 +1451,7 @@ def run():
     sample_complexity = perform_sample_complexity_analysis(sample_report, sample_kmer_data, min_cov_frac=min_cov_frac,
                                                            min_cov=min_cov, step_size=0.05)
     write_sample_detailed_report(sample_report, report_sample_composition_detailed, scheme_kmer_target_info)
-    sample_report = sample_qc(sample_kmer_data, len(scheme_df), min_cov=min_cov, min_cov_frac=min_cov_frac, max_mixed_sites=max_mixed_sites,
-              max_missing_sites=max_missing_sites, sample_type=type, sample_cov_stdev_perc=0.75)
+
     write_sample_summary_report(sample_report, report_sample_composition_summary, sample_kmer_data,
                                 scheme_kmer_target_info, sample_complexity, max_mixed_sites=max_mixed_sites,
                                 min_cov_frac=min_cov_frac, min_cov=min_cov,sample_type=type)
@@ -1454,7 +1460,7 @@ def run():
     if len(profile_st) > 1:
         labels = []
         for sample in profile_st:
-            genotype = ', '.join(list(sample_report[sample]['genotypes'].keys()))
+            genotype = ', '.join(list(sample_report[sample].keys()))
             labels.append("{} | {}".format(sample,genotype))
         d = dendrogram_visualization()
         d.build_tree_from_dist_matrix(labels, profile_pairwise_distmatrix(profile_st),

@@ -42,7 +42,7 @@ With pip_ from Github
 Install the latest master branch version directly from Github:
 
 .. code-block:: bash
-
+    conda install bio_hansel
     pip install git+https://github.com/jrober84/parsityper.git
 
 Usage
@@ -51,14 +51,14 @@ If you run ``parsityper``, you should see the following usage statement:
 
 .. code-block::
 
-    Usage: parsitype <command> [options] <required arguments>
+    Usage: parsityper <command> [options] <required arguments>
 
     To get minimal usage for a command use:
     parsitype command
 
     To get full help for a command use one of:
-    parsitype command -h
-    parsitype command --help
+    parsityper command -h
+    parsityper command --help
 
 
     Available commands:
@@ -70,7 +70,7 @@ If you run ``parsityper``, you should see the following usage statement:
     version  Print version and exit
 
 **Typer**
-typer --mode batch --type multi --scheme SARS-COV-2_v1 --data_dir {input_directory} --outdir {result_directory}
+parsityper typer --mode batch --type multi --scheme SARS-COV-2_v1 --data_dir {input_directory} --outdir {result_directory}
 
 Optional paramters:
 prefix - change the prefixe of result files
