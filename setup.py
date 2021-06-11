@@ -55,7 +55,6 @@ setup(
         'six',
         'matplotlib',
         'argparse',
-        'logging',
         'statistics'
 
     ],
