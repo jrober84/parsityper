@@ -18,7 +18,7 @@ from parsityper.visualizations import dendrogram_visualization
 
 def parse_args():
     "Parse the input arguments, use '-h' for help"
-    parser = ArgumentParser(description='SARS-COV-2 Kmer-analysis')
+    parser = ArgumentParser(description='Parsimony based sample Kmer-analysis')
     parser.add_argument('--data_dir', type=str, required=False,
                         help='directory of fasta/fastq files')
     parser.add_argument('--mode', type=str, required=True,
@@ -1452,8 +1452,12 @@ def run():
 
     # create a plot of sample similarity for a multi-sample run
     if len(profile_st) > 1:
+        labels = []
+        for sample in profile_st:
+            genotype = ', '.join(list(sample_report[sample]['genotypes'].keys()))
+            labels.append("{} | {}".format(sample,genotype))
         d = dendrogram_visualization()
-        d.build_tree_from_dist_matrix(list(profile_st.keys()), profile_pairwise_distmatrix(profile_st),
+        d.build_tree_from_dist_matrix(labels, profile_pairwise_distmatrix(profile_st),
                                       report_run_kmer_dendrogram)
 
     report_run_info_log.write("End Time\t{}\n".format(datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")))

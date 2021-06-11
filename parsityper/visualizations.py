@@ -16,6 +16,7 @@ class dendrogram_visualization:
         else:
             height = len(sample_ids)
         fig = plt.figure(figsize=(40, height),dpi=100)
+        print(sample_ids)
         dn = dendrogram(Z, leaf_font_size=5,orientation="left", labels=sample_ids)
 
         plt.savefig(outfile)
