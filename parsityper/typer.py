@@ -923,7 +923,7 @@ def write_sample_summary_report(sample_report, outfile, sample_kmer_data, scheme
             phrase = profile_names[kmer_profile_md5]
 
 
-        report.append("{}\n".format("\t".join([sample_id,
+        report.append("{}".format("\t".join([sample_id,
                                                 genotype,
                                                 sample_type,
                                                 primary_genotype,
