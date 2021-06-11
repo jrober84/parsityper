@@ -27,7 +27,7 @@ def read(fname):
 exec(open('parsityper/version.py').read())
 
 setup(
-    name='sars_cov_2_kmer_typing',
+    name='parsityper',
     include_package_data=True,
     version='0.0.1',
     python_requires='>=3.7.0,<4',
@@ -54,7 +54,7 @@ setup(
 
     entry_points={
         'console_scripts': [
-            'parsityper=parsityper.parsitype',
+            'parsityper=parsityper.parsitype:main',
         ],
     },
 )
