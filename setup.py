@@ -33,7 +33,7 @@ setup(
     python_requires='>=3.7.0,<4',
     setup_requires=['pytest-runner'],
     tests_require=['pytest'],
-    packages=find_packages(exclude=['tests', 'data']),
+    packages=find_packages(exclude=['tests']),
     url='https://github.com/jrober84/parsityper',
     license='GPLv3',
     author='James Robertson',
@@ -43,6 +43,9 @@ setup(
     keywords='Genotyping, mutation detection, k-mer, sars-cov-2',
     classifiers=classifiers,
     package_dir={'parsityper': 'parsityper'},
+    package_data={
+        "": ["*.txt", "*.fasta","*.html","*.gb"],
+    },
 
     install_requires=[
         'numpy',
@@ -50,6 +53,11 @@ setup(
         'biopython',
         'scipy',
         'six',
+        'matplotlib',
+        'argparse',
+        'logging',
+        'statistics'
+
     ],
 
     entry_points={
