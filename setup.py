@@ -54,7 +54,7 @@ setup(
 
     entry_points={
         'console_scripts': [
-            'parsityper=parsityper.parsityper',
+            'parsityper=parsityper.parsitype',
         ],
     },
 )

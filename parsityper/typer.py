@@ -78,16 +78,11 @@ def generate_sample_kmer_profile(sample_kmer_data, scheme_kmer_target_keys, min_
     '''
     samples = {}
 
-    # print("provided sample_kmer_data")
-    # print(sample_kmer_data['MN908947'])
     for sample in sample_kmer_data:
         if not sample in samples:
             samples[sample] = {}
             value = {'positive': 0, 'negative': 0}
             samples[sample]['counts'] = copy.deepcopy(get_scheme_template(scheme_kmer_target_keys, value))
-        # if sample == 'MN908947':
-        #    print("initilized sample_kmer_data")
-        #   print(samples['MN908947'])
         for target in sample_kmer_data[sample]:
             if not target in samples[sample]['counts']:
                 continue
@@ -100,9 +95,7 @@ def generate_sample_kmer_profile(sample_kmer_data, scheme_kmer_target_keys, min_
                         samples[sample]['counts'][target]['positive'] += freq
                     else:
                         samples[sample]['counts'][target]['negative'] += freq
-        # if sample == 'MN908947':
-        #    print("populated sample_kmer_data")
-        #    print(samples['MN908947'])
+
     return samples
 
 
@@ -249,26 +242,33 @@ def identify_compatible_types(scheme_df, sample_data, min_cov_frac, detection_li
     '''
     genotype_kmer_mapping = get_scheme_genotypes(scheme_df)
     genotypes = list(genotype_kmer_mapping.keys())
+
+    for sample in sample_data:
+        sample_data[sample]['genotypes'] = {
+                'include': [],
+                'informative': [],
+                'exclude': [],
+                'unique': [],
+                'candidates': [],
+                'candidate_data': {}
+
+            }
+
     for row in scheme_df.itertuples():
-        if 'nan' in str(row.positive_seqs):
-            continue
-        positive_seqs = str(row.positive_seqs).split(',')
-        if positive_seqs[0] == 'nan':
-            continue
-        partial_pos_seqs = str(row.partial_positive_seqs).split(',')
+
+        if isinstance(row.positive_seqs,float):
+            positive_seqs = []
+        else:
+            positive_seqs = str(row.positive_seqs).split(',')
+        if isinstance(row.partial_positive_seqs,float):
+            positive_seqs = []
+        else:
+            partial_pos_seqs = str(row.partial_positive_seqs).split(',')
+
         target = str(row.key)
 
         for sample in sample_data:
-            if not 'genotypes' in sample_data[sample]:
-                sample_data[sample]['genotypes'] = {
-                    'include': [],
-                    'informative': [],
-                    'exclude': [],
-                    'unique': [],
-                    'candidates': [],
-                    'candidate_data': {}
 
-                }
             if target not in sample_data[sample]['counts']:
                 continue
 
@@ -292,15 +292,15 @@ def identify_compatible_types(scheme_df, sample_data, min_cov_frac, detection_li
                     temp_seqs = list(set(positive_seqs + partial_pos_seqs))
                     if len(positive_seqs) > 0:
                         e_list = list(set(genotypes) - set(positive_seqs + partial_pos_seqs))
-                        if sample in e_list:
-                            print("{} pos {} exclude {}".format(sample, target, list(
-                                set(genotypes) - set(positive_seqs + partial_pos_seqs))))
+                        #if sample in e_list:
+                        #    print("{} pos {} exclude {}".format(sample, target, list(
+                        #        set(genotypes) - set(positive_seqs + partial_pos_seqs))))
                         sample_data[sample]['genotypes']['exclude'].extend(
                             list(set(genotypes) - set(positive_seqs + partial_pos_seqs)))
 
             elif sum(sample_data[sample]['counts'][target].values()) >= detection_limit:
-                if sample in positive_seqs:
-                    print("{} neg {} exclude {}".format(sample, target, positive_seqs))
+               # if sample in positive_seqs:
+               #     print("{} neg {} exclude {}".format(sample, target, positive_seqs))
                 sample_data[sample]['genotypes']['exclude'].extend(positive_seqs)
 
             sample_data[sample]['genotypes']['include'] = list(
@@ -319,8 +319,8 @@ def identify_compatible_types(scheme_df, sample_data, min_cov_frac, detection_li
         include = sample_data[sample]['genotypes']['include']
         exclude = sample_data[sample]['genotypes']['exclude']
         informative = sample_data[sample]['genotypes']['informative']
-        print("{}\ni:{}\ne:{}\nc:{}\ninf:{}".format(sample, include, exclude, list(set(include) - set(exclude)),
-                                                    informative))
+        #print("{}\ni:{}\ne:{}\nc:{}\ninf:{}".format(sample, include, exclude, list(set(include) - set(exclude)),
+        #                                            informative))
         if len(include) > 0:
             sample_data[sample]['genotypes']['candidates'] = list(set(include) - set(exclude))
             sample_data[sample]['genotypes']['candidates'].sort()
@@ -451,7 +451,7 @@ def type_occamization(sample_data, scheme_df, min_cov_frac=0.05, min_cov=20):
 
         type_data = sample_data[sample]['genotypes']
         candidates = type_data['candidates']
-        print(candidates)
+        #print(candidates)
         # skip samples where no genotype is compatible with the kmer data or a single candidate is available
         if len(candidates) <= 1:
             continue
@@ -469,7 +469,7 @@ def type_occamization(sample_data, scheme_df, min_cov_frac=0.05, min_cov=20):
             for genotype in candidates:
                 num_targets = 1 + len(candidate_data[genotype]['targets'])
                 num_positives = 1 + len(genotype_kmer_assoc[genotype]['positive'])
-                print("{}\t{}\t{}\t{}".format(genotype,candidate_data[genotype]['targets'],genotype_kmer_assoc[genotype]['positive'],genotype_kmer_assoc[genotype]['partial']))
+                #print("{}\t{}\t{}\t{}".format(genotype,candidate_data[genotype]['targets'],genotype_kmer_assoc[genotype]['positive'],genotype_kmer_assoc[genotype]['partial']))
 
             continue
 
@@ -580,10 +580,7 @@ def calc_type_coverage(sample_data, scheme_df, min_cov=20, min_cov_frac=0.05, re
         if not 'ratios' in sample_data[sample]:
             continue
         count_pos = get_count_positive_targets(sample_data[sample]['counts'], min_cov)
-        for target in sample_data[sample]['counts']:
 
-            if sample_data[sample]['counts'][target]['negative'] > 50 or sample_data[sample]['counts'][target]['positive'] > 50:
-                print("{}\t{}\t{}".format(sample,target,sample_data[sample]['counts'][target]))
         type_data = sample_data[sample]['genotypes']
         candidates = type_data['candidates']
         if 'nan' in candidates:
@@ -839,11 +836,19 @@ def write_sample_summary_report(sample_report, outfile, sample_kmer_data, scheme
                          'detected_mutations_ORF7a_aa',
                          'detected_mutations_ORF8_aa',
                          'detected_mutations_N_aa',
-                         'detected_mutations_ORF10_aa', 'kmer_profile_st', 'kmer_profile_md5', 'kmer_profile_name','qc_sample_type',
-            'qc_max_missing_sites','qc_max_het_sites', 'qc_cov_stdev','qc_overall'])]
+                         'detected_mutations_ORF10_aa',
+                         'kmer_profile_st',
+                         'kmer_profile_md5',
+                         'kmer_profile_name',
+                         'qc_sample_type',
+                         'qc_max_missing_sites',
+                         'qc_max_het_sites',
+                         'qc_cov_stdev',
+                         'qc_overall'])]
 
     for sample_id in sample_report:
         data = sample_report[sample_id]
+        quality = sample_kmer_data[sample_id]['quality']
 
         genes = ['orf1ab', 'S', 'ORF3a', 'E', 'M', 'ORF6', 'ORF7a', 'ORF8', 'N', 'ORF10', 'intergenic']
         mutations_dna = {}
@@ -916,26 +921,27 @@ def write_sample_summary_report(sample_report, outfile, sample_kmer_data, scheme
             profile_names[kmer_profile_md5] = phrase
         else:
             phrase = profile_names[kmer_profile_md5]
-        quality = sample_kmer_data[sample_id]['quality']
-        report.append("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}".format(sample_id,
-                                                                                      genotype,
-                                                                                      sample_type,
-                                                                                      primary_genotype,
-                                                                                      primary_genotype_transition_ratio,
-                                                                                      primary_genotype_slope,
-                                                                                      num_targets_detected,
-                                                                                      average_target_freq,
-                                                                                      target_freq_stdev,
-                                                                                      num_mixed_sites,
-                                                                                      "\t".join(mutations),
-                                                                                      kmer_profile_st, kmer_profile_md5,
-                                                                                      phrase,quality['qc_sample_type'],
-                                                                                      quality['qc_sample_type'],
-                                                                                      quality['qc_max_missing_sites'],
-                                                                                      quality['qc_max_het_sites'],
-                                                                                      quality['qc_cov_stdev'],
-                                                                                      quality['qc_overall'],
-                                                                                      ))
+
+
+        report.append("{}\n".format("\t".join([sample_id,
+                                                genotype,
+                                                sample_type,
+                                                primary_genotype,
+                                                str(primary_genotype_transition_ratio),
+                                                str(primary_genotype_slope),
+                                                str(num_targets_detected),
+                                                str(average_target_freq),
+                                                str(target_freq_stdev),
+                                                str(num_mixed_sites),
+                                                "\t".join(mutations),
+                                                kmer_profile_st,
+                                                kmer_profile_md5,
+                                                phrase,
+                                                quality['qc_sample_type'],
+                                                quality['qc_max_missing_sites'],
+                                                quality['qc_max_het_sites'],
+                                                quality['qc_cov_stdev'],
+                                                quality['qc_overall']])))
     fh = open(outfile, 'w')
     fh.write("\n".join(report))
 
@@ -1051,6 +1057,8 @@ def process_directory(data_dir, biohansel_fasta_file, outdir, logger, prefix, sc
                     sample_kmer_results.update(
                         process_biohansel_kmer(scheme_kmer_groups, scheme_target_to_group_mapping,
                                                scheme_kmer_target_info, sample_kmer_biohansel_df, min_cov))
+                    logger.info("Biohansel stdout: {}".format(stdout))
+                    logger.info("Biohansel sterr: {}".format(stderr))
     return sample_kmer_results
 
 def sample_qc(sample_kmer_data,total_targets,min_cov=20,min_cov_frac=0.05,max_mixed_sites=10, max_missing_sites=1400, sample_type='single',sample_cov_stdev_perc=0.75):
@@ -1073,10 +1081,9 @@ def sample_qc(sample_kmer_data,total_targets,min_cov=20,min_cov_frac=0.05,max_mi
         mixed_sites = len(kmer_summary[sample]['mixed'])
         if mixed_sites > max_mixed_sites:
             sample_kmer_data[sample]['quality']['qc_max_het_sites'] = 'Fail'
+            sample_kmer_data[sample]['quality']['qc_overall'] = 'Fail'
             if sample_type == 'single':
                 sample_kmer_data[sample]['quality']['qc_sample_type'] = 'Fail'
-                sample_kmer_data[sample]['quality']['qc_overall'] = 'Fail'
-
 
         num_targets_detected = len(kmer_summary[sample]['targets'])
         if num_targets_detected > 0:
@@ -1233,29 +1240,33 @@ def run():
     # Identify kmers which are present in the no template control for masking purposes later
     no_template_kmers = {}
     if no_template_control is not None:
-        kmer_file = os.path.join(outdir, "{}.no_template.bh.kmer.txt")
-        summary_file = os.path.join(outdir, "{}.no_template.bh.summary.txt")
-        simple_file = os.path.join(outdir, "{}.no_template.bh.simple.txt")
+        kmer_file = os.path.join(outdir, "{}.no_template.bh.kmer.txt".format(prefix))
+        summary_file = os.path.join(outdir, "{}.no_template.bh.summary.txt".format(prefix))
+        simple_file = os.path.join(outdir, "{}.no_template.bh.simple.txt".format(prefix))
         logger.info("Identifying kmers which are found in no template control {}".format(no_template_control))
         (stdout, stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, [no_template_control], kmer_file,
                                                            summary_file, simple_file, min_cov, nthreads)
-        no_template_df = read_tsv(kmer_file)
-        no_template_df = no_template_df[no_template_df['freq'] >= min_cov]
-        no_template_results = process_biohansel_kmer(scheme_kmer_groups, scheme_target_to_group_mapping,
-                                                     scheme_kmer_target_info, no_template_df, min_cov)
-        sample = list(no_template_results.keys())[0]
-        write_kmer_dict(no_template_results, report_negative)
-        for kmer in no_template_results[sample]:
-            freq = no_template_results[sample][kmer]['freq']
-            if no_template_results[sample][kmer]['is_pos_kmer']:
-                kmername = kmer
-            else:
-                kmername = "negative{}".format(kmer)
-            no_template_kmers[kmername] = freq
-        report_run_info_log.write("No template kmer targets\t{}\n".format(len(no_template_kmers)))
-        logger.info("Found {} kmers found in no template".format(len(no_template_kmers)))
         logger.info("Biohansel stdout: {}".format(stdout))
         logger.info("Biohansel sterr: {}".format(stderr))
+        no_template_df = read_tsv(kmer_file)
+        no_template_results = process_biohansel_kmer(scheme_kmer_groups, scheme_target_to_group_mapping,
+                                                     scheme_kmer_target_info, no_template_df, min_cov)
+        if len(no_template_results) > 0:
+            sample = list(no_template_results.keys())[0]
+            write_kmer_dict(no_template_results, report_negative)
+            for kmer in no_template_results[sample]:
+                for seq in no_template_results[sample][kmer]:
+                    freq = no_template_results[sample][kmer][seq]['freq']
+                    if no_template_results[sample][kmer][seq]['is_pos_kmer']:
+                        kmername = kmer
+                    else:
+                        kmername = "negative{}".format(kmer)
+                    if kmername not in no_template_kmers:
+                        no_template_kmers[kmername] = 0
+                    no_template_kmers[kmername] += freq
+            report_run_info_log.write("No template kmer targets\t{}\n".format(len(no_template_kmers)))
+        logger.info("Found {} kmers found in no template".format(len(no_template_kmers)))
+
 
     report_run_info_log.write("No Template Control kmers\t{}\n".format(len(no_template_kmers)))
     # Identify kmers identified in positive control
@@ -1265,36 +1276,42 @@ def run():
         summary_file = os.path.join(outdir, "positive_control.bh.summary.txt")
         simple_file = os.path.join(outdir, "positive_control.bh.simple.txt")
         logger.info("Identifying kmers which are found in positive control {}".format(positive_control))
-        (stdout, stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, positive_control, kmer_file,
+        (stdout, stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, [positive_control], kmer_file,
                                                            summary_file, simple_file, min_cov, min_cov_frac, nthreads)
         positive_control_df = read_tsv(kmer_file)
-        positive_control_df = positive_control_df[positive_control_df['freq'] >= min_cov]
         positive_control_results = process_biohansel_kmer(scheme_kmer_groups, scheme_target_to_group_mapping,
                                                           scheme_kmer_target_info, positive_control_df, min_cov)
         write_kmer_dict(positive_control_results, report_positive)
-        sample = list(positive_control_results.keys())[0]
-        for kmer in positive_control_results[sample]:
-            freq = positive_control_results[sample][kmer]['freq']
-            if positive_control_results[sample][kmer]['is_pos_kmer']:
-                kmername = kmer
-            else:
-                kmername = "negative{}".format(kmer)
-            positive_control_kmers[kmername] = freq
+        if len(positive_control_results) > 0:
+            sample = list(positive_control_results.keys())[0]
+
+            for kmer in positive_control_results[sample]:
+                for seq in positive_control_results[sample][kmer]:
+                    freq = positive_control_results[sample][kmer][seq]['freq']
+                    if positive_control_results[sample][kmer][seq]['is_pos_kmer']:
+                        kmername = kmer
+                    else:
+                        kmername = "negative{}".format(kmer)
+                    if kmername not in positive_control_kmers:
+                        positive_control_kmers[kmername] = 0
+                    positive_control_kmers[kmername] += freq
+
         logger.info("Found {} kmers in positive control".format(len(positive_control_kmers)))
         report_run_info_log.write("Positive countrol kmer targets\t{}\n".format(len(positive_control_kmers)))
-        logger.warning("Missing {} kmers in positive control".format(len(scheme) - len(positive_control_kmers)))
+        logger.warning("Missing {} kmers in positive control".format(len(scheme_df) - len(positive_control_kmers)))
         report_run_info_log.write(
-            "Missing Positive countrol kmer targets\t{}\n".format(len(scheme) - len(positive_control_kmers)))
+            "Missing Positive countrol kmer targets\t{}\n".format(len(scheme_df) - len(positive_control_kmers)))
 
         logger.info("Biohansel stdout: {}".format(stdout))
         logger.info("Biohansel sterr: {}".format(stderr))
 
+    kmer_file = os.path.join(outdir, "{}.sample.bh.kmer.txt".format(prefix))
+    summary_file = os.path.join(outdir, "{}.sample.bh.summary.txt".format(prefix))
+    simple_file = os.path.join(outdir, "{}.sample.bh.simple.txt".format(prefix))
+
     # Run kmer detection on the samples
     if data_dir is not None:
         input_data = data_dir
-        kmer_file = os.path.join(outdir, "{}.sample.bh.kmer.txt".format(prefix))
-        summary_file = os.path.join(outdir, "{}.sample.bh.summary.txt".format(prefix))
-        simple_file = os.path.join(outdir, "{}.sample.bh.simple.txt".format(prefix))
         logger.info("Identifying kmers which are found in input directory {}".format(data_dir))
         logger.info("Processing bioHansel results")
         sample_kmer_results = process_directory(data_dir, biohansel_fasta_file, outdir, logger, prefix,
@@ -1305,9 +1322,7 @@ def run():
 
     elif SE is not None:
         input_data = SE
-        kmer_file = os.path.join(outdir, "{}.sample.bh.kmer.txt".format(prefix))
-        summary_file = os.path.join(outdir, "{}.sample.bh.summary.txt".format(prefix))
-        simple_file = os.path.join(outdir, "{}.sample.bh.simple.txt".format(prefix))
+
         logger.info("Identifying kmers which are found in input {}".format(SE))
         (stdout, stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, SE, kmer_file, summary_file,
                                                            simple_file, min_cov, min_cov_frac, nthreads)
@@ -1317,9 +1332,6 @@ def run():
                                                      scheme_kmer_target_info, sample_kmer_biohansel_df, min_cov)
     else:
         input_data = "{},{}".format(R1, R2)
-        kmer_file = os.path.join(outdir, "{}.sample.bh.kmer.txt".format(prefix))
-        summary_file = os.path.join(outdir, "{}.sample.bh.summary.txt".format(prefix))
-        simple_file = os.path.join(outdir, "{}.sample.bh.simple.txt".format(prefix))
         logger.info("Identifying kmers which are found in input {} {}".format(R1, R2))
         (stdout, stderr) = bio_hansel.run_biohansel_pair(biohansel_fasta_file, R1, R2, kmer_file, summary_file,
                                                          simple_file, min_cov, min_cov_frac, nthreads)
@@ -1328,14 +1340,12 @@ def run():
         sample_kmer_results = process_biohansel_kmer(scheme_kmer_groups, scheme_target_to_group_mapping,
                                                      scheme_kmer_target_info, sample_kmer_biohansel_df, min_cov)
 
-    # logger.info("Biohansel stdout: {}".format(stdout))
-    # logger.info("Biohansel sterr: {}".format(stderr))
+    logger.info("Biohansel stdout: {}".format(stdout))
+    logger.info("Biohansel sterr: {}".format(stderr))
     logger.info("Reading bioHansel results")
     report_run_info_log.write("Input Data\t{}\n".format(input_data))
     logger.info("Determining kmer target ratios")
     sample_kmer_data = calc_kmer_ratio(sample_kmer_results, scheme_kmer_target_keys, min_cov)
-    # print("initial main_sample_kmer")
-    # print(sample_kmer_data['MN908947'])
     logger.info("Identifying mixed kmer targets")
     sample_kmer_data = calc_mixed_sites(sample_kmer_data, min_cov_frac)
     report_run_info_log.write("Number of samples\t{}\n".format(len(sample_kmer_data)))
@@ -1351,9 +1361,8 @@ def run():
         ##To do, be able to distinguish where in the read the kmer is to address the primer issue
         logger.warn("Warning found kmers overlapping primers, recommend preprocessing reads to remove primer sequences")
         sample_kmer_data = subtract_contamination_kmers(sample_kmer_data, primer_kmers, min_cov_frac)
-    # print("primer main_sample_kmer")
-    # print(sample_kmer_data['MN908947'])
 
+    sample_kmer_data = calc_mixed_sites(sample_kmer_data, min_cov_frac)
     # Get information about each of the targets involved in mixed events
     target_info = get_mixed_kmer_targets(sample_kmer_data, min_cov_frac)
     target_report = pd.DataFrame().from_dict(target_info, orient='index')
@@ -1364,8 +1373,7 @@ def run():
     # Get list of strains which are compatible with the kmer information
     sample_kmer_data = identify_compatible_types(scheme_df, sample_kmer_data, min_cov_frac,
                                                  detection_limit=detection_limit)
-    # print("procesed main_sample_kmer")
-    # print(sample_kmer_data['MN908947'])
+
     sample_kmer_data = calc_type_coverage(sample_kmer_data, scheme_df, min_cov_frac=min_cov_frac, min_cov=min_cov)
     sample_kmer_data = type_occamization(sample_kmer_data, scheme_df, min_cov_frac=min_cov_frac, min_cov=min_cov)
     sample_kmer_data = calc_type_coverage(sample_kmer_data, scheme_df, min_cov_frac=min_cov_frac, min_cov=min_cov,
@@ -1435,11 +1443,12 @@ def run():
 
     sample_complexity = perform_sample_complexity_analysis(sample_report, sample_kmer_data, min_cov_frac=min_cov_frac,
                                                            min_cov=min_cov, step_size=0.05)
-
     write_sample_detailed_report(sample_report, report_sample_composition_detailed, scheme_kmer_target_info)
+    sample_report = sample_qc(sample_kmer_data, len(scheme_df), min_cov=min_cov, min_cov_frac=min_cov_frac, max_mixed_sites=max_mixed_sites,
+              max_missing_sites=max_missing_sites, sample_type=type, sample_cov_stdev_perc=0.75)
     write_sample_summary_report(sample_report, report_sample_composition_summary, sample_kmer_data,
                                 scheme_kmer_target_info, sample_complexity, max_mixed_sites=max_mixed_sites,
-                                min_cov_frac=min_cov_frac, min_cov=min_cov)
+                                min_cov_frac=min_cov_frac, min_cov=min_cov,sample_type=type)
 
     # create a plot of sample similarity for a multi-sample run
     if len(profile_st) > 1:
