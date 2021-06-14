@@ -261,7 +261,7 @@ def identify_compatible_types(scheme_df, sample_data, min_cov_frac, detection_li
         else:
             positive_seqs = str(row.positive_seqs).split(',')
         if isinstance(row.partial_positive_seqs,float):
-            positive_seqs = []
+            partial_pos_seqs = []
         else:
             partial_pos_seqs = str(row.partial_positive_seqs).split(',')
 
@@ -292,16 +292,16 @@ def identify_compatible_types(scheme_df, sample_data, min_cov_frac, detection_li
                     temp_seqs = list(set(positive_seqs + partial_pos_seqs))
                     if len(positive_seqs) > 0:
                         e_list = list(set(genotypes) - set(positive_seqs + partial_pos_seqs))
-                        #if sample in e_list:
-                        #    print("{} pos {} exclude {}".format(sample, target, list(
-                        #        set(genotypes) - set(positive_seqs + partial_pos_seqs))))
+                        if 'B.1.1.7' in e_list:
+                            print("{} pos {} exclude {}".format(sample, target, list(
+                                set(genotypes) - set(positive_seqs + partial_pos_seqs))))
                         sample_data[sample]['genotypes']['exclude'].extend(
                             list(set(genotypes) - set(positive_seqs + partial_pos_seqs)))
 
             elif sum(sample_data[sample]['counts'][target].values()) >= detection_limit:
-               # if sample in positive_seqs:
-               #     print("{} neg {} exclude {}".format(sample, target, positive_seqs))
-                sample_data[sample]['genotypes']['exclude'].extend(positive_seqs)
+               if 'B.1.1.7' in positive_seqs:
+                    print("{} neg {} exclude {}".format(sample, target, positive_seqs))
+                    sample_data[sample]['genotypes']['exclude'].extend(positive_seqs)
 
             sample_data[sample]['genotypes']['include'] = list(
                 set(sample_data[sample]['genotypes']['include']) - set(['nan']))
@@ -327,7 +327,7 @@ def identify_compatible_types(scheme_df, sample_data, min_cov_frac, detection_li
             # sample_data[sample]['genotypes']['candidates'] = list(set(sample_data[sample]['genotypes']['candidates'] ) & set(informative))
             sample_data[sample]['genotypes']['candidates'] = list(
                 set(sample_data[sample]['genotypes']['candidates']) - set('nan'))
-
+    print(sample_data[sample]['genotypes']['candidates'])
     return sample_data
 
 
@@ -511,6 +511,10 @@ def type_occamization(sample_data, scheme_df, min_cov_frac=0.05, min_cov=20):
         genotype_kmer_count = {}
         simplified_type_set = list(set(simplified_type_set))
         candidate_data = sample_data[sample]['genotypes']['candidate_data']
+        print("simplified")
+        print(simplified_type_set)
+        print("unique")
+        print(genotype_unique_counts)
 
         for i in genotype_unique_counts:
             genotype = genotype_unique_counts[i]
@@ -529,7 +533,8 @@ def type_occamization(sample_data, scheme_df, min_cov_frac=0.05, min_cov=20):
                 filtered[genotype] = candidate_data[genotype]
         candidate_data = filtered
         del (filtered)
-
+        print("Filtered")
+        print(candidate_data)
         found_pos_kmer_targets = []
         for genotype in candidate_data:
             genotype_kmer_count[genotype] = len(candidate_data[genotype]['targets'])
@@ -1128,7 +1133,7 @@ def run():
     max_mixed_sites = cmd_args.max_mixed_sites
     scheme = cmd_args.scheme
     mode = cmd_args.mode
-    type = cmd_args.mode
+    type = cmd_args.type
     R1 = cmd_args.R1
     R2 = cmd_args.R2
     SE = cmd_args.se
@@ -1397,8 +1402,10 @@ def run():
         profile_st[sample_id] = kmer_summary[sample_id]['positive']
 
     sample_report = {}
-
+    fail_sample_count = 0
     for sample in sample_kmer_data:
+        if sample_kmer_data[sample]['quality']['qc_overall'] == 'Fail':
+            fail_sample_count+=1
         if not sample in sample_report:
             sample_report[sample] = {}
         total_ratio = 0
@@ -1465,6 +1472,6 @@ def run():
         d = dendrogram_visualization()
         d.build_tree_from_dist_matrix(labels, profile_pairwise_distmatrix(profile_st),
                                       report_run_kmer_dendrogram)
-
+    report_run_info_log.write("Samples failing QC\t{}\n".format(fail_sample_count))
     report_run_info_log.write("End Time\t{}\n".format(datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")))
 
