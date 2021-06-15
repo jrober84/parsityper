@@ -292,16 +292,16 @@ def identify_compatible_types(scheme_df, sample_data, min_cov_frac, detection_li
                     temp_seqs = list(set(positive_seqs + partial_pos_seqs))
                     if len(positive_seqs) > 0:
                         e_list = list(set(genotypes) - set(positive_seqs + partial_pos_seqs))
-                        if sample in e_list:
-                            print("{} pos {} exclude {}".format(sample, target, list(
-                                set(genotypes) - set(positive_seqs + partial_pos_seqs))))
+                        #if 'B.1.1.7' in e_list:
+                        #    print("{} pos {} exclude {}".format(sample, target, list(
+                        #        set(genotypes) - set(positive_seqs + partial_pos_seqs))))
                         sample_data[sample]['genotypes']['exclude'].extend(
                             list(set(genotypes) - set(positive_seqs + partial_pos_seqs)))
 
             elif sum(sample_data[sample]['counts'][target].values()) >= detection_limit:
-               if sample in positive_seqs:
-                    print("{} neg {} exclude {}".format(sample, target, positive_seqs))
-                    sample_data[sample]['genotypes']['exclude'].extend(positive_seqs)
+               #if 'B.1.1.7' in positive_seqs:
+               #     print("{} neg {} exclude {}".format(sample, target, positive_seqs))
+                sample_data[sample]['genotypes']['exclude'].extend(positive_seqs)
 
             sample_data[sample]['genotypes']['include'] = list(
                 set(sample_data[sample]['genotypes']['include']) - set(['nan']))
@@ -327,7 +327,7 @@ def identify_compatible_types(scheme_df, sample_data, min_cov_frac, detection_li
             # sample_data[sample]['genotypes']['candidates'] = list(set(sample_data[sample]['genotypes']['candidates'] ) & set(informative))
             sample_data[sample]['genotypes']['candidates'] = list(
                 set(sample_data[sample]['genotypes']['candidates']) - set('nan'))
-    print(sample_data[sample]['genotypes']['candidates'])
+    #print(sample_data[sample]['genotypes']['candidates'])
     return sample_data
 
 
@@ -511,10 +511,10 @@ def type_occamization(sample_data, scheme_df, min_cov_frac=0.05, min_cov=20):
         genotype_kmer_count = {}
         simplified_type_set = list(set(simplified_type_set))
         candidate_data = sample_data[sample]['genotypes']['candidate_data']
-        print("simplified")
-        print(simplified_type_set)
-        print("unique")
-        print(genotype_unique_counts)
+        #print("simplified")
+        #print(simplified_type_set)
+        #print("unique")
+        #print(genotype_unique_counts)
 
         for i in genotype_unique_counts:
             genotype = genotype_unique_counts[i]
@@ -533,8 +533,8 @@ def type_occamization(sample_data, scheme_df, min_cov_frac=0.05, min_cov=20):
                 filtered[genotype] = candidate_data[genotype]
         candidate_data = filtered
         del (filtered)
-        print("Filtered")
-        print(candidate_data)
+        #print("Filtered")
+        #print(candidate_data)
         found_pos_kmer_targets = []
         for genotype in candidate_data:
             genotype_kmer_count[genotype] = len(candidate_data[genotype]['targets'])
@@ -552,11 +552,15 @@ def type_occamization(sample_data, scheme_df, min_cov_frac=0.05, min_cov=20):
                 if g2 == genotype:
                     continue
                 candidate_data[g2]['targets'] = list(set(candidate_data[g2]['targets']) - set(targets))
+        #print("Candidates")
+        #print(candidate_data)
         filtered = {}
         for genotype in candidate_data:
             if len(candidate_data[genotype]['targets']) > 0 and genotype in simplified_type_set:
                 filtered[genotype] = candidate_data[genotype]
         candidate_data = filtered
+        #print("Filtered")
+        #print(candidate_data)
         # print("{}\t{}".format(sample,filtered))
         sample_data[sample]['genotypes']['candidate_data'] = filtered
         sample_data[sample]['genotypes']['unique'] = list(set(unique) - set(list(candidate_data.keys())))
@@ -1219,10 +1223,10 @@ def run():
         summary_file = os.path.join(outdir, "primers.bh.summary.txt")
         simple_file = os.path.join(outdir, "primers.bh.simple.txt")
         logger.info("Identifying kmers which are found in selected primer set {}".format(primers))
-        (stdout, stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, [primer_file], kmer_file, summary_file,
-                                                           simple_file, min_cov, min_cov_frac, nthreads)
-        logger.info("Biohansel stdout: {}".format(stdout))
-        logger.info("Biohansel sterr: {}".format(stderr))
+        #(stdout, stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, [primer_file], kmer_file, summary_file,
+        #                                                   simple_file, min_cov, min_cov_frac, nthreads)
+        #logger.info("Biohansel stdout: {}".format(stdout))
+        #logger.info("Biohansel sterr: {}".format(stderr))
         primer_df = read_tsv(kmer_file)
         primer_data = process_biohansel_kmer(scheme_kmer_groups, scheme_target_to_group_mapping,
                                              scheme_kmer_target_info, primer_df, min_cov)
@@ -1336,8 +1340,8 @@ def run():
         input_data = SE
 
         logger.info("Identifying kmers which are found in input {}".format(SE))
-        (stdout, stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, [SE], kmer_file, summary_file,
-                                                           simple_file, min_cov, min_cov_frac, nthreads)
+        #(stdout, stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, [SE], kmer_file, summary_file,
+        #                                                   simple_file, min_cov, min_cov_frac, nthreads)
         sample_kmer_biohansel_df = read_tsv(kmer_file)
         logger.info("Processing bioHansel results")
         sample_kmer_results = process_biohansel_kmer(scheme_kmer_groups, scheme_target_to_group_mapping,
@@ -1352,8 +1356,8 @@ def run():
         sample_kmer_results = process_biohansel_kmer(scheme_kmer_groups, scheme_target_to_group_mapping,
                                                      scheme_kmer_target_info, sample_kmer_biohansel_df, min_cov)
 
-    logger.info("Biohansel stdout: {}".format(stdout))
-    logger.info("Biohansel sterr: {}".format(stderr))
+    #logger.info("Biohansel stdout: {}".format(stdout))
+   # logger.info("Biohansel sterr: {}".format(stderr))
     logger.info("Reading bioHansel results")
     report_run_info_log.write("Input Data\t{}\n".format(input_data))
     logger.info("Determining kmer target ratios")
@@ -1410,7 +1414,8 @@ def run():
             sample_report[sample] = {}
         total_ratio = 0
         unassigned_positive_kmers = kmer_summary[sample]['positive']
-
+        #print('------')
+        #print(sample_kmer_data[sample]['genotypes']['candidate_data'])
         for genotype in sample_kmer_data[sample]['genotypes']['candidate_data']:
             data = sample_kmer_data[sample]['genotypes']['candidate_data'][genotype]
 
