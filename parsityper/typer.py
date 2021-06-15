@@ -1336,7 +1336,7 @@ def run():
         input_data = SE
 
         logger.info("Identifying kmers which are found in input {}".format(SE))
-        (stdout, stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, SE, kmer_file, summary_file,
+        (stdout, stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, [SE], kmer_file, summary_file,
                                                            simple_file, min_cov, min_cov_frac, nthreads)
         sample_kmer_biohansel_df = read_tsv(kmer_file)
         logger.info("Processing bioHansel results")
