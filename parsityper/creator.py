@@ -1,4 +1,5 @@
 #!/usr/bin/python
+import time
 from argparse import (ArgumentParser, FileType)
 import logging, os, sys, re, collections, operator, math, shutil, datetime
 from collections import Counter
@@ -7,7 +8,7 @@ from parsityper.helpers import init_console_logger, read_tsv, parse_reference_se
 find_snp_positions, find_snp_kmers, find_indel_kmers, find_internal_gaps, scheme_to_biohansel_fasta, init_kmer_targets, count_kmers, count_ambig, \
 get_kmer_complexity, calc_md5, get_expanded_kmer_number, get_kmer_groups, get_kmer_group_mapping, add_key, generate_phase_md5
 from parsityper.bio_hansel import bio_hansel
-from parsityper.helpers import  profile_pairwise_distmatrix, expand_degenerate_bases, revcomp
+from parsityper.helpers import  profile_pairwise_distmatrix, expand_degenerate_bases, revcomp, generate_ref_kmers
 from parsityper.visualizations import dendrogram_visualization
 
 
@@ -37,8 +38,12 @@ def parse_args():
                         help='Absolute maximum of states allowed per kmer',default=256)
     parser.add_argument('--min_complexity', type=int, required=False,
                         help='Absolute maximum of dimer composition',default=0.6)
-
+    parser.add_argument('--max_missing', type=float, required=False,
+                        help='Absolute maximum percentage of sequences allowed to be missing kmer',default=0.1)
     return parser.parse_args()
+
+
+
 
 def print_scheme(scheme,file):
     """
@@ -398,6 +403,8 @@ def run():
     max_len = cmd_args.max_len
     max_ambig = cmd_args.max_ambig
     min_complexity = cmd_args.min_complexity
+    max_missing = cmd_args.max_missing
+
 
     # initialize analysis directory
     if not os.path.isdir(outdir):
@@ -419,6 +426,7 @@ def run():
 
     #Read the input MSA and calculate the consensus sequence
     input_alignment = read_fasta(input_msa)
+    min_members = len(input_alignment) - len(input_alignment)*max_missing
     consensus_bases = calc_consensus(input_alignment)
     consensus_seq = generate_consensus_seq(consensus_bases)
 
@@ -426,19 +434,23 @@ def run():
     metadata_df = read_tsv(input_meta)
     genotype_mapping = get_genotype_mapping(metadata_df)
 
-
+    print("Generating kmers")
+    stime = time.time()
+    sample_kmers = generate_ref_kmers(input_alignment, min_len, max_len)
+    print(time.time() - stime)
     #Identify variable positions within the alignment
+    stime = time.time()
     snp_positions = find_snp_positions(consensus_seq)
-
+    print(time.time()-stime)
     sequence_deletions = {}
     for seq_id in input_alignment:
         sequence_deletions[seq_id] = find_internal_gaps(input_alignment[seq_id])
 
     #Identify kmers which are compatible with the user specifications around each mutation
-    scheme = find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,ref_features,ref_id, \
-                            min_len=min_len,max_len=max_len,max_ambig=max_ambig)
-    scheme.update(find_indel_kmers(input_alignment, sequence_deletions, consensus_seq, ref_features, ref_id, \
-                            min_len=min_len,max_len=max_len,max_ambig=max_ambig))
+    scheme = find_snp_kmers(input_alignment,sample_kmers,snp_positions,consensus_bases,consensus_seq,ref_features,ref_id, \
+                            min_len=min_len,max_len=max_len,max_ambig=max_ambig,min_members=min_members )
+    scheme.update(find_indel_kmers(input_alignment, sample_kmers, sequence_deletions, consensus_seq, ref_features, ref_id, \
+                            min_len=min_len,max_len=max_len,max_ambig=max_ambig,min_members=min_members ))
     print_scheme(add_key(scheme), scheme_file)
     scheme = build_kmer_groups(scheme)
     #Identify problems with selected kmers so that the user can filter them
@@ -515,7 +527,6 @@ def run():
     multiplicity_targets = list(set(temp))
 
 
-    #print(scheme.keys())
     #Identify problems with selected kmers so that the user can filter them
     scheme = qa_scheme(scheme,missing_targets, multiplicity_targets, min_len=min_len,max_len=max_len,max_ambig=max_ambig,min_complexity=min_complexity)
 
@@ -525,11 +536,11 @@ def run():
     kmer_profile = build_kmer_profiles(scheme)
 
     #create a plot of sample similarity for a multi-sample run
-    #if len(kmer_profile ) > 1:
-    #    dist_matrix = profile_pairwise_distmatrix(kmer_profile)
-    #    print(dist_matrix)
-    #    d = dendrogram_visualization()
-    #    d.build_tree_from_dist_matrix(list(kmer_profile.keys()),dist_matrix ,genotype_dendrogram)
+    if len(kmer_profile ) > 1:
+        dist_matrix = profile_pairwise_distmatrix(kmer_profile)
+        print(dist_matrix)
+        d = dendrogram_visualization()
+        d.build_tree_from_dist_matrix(list(kmer_profile.keys()),dist_matrix ,genotype_dendrogram)
 
     #identify genotype shared kmers
     shared_kmers = identify_shared_kmer(genotype_mapping,kmer_profile,min_thresh=0.5,max_thresh=1)

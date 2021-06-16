@@ -1,6 +1,6 @@
 from Bio import SeqIO
 import pandas as pd
-import logging, os, sys, re, collections, operator, math, shutil, datetime, copy
+import logging, os, sys, re, collections, operator, math, shutil, datetime, copy, time
 from itertools import product
 
 from collections import Counter
@@ -759,7 +759,7 @@ def count_kmers(seq, K=2):
     return mers
 
 
-def optimize_kmer(pos,reference_sequence,min_length,max_length,max_ambig=5,min_complexity=0.2):
+def optimize_kmer(pos,reference_sequence,sample_kmers, min_length,max_length,min_members,max_ambig=5,min_complexity=0.2):
     """
     Accepts a position and a sequence and determines the kmer stretch which maximizes length, complexity and minimizes
     ambiguous characters
@@ -809,6 +809,7 @@ def optimize_kmer(pos,reference_sequence,min_length,max_length,max_ambig=5,min_c
             kmer = reference_sequence[rel_start:rel_end].replace('-','')
             klen = len(kmer)
 
+
             if klen > max_length :
                 continue
 
@@ -837,7 +838,10 @@ def optimize_kmer(pos,reference_sequence,min_length,max_length,max_ambig=5,min_c
 
             if prev_score < score:
                 prev_score = score
-                opt_kmer = [rel_start,rel_end]
+                if is_kmer_valid(kmer, sample_kmers, min_members):
+                    opt_kmer = [rel_start,rel_end]
+
+
     if opt_kmer[0] == -1:
         opt_kmer = [istart, iend]
     kmer = reference_sequence[opt_kmer[0]:opt_kmer[1]].replace('-', '')
@@ -848,88 +852,20 @@ def optimize_kmer(pos,reference_sequence,min_length,max_length,max_ambig=5,min_c
 
 
 
-def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_complexity=0.6):
+def find_snp_kmers(input_alignment,sample_kmers,snp_positions,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6):
     scheme = {}
     anything_but_bases = NEGATE_BASE_IUPAC
     ref_len = len(input_alignment[ref_name])
     ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_name])
-    start_positions = []
     used_kmer_positions = []
 
     # Add snps into the kmer scheme
     for pos in snp_positions:
-        #is_used = False
-        (start,end) = optimize_kmer(pos, consensus_seq, min_len, max_len, max_ambig, min_complexity)
-        #for s,e in used_kmer_positions:
-        #    if s == start and e == end:
-        #        is_used = True
-
-        #no_gap_start_base = ref_non_gap_lookup[start]
-        #no_gap_start_pos = start
-        #i = start
-        #while no_gap_start_base == -1:
-        #    i -= 1
-        #    no_gap_start_base = ref_non_gap_lookup[i]
-        #    no_gap_start_pos = i
-
-        #is_end_used = True
-        #is_start_used = True
-
-        #BH does not allow the same start position for a kmer  so need to unique it
-        #while no_gap_start_pos in start_positions and start < pos and is_used:
-        #    delta = False
-        #    if is_start_used or not delta:
-        #        start += 1
-        #        delta = True
-        #    if is_end_used or not delta:
-        #        end += 1
-        #        delta = True
-        #    no_gap_start_pos = ref_non_gap_lookup[start]
-        #    no_gap_start_base = ref_non_gap_lookup[start]
-        #    i = start
-         #   while no_gap_start_base == -1:
-         #       no_gap_start_base = ref_non_gap_lookup[i]
-         #       no_gap_start_pos = no_gap_start_base
-         #       i -= 1
-
-          #  is_used == False
-           # is_end_used = False
-           # is_start_used = False
-
-            #for s, e in used_kmer_positions:
-            #    if s == start and e == end:
-            #        is_used = True
-            #        if e == end:
-            #            is_end_used = True
-            #        if s == start:
-            #            is_start_used = True
-
+        stime = time.time()
+        (start,end) = optimize_kmer(pos, consensus_seq, sample_kmers, min_len, max_len, max_ambig, min_complexity)
+        print(time.time() - stime)
         if start < 0:
             start = 0
-
-        #i = start
-        #no_gap_start_base = ref_non_gap_lookup[i]
-        #while no_gap_start_base == -1:
-        #    no_gap_start_base = ref_non_gap_lookup[i]
-        #    i -= 1
-        #if end >= ref_len:
-        #    end = ref_len -1
-        #i = end
-        #no_gap_end_base = ref_non_gap_lookup[i]
-        #while no_gap_end_base == -1 and i > 0:
-        #    no_gap_start_base = ref_non_gap_lookup[i]
-        #    i -= 1
-        #if abs(no_gap_start_base - no_gap_end_base) < min_len:
-        #    (start, end) = optimize_kmer(pos, consensus_seq, min_len, max_len, max_ambig, min_complexity)
-        #    i = start
-        #    no_gap_start_base = ref_non_gap_lookup[i]
-        #    while no_gap_start_base == -1:
-        #        no_gap_start_base = ref_non_gap_lookup[i]
-        #        no_gap_start_pos = no_gap_start_base
-        #        i -= 1
-
-        #start_positions.append(no_gap_start_pos)
-        #used_kmer_positions.append([start,end])
 
         rel_start = start
         rel_end = end + 1
@@ -950,12 +886,6 @@ def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,r
             base = snps[i]
             if i > 0:
                 is_used = False
-                is_end_used = False
-                is_start_used = False
-                #for s, e in used_kmer_positions:
-                #    if s == rel_start and e == rel_end:
-                #        is_used = True
-
                 while is_used:
                     is_used = False
                     for s, e in used_kmer_positions:
@@ -1023,7 +953,6 @@ def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,r
                 'partial_positive_seqs': [],
 
             }
-            #print("{}\t{}\t{}\t{}\t{}\t{}".format(start, end, pos, rel_start, rel_end, rel_pos))
 
             seq_bases = get_kmers(pos, pos + 1, input_alignment)
             for seq_id in seq_bases:
@@ -1034,7 +963,7 @@ def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,r
 
     return scheme
 
-def find_indel_kmers(input_alignment,indels,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig):
+def find_indel_kmers(input_alignment,sample_kmers,indels,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6):
     scheme = {}
     ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_name])
     for seq_id in indels:
@@ -1057,21 +986,29 @@ def find_indel_kmers(input_alignment,indels,consensus_seq,reference_info,ref_nam
                 type = 'ins'
 
             if type == 'ins':
-                (start, end) = optimize_kmer(vend, consensus_seq, min_len, max_len, max_ambig, min_complexity=0.5)
+                #(start, end) = optimize_kmer(vend, consensus_seq, min_len, max_len, max_ambig, min_complexity)
+                (start, end) = optimize_kmer(vend, consensus_seq, sample_kmers, min_len, max_len, max_ambig,
+                                             min_complexity)
 
             else:
-                (start, end) = optimize_kmer(vend, input_alignment[seq_id], min_len, max_len, max_ambig, min_complexity=0.5)
+                #(start, end) = optimize_kmer(vend, input_alignment[seq_id], min_len, max_len, max_ambig, min_complexity)
+                (start, end) = optimize_kmer(vend, input_alignment[seq_id], sample_kmers, min_len, max_len, max_ambig,
+                                             min_complexity)
 
             if (start == -1 or end == -1) :
                 continue
 
             if vstart < start:
                 if type == 'ins':
-                    params = optimize_kmer(vstart, consensus_seq, min_len, max_len, max_ambig, min_complexity=0.5)
+                    #params = optimize_kmer(vstart, consensus_seq, min_len, max_len, max_ambig, min_complexity=0.5)
+                    params = optimize_kmer(vstart, consensus_seq, sample_kmers, min_len, max_len, max_ambig,
+                                    min_complexity)
 
                 else:
-                    params = optimize_kmer(vstart, input_alignment[seq_id], min_len, max_len, max_ambig,
-                                                 min_complexity=0.5)
+                    #params = optimize_kmer(vstart, input_alignment[seq_id], min_len, max_len, max_ambig,
+                    #                             min_complexity=0.5)
+                    params = optimize_kmer(vstart, input_alignment[seq_id], sample_kmers, min_len, max_len, max_ambig,
+                                    min_complexity)
                 start = params[0]
 
             rel_start = (vstart - start)
@@ -1144,8 +1081,6 @@ def find_indel_kmers(input_alignment,indels,consensus_seq,reference_info,ref_nam
 
             neg_kmer = list(neg_kmer)
             pos_kmer = list(pos_kmer)
-
-
             if variant_pos == variant_neg:
                 continue
 
@@ -1317,3 +1252,51 @@ def process_biohansel_kmer(scheme_kmer_groups,scheme_target_to_group_mapping,sch
                         else:
                             data[sample][member][seq]['freq'] += freq
     return data
+
+
+def sliding_window_kmer(seq,kmer_size):
+    kmers = []
+    l = len(seq) - kmer_size
+    for i in range(0,l):
+        kmers.append(seq[i:i+kmer_size])
+    return kmers
+
+def generate_ref_kmers(aln,min_ksize,max_k_size):
+    seqs = {}
+    for seq_id in aln:
+        print(seq_id)
+        if not seq_id in seqs:
+            seqs[seq_id] = []
+        seq = aln[seq_id].replace('-','')
+        for i in range(min_ksize,max_k_size):
+            seqs[seq_id].extend(sliding_window_kmer(seq, i))
+            seqs[seq_id].extend(sliding_window_kmer(revcomp(seq), i))
+    return seqs
+
+def get_count_kmer_occurances(search,sample_kmers):
+    counts = {}
+    for sample in sample_kmers:
+        counts[sample] = 0
+        for k in sample_kmers[sample]:
+            if k == search:
+                counts[sample]+=1
+    return counts
+
+def is_kmer_valid(search,sample_kmers,min_sample_count):
+    count = 0
+    counts = {}
+    is_valid = True
+    for sample in sample_kmers:
+        if not is_valid:
+            break
+        counts[sample] = 0
+        for k in sample_kmers[sample]:
+            if is_seq_in(k, search):
+                counts[sample]+=1
+                count+=1
+                if counts[sample] > 1:
+                    is_valid = False
+                    break
+    if count < min_sample_count:
+        is_valid = False
+    return is_valid
