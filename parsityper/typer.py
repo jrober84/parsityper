@@ -559,9 +559,6 @@ def type_occamization(sample_data, scheme_df, min_cov_frac=0.05, min_cov=20):
             if len(candidate_data[genotype]['targets']) > 0 and genotype in simplified_type_set:
                 filtered[genotype] = candidate_data[genotype]
         candidate_data = filtered
-        #print("Filtered")
-        #print(candidate_data)
-        # print("{}\t{}".format(sample,filtered))
         sample_data[sample]['genotypes']['candidate_data'] = filtered
         sample_data[sample]['genotypes']['unique'] = list(set(unique) - set(list(candidate_data.keys())))
         sample_data[sample]['genotypes']['candidates'] = list(candidate_data.keys())
@@ -1223,10 +1220,10 @@ def run():
         summary_file = os.path.join(outdir, "primers.bh.summary.txt")
         simple_file = os.path.join(outdir, "primers.bh.simple.txt")
         logger.info("Identifying kmers which are found in selected primer set {}".format(primers))
-        #(stdout, stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, [primer_file], kmer_file, summary_file,
-        #                                                   simple_file, min_cov, min_cov_frac, nthreads)
-        #logger.info("Biohansel stdout: {}".format(stdout))
-        #logger.info("Biohansel sterr: {}".format(stderr))
+        (stdout, stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, [primer_file], kmer_file, summary_file,
+                                                           simple_file, min_cov, min_cov_frac, nthreads)
+        logger.info("Biohansel stdout: {}".format(stdout))
+        logger.info("Biohansel sterr: {}".format(stderr))
         primer_df = read_tsv(kmer_file)
         primer_data = process_biohansel_kmer(scheme_kmer_groups, scheme_target_to_group_mapping,
                                              scheme_kmer_target_info, primer_df, min_cov)
@@ -1340,8 +1337,8 @@ def run():
         input_data = SE
 
         logger.info("Identifying kmers which are found in input {}".format(SE))
-        #(stdout, stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, [SE], kmer_file, summary_file,
-        #                                                   simple_file, min_cov, min_cov_frac, nthreads)
+        (stdout, stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, [SE], kmer_file, summary_file,
+                                                           simple_file, min_cov, min_cov_frac, nthreads)
         sample_kmer_biohansel_df = read_tsv(kmer_file)
         logger.info("Processing bioHansel results")
         sample_kmer_results = process_biohansel_kmer(scheme_kmer_groups, scheme_target_to_group_mapping,
@@ -1356,8 +1353,8 @@ def run():
         sample_kmer_results = process_biohansel_kmer(scheme_kmer_groups, scheme_target_to_group_mapping,
                                                      scheme_kmer_target_info, sample_kmer_biohansel_df, min_cov)
 
-    #logger.info("Biohansel stdout: {}".format(stdout))
-   # logger.info("Biohansel sterr: {}".format(stderr))
+    logger.info("Biohansel stdout: {}".format(stdout))
+    logger.info("Biohansel sterr: {}".format(stderr))
     logger.info("Reading bioHansel results")
     report_run_info_log.write("Input Data\t{}\n".format(input_data))
     logger.info("Determining kmer target ratios")
