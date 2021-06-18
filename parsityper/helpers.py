@@ -7,6 +7,7 @@ from collections import Counter
 from scipy.spatial.distance import cdist
 from parsityper.constants import HTML_TEMPLATE_FILE, LOG_FORMAT, TYPING_SCHEMES, RUN_INFO, NEGATE_BASE_IUPAC, IUPAC_LOOK_UP, bases_dict
 from parsityper.words import NOUNS, COLORS, DESCRIPTORS
+from parsityper.kmerSearch import  init_automaton_dict,expand_degenerate_bases,find_in_fasta_dict,parallel_query_contigs
 import random, hashlib
 import numpy as np
 from datetime import datetime
@@ -759,7 +760,7 @@ def count_kmers(seq, K=2):
     return mers
 
 
-def optimize_kmer(pos,reference_sequence,sample_kmers, min_length,max_length,min_members,max_ambig=5,min_complexity=0.2):
+def optimize_kmer(pos,aln_seqs,reference_sequence,min_length,max_length,min_members,max_ambig=5,min_complexity=0.2,n_threads=1):
     """
     Accepts a position and a sequence and determines the kmer stretch which maximizes length, complexity and minimizes
     ambiguous characters
@@ -784,7 +785,8 @@ def optimize_kmer(pos,reference_sequence,sample_kmers, min_length,max_length,min
         iend = rlen - 1
     if istart < 0:
         istart = 0
-
+    kmers = {}
+    positions = {}
     for length_target in range(min_length,max_length):
         for k in range(start ,pos):
             s = pos - k
@@ -835,11 +837,21 @@ def optimize_kmer(pos,reference_sequence,sample_kmers, min_length,max_length,min
             else:
                 minimum = 1
             score = (1 - ((nt_count+count_ambig)/max_length)) + (1 - minimum) + count_ambig/max_length
+            kmers[kmer] = score
+            positions[kmer] = [rel_start,rel_end]
 
-            if prev_score < score:
-                prev_score = score
-                if is_kmer_valid(kmer, sample_kmers, min_members):
-                    opt_kmer = [rel_start,rel_end]
+
+    kmers = sorted(kmers.items(), key=lambda x: x[1], reverse=True)
+    for kmer,score in kmers:
+
+        A = init_automaton_dict({kmer:kmer})
+        df = parallel_query_contigs(aln_seqs,
+                            A,
+                           n_threads)
+
+        if is_kmer_valid(df, min_members):
+            opt_kmer = opt_kmer = [positions[kmer][0], positions[kmer][1]]
+            break
 
 
     if opt_kmer[0] == -1:
@@ -852,7 +864,7 @@ def optimize_kmer(pos,reference_sequence,sample_kmers, min_length,max_length,min
 
 
 
-def find_snp_kmers(input_alignment,sample_kmers,snp_positions,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6):
+def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
     scheme = {}
     anything_but_bases = NEGATE_BASE_IUPAC
     ref_len = len(input_alignment[ref_name])
@@ -862,7 +874,18 @@ def find_snp_kmers(input_alignment,sample_kmers,snp_positions,consensus_bases,co
     # Add snps into the kmer scheme
     for pos in snp_positions:
         stime = time.time()
-        (start,end) = optimize_kmer(pos, consensus_seq, sample_kmers, min_len, max_len, max_ambig, min_complexity)
+        (start,end) = optimize_kmer(pos=pos,
+                                    aln_seqs=input_alignment,
+                                    reference_sequence=consensus_seq,
+                                    min_length=min_len,
+                                    max_length=max_len,
+                                    min_members=min_members,
+                                    max_ambig=max_ambig,
+                                    min_complexity=min_complexity,
+                                    n_threads=n_threads)
+        kmer = consensus_seq[start:end].replace('-','')
+        print("{}\t{}\t{}".format(start,end,kmer))
+
         print(time.time() - stime)
         if start < 0:
             start = 0
@@ -963,7 +986,7 @@ def find_snp_kmers(input_alignment,sample_kmers,snp_positions,consensus_bases,co
 
     return scheme
 
-def find_indel_kmers(input_alignment,sample_kmers,indels,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6):
+def find_indel_kmers(input_alignment,indels,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
     scheme = {}
     ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_name])
     for seq_id in indels:
@@ -986,14 +1009,27 @@ def find_indel_kmers(input_alignment,sample_kmers,indels,consensus_seq,reference
                 type = 'ins'
 
             if type == 'ins':
-                #(start, end) = optimize_kmer(vend, consensus_seq, min_len, max_len, max_ambig, min_complexity)
-                (start, end) = optimize_kmer(vend, consensus_seq, sample_kmers, min_len, max_len, max_ambig,
-                                             min_complexity)
+                (start, end) = optimize_kmer(pos=vend,
+                                             aln_seqs=input_alignment,
+                                             reference_sequence=consensus_seq,
+                                             min_length=min_len,
+                                             max_length=max_len,
+                                             min_members=min_members,
+                                             max_ambig=max_ambig,
+                                             min_complexity=min_complexity,
+                                             n_threads=n_threads)
+
 
             else:
                 #(start, end) = optimize_kmer(vend, input_alignment[seq_id], min_len, max_len, max_ambig, min_complexity)
-                (start, end) = optimize_kmer(vend, input_alignment[seq_id], sample_kmers, min_len, max_len, max_ambig,
-                                             min_complexity)
+                (start, end) = optimize_kmer(pos=vend,
+                                             aln_seqs=input_alignment,
+                                             reference_sequence=input_alignment[seq_id],
+                                             min_length=min_len,
+                                             max_length=max_len,
+                                             min_members=min_members,
+                                             max_ambig=max_ambig,
+                                             min_complexity=min_complexity)
 
             if (start == -1 or end == -1) :
                 continue
@@ -1001,14 +1037,28 @@ def find_indel_kmers(input_alignment,sample_kmers,indels,consensus_seq,reference
             if vstart < start:
                 if type == 'ins':
                     #params = optimize_kmer(vstart, consensus_seq, min_len, max_len, max_ambig, min_complexity=0.5)
-                    params = optimize_kmer(vstart, consensus_seq, sample_kmers, min_len, max_len, max_ambig,
-                                    min_complexity)
+
+                    params = optimize_kmer(pos=vstart,
+                                                 aln_seqs=input_alignment,
+                                                 reference_sequence=consensus_seq,
+                                                 min_length=min_len,
+                                                 max_length=max_len,
+                                                 min_members=min_members,
+                                                 max_ambig=max_ambig,
+                                                 min_complexity=min_complexity)
 
                 else:
                     #params = optimize_kmer(vstart, input_alignment[seq_id], min_len, max_len, max_ambig,
                     #                             min_complexity=0.5)
-                    params = optimize_kmer(vstart, input_alignment[seq_id], sample_kmers, min_len, max_len, max_ambig,
-                                    min_complexity)
+
+                    params = optimize_kmer(pos=vstart,
+                                                 aln_seqs=input_alignment,
+                                                 reference_sequence=input_alignment[seq_id],
+                                                 min_length=min_len,
+                                                 max_length=max_len,
+                                                 min_members=min_members,
+                                                 max_ambig=max_ambig,
+                                                 min_complexity=min_complexity)
                 start = params[0]
 
             rel_start = (vstart - start)
@@ -1180,15 +1230,17 @@ def add_key(scheme):
 
 def is_seq_in(target,query):
     len_target = len(target)
-    if len_target != len(query):
+    len_query = len(query)
+    if len_target != len_query :
         return False
-    for i in range(0,len(query)):
+    for i in range(0,len_query ):
 
         baseT = bases_dict[target[i]]
         baseQ = bases_dict[query[i]]
-        intersect = list(set(baseT) & set(baseQ))
-        if len(intersect) == 0:
-            return False
+        if baseQ != baseT:
+            intersect = set(baseT) & set(baseQ)
+            if len(intersect) == 0:
+                return False
 
     return True
 
@@ -1264,13 +1316,14 @@ def sliding_window_kmer(seq,kmer_size):
 def generate_ref_kmers(aln,min_ksize,max_k_size):
     seqs = {}
     for seq_id in aln:
-        print(seq_id)
         if not seq_id in seqs:
-            seqs[seq_id] = []
+            seqs[seq_id] = {}
         seq = aln[seq_id].replace('-','')
         for i in range(min_ksize,max_k_size):
-            seqs[seq_id].extend(sliding_window_kmer(seq, i))
-            seqs[seq_id].extend(sliding_window_kmer(revcomp(seq), i))
+            if not i in seqs[seq_id]:
+                seqs[seq_id][i] = []
+            seqs[seq_id][i].extend(sliding_window_kmer(seq, i))
+            seqs[seq_id][i].extend(sliding_window_kmer(revcomp(seq), i))
     return seqs
 
 def get_count_kmer_occurances(search,sample_kmers):
@@ -1282,21 +1335,11 @@ def get_count_kmer_occurances(search,sample_kmers):
                 counts[sample]+=1
     return counts
 
-def is_kmer_valid(search,sample_kmers,min_sample_count):
-    count = 0
-    counts = {}
+def is_kmer_valid(df,min_members):
     is_valid = True
-    for sample in sample_kmers:
-        if not is_valid:
-            break
-        counts[sample] = 0
-        for k in sample_kmers[sample]:
-            if is_seq_in(k, search):
-                counts[sample]+=1
-                count+=1
-                if counts[sample] > 1:
-                    is_valid = False
-                    break
-    if count < min_sample_count:
+    counts = df['contig_id'].describe()
+    if counts['count'] < min_members:
+        is_valid = False
+    elif counts['freq'] > 1:
         is_valid = False
     return is_valid

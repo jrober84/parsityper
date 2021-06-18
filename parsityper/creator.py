@@ -39,7 +39,9 @@ def parse_args():
     parser.add_argument('--min_complexity', type=int, required=False,
                         help='Absolute maximum of dimer composition',default=0.6)
     parser.add_argument('--max_missing', type=float, required=False,
-                        help='Absolute maximum percentage of sequences allowed to be missing kmer',default=0.1)
+                        help='Absolute maximum percentage of sequences allowed to be missing kmer',default=0.25)
+    parser.add_argument('--n_threads', type=int, required=False,
+                        help='Number of threads to use',default=1)
     return parser.parse_args()
 
 
@@ -404,6 +406,7 @@ def run():
     max_ambig = cmd_args.max_ambig
     min_complexity = cmd_args.min_complexity
     max_missing = cmd_args.max_missing
+    n_threads = cmd_args.n_threads
 
 
     # initialize analysis directory
@@ -436,7 +439,8 @@ def run():
 
     print("Generating kmers")
     stime = time.time()
-    sample_kmers = generate_ref_kmers(input_alignment, min_len, max_len)
+    #sample_kmers = generate_ref_kmers(input_alignment, min_len, max_len)
+    #print(sample_kmers)
     print(time.time() - stime)
     #Identify variable positions within the alignment
     stime = time.time()
@@ -447,10 +451,10 @@ def run():
         sequence_deletions[seq_id] = find_internal_gaps(input_alignment[seq_id])
 
     #Identify kmers which are compatible with the user specifications around each mutation
-    scheme = find_snp_kmers(input_alignment,sample_kmers,snp_positions,consensus_bases,consensus_seq,ref_features,ref_id, \
-                            min_len=min_len,max_len=max_len,max_ambig=max_ambig,min_members=min_members )
-    scheme.update(find_indel_kmers(input_alignment, sample_kmers, sequence_deletions, consensus_seq, ref_features, ref_id, \
-                            min_len=min_len,max_len=max_len,max_ambig=max_ambig,min_members=min_members ))
+    scheme = find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,ref_features,ref_id, \
+                            min_len=min_len,max_len=max_len,max_ambig=max_ambig,min_members=min_members,n_threads=n_threads )
+    scheme.update(find_indel_kmers(input_alignment, sequence_deletions, consensus_seq, ref_features, ref_id, \
+                            min_len=min_len,max_len=max_len,max_ambig=max_ambig,min_members=min_members,n_threads=n_threads ))
     print_scheme(add_key(scheme), scheme_file)
     scheme = build_kmer_groups(scheme)
     #Identify problems with selected kmers so that the user can filter them

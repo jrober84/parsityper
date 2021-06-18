@@ -292,16 +292,16 @@ def identify_compatible_types(scheme_df, sample_data, min_cov_frac, detection_li
                     temp_seqs = list(set(positive_seqs + partial_pos_seqs))
                     if len(positive_seqs) > 0:
                         e_list = list(set(genotypes) - set(positive_seqs + partial_pos_seqs))
-                        #if 'B.1.1.7' in e_list:
+                        #if 'P.1' in e_list:
                         #    print("{} pos {} exclude {}".format(sample, target, list(
                         #        set(genotypes) - set(positive_seqs + partial_pos_seqs))))
                         sample_data[sample]['genotypes']['exclude'].extend(
                             list(set(genotypes) - set(positive_seqs + partial_pos_seqs)))
 
             elif sum(sample_data[sample]['counts'][target].values()) >= detection_limit:
-               #if 'B.1.1.7' in positive_seqs:
+               #if 'P.1' in positive_seqs:
                #     print("{} neg {} exclude {}".format(sample, target, positive_seqs))
-                sample_data[sample]['genotypes']['exclude'].extend(positive_seqs)
+               sample_data[sample]['genotypes']['exclude'].extend(positive_seqs)
 
             sample_data[sample]['genotypes']['include'] = list(
                 set(sample_data[sample]['genotypes']['include']) - set(['nan']))
