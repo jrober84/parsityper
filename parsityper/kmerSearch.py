@@ -78,6 +78,7 @@ def init_automaton_dict(seqs):
     Returns:
          Aho-Corasick Automaton with kmers loaded
     """
+    stime = time.time()
     A = Automaton()
     for seq_id in seqs:
         sequence = seqs[seq_id]
@@ -86,6 +87,7 @@ def init_automaton_dict(seqs):
             A.add_word(seq, (seq_id, seq, False))
             A.add_word(revcomp(seq), (seq_id, seq, True))
     A.make_automaton()
+    print("time taken for build: {}".format(time.time() - stime))
     return A
 
 
@@ -207,6 +209,8 @@ def parallel_query_contigs_bck(input_genomes,
 def parallel_query_contigs(input_genomes,
                             automaton: Automaton,
                            n_threads: int = 1):
+    print("===>{}".format(n_threads))
+    stime = time.time()
     if n_threads == 1:
         return find_in_fasta_dict(automaton,input_genomes)
     else:
@@ -215,14 +219,24 @@ def parallel_query_contigs(input_genomes,
         res = []
         it = iter(input_genomes)
         length = len(input_genomes)
-        chunk_size = int(length / 2)
+        chunk_size = int(length / n_threads)
+
         for i in range(0, length, chunk_size):
             chunk = {}
+            sub = time.time()
             for seq_id in itertools.islice(it,chunk_size):
                 seq = input_genomes[seq_id]
                 chunk[seq_id] = seq
-
             res.append(pool.apply_async(find_in_fasta_dict,  ( automaton, chunk  )))
+            print("time taken to submit: {}".format(time.time() - sub))
+        #cleanup
+        pool.close()
+        pool.join()
+        pd.concat([x.get() for x in res])
+        print("time taken for search: {} with {} threads".format(time.time()-stime,n_threads))
+        stime = time.time()
+        find_in_fasta_dict(automaton, input_genomes)
+        print("time taken for search: {} with {} threads".format(time.time() - stime, 1))
 
         return pd.concat([x.get() for x in res])
 

@@ -2,7 +2,7 @@ from Bio import SeqIO
 import pandas as pd
 import logging, os, sys, re, collections, operator, math, shutil, datetime, copy, time
 from itertools import product
-
+from multiprocessing import Pool
 from collections import Counter
 from scipy.spatial.distance import cdist
 from parsityper.constants import HTML_TEMPLATE_FILE, LOG_FORMAT, TYPING_SCHEMES, RUN_INFO, NEGATE_BASE_IUPAC, IUPAC_LOOK_UP, bases_dict
@@ -862,9 +862,128 @@ def optimize_kmer(pos,aln_seqs,reference_sequence,min_length,max_length,min_memb
 
     return opt_kmer
 
+def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
+    stime = time.time()
+    anything_but_bases = NEGATE_BASE_IUPAC
+    ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_name])
+    scheme = {}
+    # remove any cases of variable site where it is a IUPAC character as the delta
+    bases = consensus_bases[pos]
+    snps = []
+    for base in bases:
+        if base in ['A', 'T', 'C', 'G']:
+            if bases[base] > 0:
+                snps.append(base)
+    count_states = len(snps)
+
+    if count_states == 1:
+        return {}
+
+    (start, end) = optimize_kmer(pos=pos,
+                                 aln_seqs=input_alignment,
+                                 reference_sequence=consensus_seq,
+                                 min_length=min_len,
+                                 max_length=max_len,
+                                 min_members=min_members,
+                                 max_ambig=max_ambig,
+                                 min_complexity=min_complexity,
+                                 n_threads=n_threads)
+    kmer = consensus_seq[start:end].replace('-', '')
+
+    if start < 0:
+        start = 0
+
+    rel_start = start
+    rel_end = end + 1
+
+    for i in range(0, len(snps)):
+        base = snps[i]
+        if i > 0:
+
+            if rel_start > pos or rel_end > ref_len:
+                rel_start = start
+                rel_end = end + 1
+
+        rel_pos = pos - rel_start
+        pos_kmer = list(consensus_seq[rel_start:rel_end])
+        pos_kmer[rel_pos] = base
+        neg_kmer = list(consensus_seq[rel_start:rel_end])
+        neg_kmer[rel_pos] = anything_but_bases[base]
+        ref_base = input_alignment[ref_name][pos]
+        if ref_base == base:
+            continue
+
+        non_gap_pos = ref_non_gap_lookup[pos]
+        while non_gap_pos == -1:
+            pos -= 1
+            non_gap_pos = ref_non_gap_lookup[pos]
+
+        kmer_name = "{}{}{}".format(base, non_gap_pos, ref_base)
+        aa_info = get_aa_delta(non_gap_pos, non_gap_pos, base, reference_info, ref_name, trans_table=1)
+
+        if aa_info['aa_start'] != -1 and aa_info['aa_end'] != -1:
+            kmer_name_aa = "{}{}{}".format(aa_info['ref_state'], aa_info['aa_start'], aa_info['alt_state'])
+        else:
+            kmer_name_aa = 'N/A'
+
+        scheme[kmer_name] = {
+            'dna_name': kmer_name,
+            'aa_name': kmer_name_aa,
+            'type': 'snp',
+            'gene': aa_info['gene'],
+            'gene_start': aa_info['gene_start'],
+            'gene_end': aa_info['gene_end'],
+            'cds_start': aa_info['cds_start'],
+            'cds_end': aa_info['cds_end'],
+            'is_silent': aa_info['is_silent'],
+            'is_frame_shift': False,
+            'ref_aa': aa_info['ref_state'],
+            'alt_aa': aa_info['alt_state'],
+            'variant_start': non_gap_pos,
+            'variant_end': non_gap_pos,
+            'kmer_start': rel_start + 1,
+            'kmer_end': rel_end + 1,
+            'variant_pos': base,
+            'variant_neg': anything_but_bases[base],
+            'positive': ''.join(pos_kmer),
+            'negative': ''.join(neg_kmer),
+            'positive_seqs': [],
+            'partial_positive_seqs': [],
+
+        }
+
+        seq_bases = get_kmers(pos, pos + 1, input_alignment)
+        for seq_id in seq_bases:
+            if seq_bases[seq_id] == base:
+                scheme[kmer_name]['positive_seqs'].append(seq_id)
+        if len(scheme[kmer_name]['positive_seqs']) == 0:
+            del (scheme[kmer_name])
+    return scheme
+
 
 
 def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
+    scheme = {}
+    anything_but_bases = NEGATE_BASE_IUPAC
+    ref_len = len(input_alignment[ref_name])
+    ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_name])
+    used_kmer_positions = []
+    res = []
+    pool = Pool(processes=n_threads)
+    # Add snps into the kmer scheme
+    for pos in snp_positions:
+        stime = time.time()
+        res.append(
+                    add_snp_kmer_to_scheme(pos, ref_len, input_alignment, consensus_bases,
+                                           consensus_seq, reference_info, ref_name,
+                               min_len, max_len, max_ambig, min_members, min_complexity=0.6, n_threads=1))
+
+    pool.close()
+    pool.join()
+    for x in res:
+        scheme.update(x.get())
+    return scheme
+def find_snp_kmers_bck(input_alignment,snp_positions,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
     scheme = {}
     anything_but_bases = NEGATE_BASE_IUPAC
     ref_len = len(input_alignment[ref_name])
@@ -874,6 +993,9 @@ def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,r
     # Add snps into the kmer scheme
     for pos in snp_positions:
         stime = time.time()
+        scheme.update(add_snp_kmer_to_scheme(pos, ref_len, input_alignment, consensus_bases, consensus_seq, reference_info, ref_name,
+                               min_len, max_len, max_ambig, min_members, min_complexity=0.6, n_threads=1))
+
         (start,end) = optimize_kmer(pos=pos,
                                     aln_seqs=input_alignment,
                                     reference_sequence=consensus_seq,
@@ -985,7 +1107,6 @@ def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,r
                 del (scheme[kmer_name])
 
     return scheme
-
 def find_indel_kmers(input_alignment,indels,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
     scheme = {}
     ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_name])
