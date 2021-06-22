@@ -843,7 +843,7 @@ def optimize_kmer(pos,aln_seqs,reference_sequence,min_length,max_length,min_memb
 
     kmers = sorted(kmers.items(), key=lambda x: x[1], reverse=True)
     for kmer,score in kmers:
-
+        print("{}\t{}".format(pos,kmer))
         A = init_automaton_dict({kmer:kmer})
         df = parallel_query_contigs(aln_seqs,
                             A,
