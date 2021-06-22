@@ -2,7 +2,7 @@ from Bio import SeqIO
 import pandas as pd
 import logging, os, sys, re, collections, operator, math, shutil, datetime, copy, time
 from itertools import product
-from multiprocessing import Pool
+from multiprocessing import Pool, Manager
 from collections import Counter
 from scipy.spatial.distance import cdist
 from parsityper.constants import HTML_TEMPLATE_FILE, LOG_FORMAT, TYPING_SCHEMES, RUN_INFO, NEGATE_BASE_IUPAC, IUPAC_LOOK_UP, bases_dict
@@ -971,10 +971,13 @@ def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,r
     res = []
     pool = Pool(processes=n_threads)
     # Add snps into the kmer scheme
+    aln = Manager().dict()
+    aln.update(input_alignment)
+
     for pos in snp_positions:
         stime = time.time()
         res.append(
-                    add_snp_kmer_to_scheme(pos, ref_len, input_alignment, consensus_bases,
+                    add_snp_kmer_to_scheme(pos, ref_len, aln, consensus_bases,
                                            consensus_seq, reference_info, ref_name,
                                min_len, max_len, max_ambig, min_members, min_complexity=0.6, n_threads=1))
 
