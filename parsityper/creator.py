@@ -11,7 +11,8 @@ from parsityper.bio_hansel import bio_hansel
 from parsityper.helpers import  profile_pairwise_distmatrix, expand_degenerate_bases, revcomp, generate_ref_kmers
 from parsityper.visualizations import dendrogram_visualization
 from multiprocessing import Process, Manager
-
+from multiprocessing import set_start_method
+set_start_method("spawn")
 
 def parse_args():
     "Parse the input arguments, use '-h' for help"

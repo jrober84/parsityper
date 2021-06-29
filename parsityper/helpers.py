@@ -969,7 +969,7 @@ def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,r
     ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_name])
     used_kmer_positions = []
     res = []
-    pool = Pool(processes=n_threads)
+    pool = Pool(processes=n_threads-1)
     # Add snps into the kmer scheme
     aln = Manager().dict()
     aln.update(input_alignment)
@@ -986,6 +986,7 @@ def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,r
     for x in res:
         scheme.update(x.get())
     return scheme
+
 def find_snp_kmers_bck(input_alignment,snp_positions,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
     scheme = {}
     anything_but_bases = NEGATE_BASE_IUPAC
