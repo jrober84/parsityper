@@ -1,12 +1,15 @@
+from Bio.Seq import Seq
+from Bio import SeqIO
 import itertools
 from collections import defaultdict
-import sys
+import sys,re
 import pandas as pd
 from ahocorasick import Automaton
 from itertools import product
 from typing import List, Any, Optional, Tuple, Union
 NT_SUB = str.maketrans('acgtrymkswhbvdnxACGTRYMKSWHBVDNX',
                        'tgcayrkmswdvbhnxTGCAYRKMSWDVBHNX')
+REGEX_GZIPPED = re.compile(r'^.+\.gz$')
 import time
 import re
 from multiprocessing import Pool
@@ -91,50 +94,6 @@ def init_automaton_dict(seqs):
     print("time taken for build: {}".format(time.time() - stime))
     return A
 
-
-def SimpleFastaParser(handle):
-    """Iterate over Fasta records as string tuples.
-    Arguments:
-     - handle - input stream opened in text mode
-    For each record a tuple of two strings is returned, the FASTA title
-    line (without the leading '>' character), and the sequence (with any
-    whitespace removed). The title line is not divided up into an
-    identifier (the first word) and comment or description.
-    >>> with open("Fasta/dups.fasta") as handle:
-    ...     for values in SimpleFastaParser(handle):
-    ...         print(values)
-    ...
-    ('alpha', 'ACGTA')
-    ('beta', 'CGTC')
-    ('gamma', 'CCGCC')
-    ('alpha (again - this is a duplicate entry to test the indexing code)', 'ACGTA')
-    ('delta', 'CGCGC')
-    """
-    # Skip any text before the first record (e.g. blank lines, comments)
-    for line in handle:
-        if line[0] == ">":
-            title = line[1:].rstrip()
-            break
-    else:
-        # no break encountered - probably an empty file
-        return
-
-    # Main logic
-    # Note, remove trailing whitespace, and any internal spaces
-    # (and any embedded \r which are possible in mangled files
-    # when not opened in universal read lines mode)
-    lines = []
-    for line in handle:
-        if line[0] == ">":
-            yield title, "".join(lines).replace(" ", "").replace("\r", "").upper()
-            lines = []
-            title = line[1:].rstrip()
-            continue
-        lines.append(line.rstrip())
-
-    yield title, "".join(lines).replace(" ", "").replace("\r", "").upper()
-
-REGEX_GZIPPED = re.compile(r'^.+\.gz$')
 def parse_fasta(filepath):
     """Parse a FASTA/FASTA.GZ file returning a generator yielding tuples of fasta headers to sequences.
 
@@ -187,24 +146,6 @@ def find_in_fasta_dict(automaton: Automaton, seqs: dict) -> pd.DataFrame:
             res.append((kmername, kmer_seq, is_revcomp, seq_id, idx))
     columns = ['kmername', 'seq', 'is_revcomp', 'contig_id', 'match_index']
     return pd.DataFrame(res, columns=columns)
-
-
-
-
-def parallel_query_contigs_bck(input_genomes,
-                            automaton: Automaton,
-                           n_threads: int = 1):
-    if n_threads == 1:
-        return find_in_fasta_dict(automaton,input_genomes)
-    else:
-
-        pool = Pool(processes=n_threads)
-        res = []
-        for seq_id in input_genomes:
-            seq = input_genomes[seq_id]
-            res.append(pool.apply_async(find_in_fasta_dict,  ( automaton, {seq_id:seq}  )))
-
-        return pd.concat([x.get() for x in res])
 
 
 def parallel_query_contigs(input_genomes,

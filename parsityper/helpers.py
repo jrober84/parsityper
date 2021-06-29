@@ -464,7 +464,7 @@ def get_aa_delta(start, end, variant, ref_info,ref_name,trans_table=1):
     cds_end = cds_start + vlen
 
     is_silent = True
-    #print("{}\t{}".format(cds_start,cds_end))
+
 
     count_gaps = variant.count('-')
     if count_gaps % 3 > 0:

@@ -10,7 +10,7 @@ get_kmer_complexity, calc_md5, get_expanded_kmer_number, get_kmer_groups, get_km
 from parsityper.bio_hansel import bio_hansel
 from parsityper.helpers import  profile_pairwise_distmatrix, expand_degenerate_bases, revcomp, generate_ref_kmers
 from parsityper.visualizations import dendrogram_visualization
-
+from multiprocessing import Process, Manager
 
 
 def parse_args():
@@ -428,7 +428,9 @@ def run():
     ref_features = parse_reference_sequence(ref_gbk)
 
     #Read the input MSA and calculate the consensus sequence
-    input_alignment = read_fasta(input_msa)
+    manager = Manager()
+    input_alignment = manager.dict()
+    input_alignment.update(read_fasta(input_msa))
     min_members = len(input_alignment) - len(input_alignment)*max_missing
     consensus_bases = calc_consensus(input_alignment)
     consensus_seq = generate_consensus_seq(consensus_bases)
@@ -439,8 +441,7 @@ def run():
 
     print("Generating kmers")
     stime = time.time()
-    #sample_kmers = generate_ref_kmers(input_alignment, min_len, max_len)
-    #print(sample_kmers)
+
     print(time.time() - stime)
     #Identify variable positions within the alignment
     stime = time.time()
@@ -542,7 +543,6 @@ def run():
     #create a plot of sample similarity for a multi-sample run
     if len(kmer_profile ) > 1:
         dist_matrix = profile_pairwise_distmatrix(kmer_profile)
-        print(dist_matrix)
         d = dendrogram_visualization()
         d.build_tree_from_dist_matrix(list(kmer_profile.keys()),dist_matrix ,genotype_dendrogram)
 
