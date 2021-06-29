@@ -972,15 +972,11 @@ def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,r
     used_kmer_positions = []
     res = []
     pool = Pool(processes=n_threads)
-    # Add snps into the kmer scheme
-    aln = Manager().dict()
-    aln.update(input_alignment)
 
 
-    res = [ pool.apply_async(add_snp_kmer_to_scheme, (pos, ref_len, aln, consensus_bases,
+    res = [ pool.apply_async(add_snp_kmer_to_scheme, (pos, ref_len, input_alignment, consensus_bases,
                                            consensus_seq, reference_info, ref_name,
                                min_len, max_len, max_ambig, min_members, 0.6, 1)) for pos in snp_positions]
-
 
 
     pool.close()

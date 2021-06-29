@@ -429,10 +429,12 @@ def run():
     ref_features = parse_reference_sequence(ref_gbk)
 
     #Read the input MSA and calculate the consensus sequence
+    logger.info("Reading input alignment {}".format(input_msa))
     manager = Manager()
     input_alignment = manager.dict()
     input_alignment.update(read_fasta(input_msa))
     min_members = len(input_alignment) - len(input_alignment)*max_missing
+    logger.info("Found {} sequences in msa".format(len(input_alignment)))
     consensus_bases = calc_consensus(input_alignment)
     consensus_seq = generate_consensus_seq(consensus_bases)
 
@@ -440,10 +442,7 @@ def run():
     metadata_df = read_tsv(input_meta)
     genotype_mapping = get_genotype_mapping(metadata_df)
 
-    print("Generating kmers")
-    stime = time.time()
 
-    print(time.time() - stime)
     #Identify variable positions within the alignment
     stime = time.time()
     snp_positions = find_snp_positions(consensus_seq)
