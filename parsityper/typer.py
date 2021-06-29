@@ -1518,4 +1518,4 @@ def run():
                                       report_run_kmer_dendrogram)
     report_run_info_log.write("Samples failing QC\t{}\n".format(fail_sample_count))
     report_run_info_log.write("End Time\t{}\n".format(datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")))
-    coverage_summary_fig = generate_sample_coverage_plot(positive_control_results, no_template_results, sample_kmer_data, scheme_bin_mapping)
+   # coverage_summary_fig = generate_sample_coverage_plot(positive_control_results, no_template_results, sample_kmer_data, scheme_bin_mapping)
