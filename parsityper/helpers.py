@@ -863,6 +863,8 @@ def optimize_kmer(pos,aln_seqs,reference_sequence,min_length,max_length,min_memb
     return opt_kmer
 
 def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
+    from os import getpid
+    print("I'm process", getpid())
     stime = time.time()
     anything_but_bases = NEGATE_BASE_IUPAC
     ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_name])
@@ -969,17 +971,17 @@ def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,r
     ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_name])
     used_kmer_positions = []
     res = []
-    pool = Pool(processes=n_threads-1)
+    pool = Pool(processes=n_threads)
     # Add snps into the kmer scheme
     aln = Manager().dict()
     aln.update(input_alignment)
 
-    for pos in snp_positions:
-        stime = time.time()
-        res.append(
-                    add_snp_kmer_to_scheme(pos, ref_len, aln, consensus_bases,
+
+    res = [ pool.apply_async(add_snp_kmer_to_scheme, (pos, ref_len, aln, consensus_bases,
                                            consensus_seq, reference_info, ref_name,
-                               min_len, max_len, max_ambig, min_members, min_complexity=0.6, n_threads=1))
+                               min_len, max_len, max_ambig, min_members, 0.6, 1)) for pos in snp_positions]
+
+
 
     pool.close()
     pool.join()
