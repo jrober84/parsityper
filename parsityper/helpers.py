@@ -846,7 +846,7 @@ def optimize_kmer(pos,aln_seqs,reference_sequence,min_length,max_length,min_memb
     for kmer,score in kmers:
         print("{}\t{}".format(pos,kmer))
         count_ambig = len(kmer) - (kmer.count('A') + kmer.count('T') + kmer.count('C') + kmer.count('G'))
-        if count_ambig > max_ambig:
+        if count_ambig > max_ambig or len(kmer) < min_length:
             continue
         A = init_automaton_dict({kmer:kmer})
         df = parallel_query_contigs(aln_seqs,
