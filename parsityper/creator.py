@@ -453,11 +453,14 @@ def run():
         sequence_deletions[seq_id] = find_internal_gaps(input_alignment[seq_id])
 
     #Identify kmers which are compatible with the user specifications around each mutation
+    logger.info("Identifying kmers for {} SNPs".format(len(snp_positions)))
     scheme = find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,ref_features,ref_id, \
                             min_len=min_len,max_len=max_len,max_ambig=max_ambig,min_members=min_members,n_threads=n_threads )
+    logger.info("Identifying kmers for {} indels".format(len(sequence_deletions)))
     scheme.update(find_indel_kmers(input_alignment, sequence_deletions, consensus_seq, ref_features, ref_id, \
                             min_len=min_len,max_len=max_len,max_ambig=max_ambig,min_members=min_members,n_threads=n_threads ))
     print_scheme(add_key(scheme), scheme_file)
+    logger.info("Performing first round of qc on kmers")
     scheme = build_kmer_groups(scheme)
     #Identify problems with selected kmers so that the user can filter them
     scheme = qa_scheme(scheme,missing_targets=[], multiplicity_targets=[], min_len=min_len,max_len=max_len,max_ambig=max_ambig,min_complexity=min_complexity)
@@ -532,7 +535,7 @@ def run():
 
     multiplicity_targets = list(set(temp))
 
-
+    logger.info("Performing second round of qc on kmers")
     #Identify problems with selected kmers so that the user can filter them
     scheme = qa_scheme(scheme,missing_targets, multiplicity_targets, min_len=min_len,max_len=max_len,max_ambig=max_ambig,min_complexity=min_complexity)
 
@@ -541,6 +544,7 @@ def run():
     #get the kmer profile for each sample
     kmer_profile = build_kmer_profiles(scheme)
 
+    logger.info("Plotting Sample dendrogram")
     #create a plot of sample similarity for a multi-sample run
     if len(kmer_profile ) > 1:
         dist_matrix = profile_pairwise_distmatrix(kmer_profile)
