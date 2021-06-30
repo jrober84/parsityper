@@ -836,14 +836,18 @@ def optimize_kmer(pos,aln_seqs,reference_sequence,min_length,max_length,min_memb
                 minimum = min(mer_perc)
             else:
                 minimum = 1
-            score = (1 - ((nt_count+count_ambig)/max_length)) + (1 - minimum) + count_ambig/max_length
-            kmers[kmer] = score
-            positions[kmer] = [rel_start,rel_end]
+            score = (1 - ((nt_count+count_ambig)/max_length)) + (1 - minimum) + (1-count_ambig/max_length)
+            if count_ambig <= max_ambig:
+                kmers[kmer] = score
+                positions[kmer] = [rel_start,rel_end]
 
 
     kmers = sorted(kmers.items(), key=lambda x: x[1], reverse=True)
     for kmer,score in kmers:
         print("{}\t{}".format(pos,kmer))
+        count_ambig = len(kmer) - (kmer.count('A') + kmer.count('T') + kmer.count('C') + kmer.count('G'))
+        if count_ambig > max_ambig:
+            continue
         A = init_automaton_dict({kmer:kmer})
         df = parallel_query_contigs(aln_seqs,
                             A,
@@ -863,6 +867,8 @@ def optimize_kmer(pos,aln_seqs,reference_sequence,min_length,max_length,min_memb
     return opt_kmer
 
 def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
+    print("=============>{}".format([pos]))
+    scheme = {}
     from os import getpid
     print("I'm process", getpid())
     stime = time.time()
@@ -973,16 +979,16 @@ def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,r
     res = []
     pool = Pool(processes=n_threads)
 
-
-    res = [ pool.apply_async(add_snp_kmer_to_scheme, (pos, ref_len, input_alignment, consensus_bases,
+    for pos in snp_positions:
+        res.append(pool.apply_async(add_snp_kmer_to_scheme, (pos, ref_len, input_alignment, consensus_bases,
                                            consensus_seq, reference_info, ref_name,
-                               min_len, max_len, max_ambig, min_members, 0.6, 1)) for pos in snp_positions]
-
+                               min_len, max_len, max_ambig, min_members, 0.6, 1)))
 
     pool.close()
     pool.join()
     for x in res:
-        scheme.update(x.get())
+        if x._success:
+            scheme.update(x.get())
     return scheme
 
 def find_snp_kmers_bck(input_alignment,snp_positions,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
@@ -1461,8 +1467,7 @@ def get_count_kmer_occurances(search,sample_kmers):
 def is_kmer_valid(df,min_members):
     is_valid = True
     counts = df['contig_id'].describe()
-    if counts['count'] < min_members:
-        is_valid = False
-    elif counts['freq'] > 1:
+    if counts['freq'] > 1:
+        print("Fail freq members {}".format(counts['freq']))
         is_valid = False
     return is_valid

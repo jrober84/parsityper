@@ -2,6 +2,7 @@
 
 import sys
 sys.setrecursionlimit(3500)
+import cProfile
 
 tasks = {
     'typer': 'Reconstruct sample genotype(s) from isolate or metagenomic sample',

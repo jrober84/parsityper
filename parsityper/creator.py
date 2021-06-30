@@ -13,6 +13,7 @@ from parsityper.visualizations import dendrogram_visualization
 from multiprocessing import Process, Manager
 from multiprocessing import set_start_method
 set_start_method("spawn")
+import cProfile
 
 def parse_args():
     "Parse the input arguments, use '-h' for help"

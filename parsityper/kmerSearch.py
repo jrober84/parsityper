@@ -233,12 +233,6 @@ def parallel_query_contigs(input_genomes,
         #cleanup
         pool.close()
         pool.join()
-        pd.concat([x.get() for x in res])
-        print("time taken for search: {} with {} threads".format(time.time()-stime,n_threads))
-        stime = time.time()
-        find_in_fasta_dict(automaton, input_genomes)
-        print("time taken for search: {} with {} threads".format(time.time() - stime, 1))
-
         return pd.concat([x.get() for x in res])
 
 
