@@ -180,8 +180,10 @@ def find_in_fasta_dict(automaton: Automaton, seqs: dict) -> pd.DataFrame:
     Returns:
         Dataframe with any matches found in input fasta file
     """
+
     res = []
-    for seq_id in seqs:
+    iter_keys = seqs.keys()
+    for seq_id in iter_keys:
         seq = seqs[seq_id].replace('-','')
         for idx, (kmername, kmer_seq, is_revcomp) in automaton.iter(seq):
             res.append((kmername, kmer_seq, is_revcomp, seq_id, idx))

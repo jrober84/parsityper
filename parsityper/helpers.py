@@ -691,7 +691,8 @@ def get_kmers(start,end,input_alignment):
     :return: dict of sequence kmers corresponding to the positions
     """
     kmers = {}
-    for seq_id in input_alignment:
+    seq_iter = input_alignment.keys()
+    for seq_id in seq_iter :
         kmers[seq_id] = input_alignment[seq_id][start:end]
     return kmers
 
@@ -776,7 +777,7 @@ def optimize_kmer(pos,aln_seqs,reference_sequence,min_length,max_length,min_memb
     opt_kmer = [-1,-1]
     rlen = len(reference_sequence)
     start = find_initial_start(pos, reference_sequence, max_length) +1
-
+    print(opt_kmer)
     #set fall back kmer
     istart = start
     iend = pos + min_length
@@ -843,27 +844,25 @@ def optimize_kmer(pos,aln_seqs,reference_sequence,min_length,max_length,min_memb
 
 
     kmers = sorted(kmers.items(), key=lambda x: x[1], reverse=True)
+
     for kmer,score in kmers:
-        print("{}\t{}".format(pos,kmer))
+        print(kmer)
         count_ambig = len(kmer) - (kmer.count('A') + kmer.count('T') + kmer.count('C') + kmer.count('G'))
         if count_ambig > max_ambig or len(kmer) < min_length:
             continue
         A = init_automaton_dict({kmer:kmer})
-        df = parallel_query_contigs(aln_seqs,
-                            A,
-                           n_threads)
-
+        df = find_in_fasta_dict(A, aln_seqs)
         if is_kmer_valid(df, min_members):
             opt_kmer = opt_kmer = [positions[kmer][0], positions[kmer][1]]
             break
 
-
     if opt_kmer[0] == -1:
         opt_kmer = [istart, iend]
     kmer = reference_sequence[opt_kmer[0]:opt_kmer[1]].replace('-', '')
+
     if len(kmer) < min_length or len(kmer) > max_length:
         opt_kmer = [istart, iend]
-
+    print(opt_kmer)
     return opt_kmer
 
 def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
@@ -883,7 +882,7 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
             if bases[base] > 0:
                 snps.append(base)
     count_states = len(snps)
-
+    print("num_states {}".format(count_states))
     if count_states == 1:
         return {}
 
@@ -896,21 +895,20 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
                                  max_ambig=max_ambig,
                                  min_complexity=min_complexity,
                                  n_threads=n_threads)
-    kmer = consensus_seq[start:end].replace('-', '')
 
+    print("{} {}".format(start,end))
     if start < 0:
         start = 0
 
     rel_start = start
     rel_end = end + 1
 
-    for i in range(0, len(snps)):
-        base = snps[i]
-        if i > 0:
+    kmer = consensus_seq[start:end].replace('-', '')
+    print(snps)
 
-            if rel_start > pos or rel_end > ref_len:
-                rel_start = start
-                rel_end = end + 1
+    for i in range(0, len(snps)):
+        print(i)
+        base = snps[i]
 
         rel_pos = pos - rel_start
         pos_kmer = list(consensus_seq[rel_start:rel_end])
@@ -919,12 +917,14 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
         neg_kmer[rel_pos] = anything_but_bases[base]
         ref_base = input_alignment[ref_name][pos]
         if ref_base == base:
+            print('skip')
             continue
 
         non_gap_pos = ref_non_gap_lookup[pos]
         while non_gap_pos == -1:
             pos -= 1
             non_gap_pos = ref_non_gap_lookup[pos]
+            print(pos)
 
         kmer_name = "{}{}{}".format(base, non_gap_pos, ref_base)
         aa_info = get_aa_delta(non_gap_pos, non_gap_pos, base, reference_info, ref_name, trans_table=1)
@@ -933,7 +933,7 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
             kmer_name_aa = "{}{}{}".format(aa_info['ref_state'], aa_info['aa_start'], aa_info['alt_state'])
         else:
             kmer_name_aa = 'N/A'
-
+        print('------')
         scheme[kmer_name] = {
             'dna_name': kmer_name,
             'aa_name': kmer_name_aa,
@@ -959,36 +959,36 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
             'partial_positive_seqs': [],
 
         }
-
+        print(scheme)
         seq_bases = get_kmers(pos, pos + 1, input_alignment)
+        print(seq_bases)
         for seq_id in seq_bases:
             if seq_bases[seq_id] == base:
                 scheme[kmer_name]['positive_seqs'].append(seq_id)
         if len(scheme[kmer_name]['positive_seqs']) == 0:
             del (scheme[kmer_name])
+    print(scheme)
     return scheme
 
 
-
+def cube(x):
+    return x**3
 def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
     scheme = {}
-    anything_but_bases = NEGATE_BASE_IUPAC
     ref_len = len(input_alignment[ref_name])
-    ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_name])
-    used_kmer_positions = []
     res = []
     pool = Pool(processes=n_threads)
 
     for pos in snp_positions:
-        res.append(pool.apply_async(add_snp_kmer_to_scheme, (pos, ref_len, input_alignment, consensus_bases,
+        res.append(pool.apply_async(add_snp_kmer_to_scheme, args=(pos, ref_len, input_alignment, consensus_bases,
                                            consensus_seq, reference_info, ref_name,
                                min_len, max_len, max_ambig, min_members, 0.6, 1)))
-
     pool.close()
     pool.join()
     for x in res:
         if x._success:
             scheme.update(x.get())
+
     return scheme
 
 def find_snp_kmers_bck(input_alignment,snp_positions,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
@@ -1115,7 +1115,414 @@ def find_snp_kmers_bck(input_alignment,snp_positions,consensus_bases,consensus_s
                 del (scheme[kmer_name])
 
     return scheme
+
+
+def add_indel_kmer_to_scheme():
+    scheme = {}
+    for seq_id in indels:
+        for indel in indels[seq_id]:
+            (vstart,vend) = indel.split(':')
+            vstart = int(vstart)
+            vend = int(vend)
+            vlen = (vend - vstart)
+
+           #determine variant type
+            ref_state = input_alignment[ref_name][vstart:vend +1].replace('-','')
+            alt_state = input_alignment[seq_id][vstart:vend +1].replace('-','')
+
+            if ref_state == alt_state:
+                continue
+
+            if len(ref_state) > len(alt_state):
+                type = 'del'
+            else:
+                type = 'ins'
+
+            if type == 'ins':
+                (start, end) = optimize_kmer(pos=vend,
+                                             aln_seqs=input_alignment,
+                                             reference_sequence=consensus_seq,
+                                             min_length=min_len,
+                                             max_length=max_len,
+                                             min_members=min_members,
+                                             max_ambig=max_ambig,
+                                             min_complexity=min_complexity,
+                                             n_threads=n_threads)
+
+
+            else:
+                #(start, end) = optimize_kmer(vend, input_alignment[seq_id], min_len, max_len, max_ambig, min_complexity)
+                (start, end) = optimize_kmer(pos=vend,
+                                             aln_seqs=input_alignment,
+                                             reference_sequence=input_alignment[seq_id],
+                                             min_length=min_len,
+                                             max_length=max_len,
+                                             min_members=min_members,
+                                             max_ambig=max_ambig,
+                                             min_complexity=min_complexity)
+
+            if (start == -1 or end == -1) :
+                continue
+
+            if vstart < start:
+                if type == 'ins':
+                    #params = optimize_kmer(vstart, consensus_seq, min_len, max_len, max_ambig, min_complexity=0.5)
+
+                    params = optimize_kmer(pos=vstart,
+                                                 aln_seqs=input_alignment,
+                                                 reference_sequence=consensus_seq,
+                                                 min_length=min_len,
+                                                 max_length=max_len,
+                                                 min_members=min_members,
+                                                 max_ambig=max_ambig,
+                                                 min_complexity=min_complexity)
+
+                else:
+                    #params = optimize_kmer(vstart, input_alignment[seq_id], min_len, max_len, max_ambig,
+                    #                             min_complexity=0.5)
+
+                    params = optimize_kmer(pos=vstart,
+                                                 aln_seqs=input_alignment,
+                                                 reference_sequence=input_alignment[seq_id],
+                                                 min_length=min_len,
+                                                 max_length=max_len,
+                                                 min_members=min_members,
+                                                 max_ambig=max_ambig,
+                                                 min_complexity=min_complexity)
+                start = params[0]
+
+            rel_start = (vstart - start)
+            rel_end = rel_start + vlen
+
+            if rel_end > end:
+                rel_end = params[1]
+
+            if (start == -1 or end == -1) :
+                continue
+
+            neg_kmer = list(consensus_seq[start:end+1])
+            pos_kmer = list(consensus_seq[start:end+1])
+
+            variant_pos = []
+            variant_neg = []
+
+            if type == 'ins':
+                for i in range(rel_start,rel_end):
+
+                    neg_kmer[i] = '-'
+                    variant_neg.append('-')
+                    variant_pos.append(pos_kmer[i])
+
+            if type == 'del':
+                for i in range(rel_start,rel_end):
+
+                    pos_kmer[i] = '-'
+                    variant_neg.append(neg_kmer[i])
+                    variant_pos.append('-')
+
+            variant_pos = ''.join(variant_pos)
+            variant_neg = ''.join(variant_neg)
+
+            #Handle long indels which exceed the max length of the kmer
+            pos_kmer = ''.join(pos_kmer)
+            neg_kmer = ''.join(neg_kmer)
+            neg_kmer = neg_kmer.replace('-','')
+            pos_kmer = pos_kmer.replace('-', '')
+            if len(neg_kmer) > max_len:
+                diff = False
+                for i in range(0,len(neg_kmer)):
+                    if i >= len(pos_kmer):
+                        break
+                    if neg_kmer[i] != pos_kmer[i]:
+                        diff = True
+                        end = start + i
+                    if diff and i >= max_len:
+                        break
+                if (end - start) < min_len:
+                    end = start + min_len
+                    i = min_len
+
+            neg_kmer = neg_kmer[0:i+1]
+            pos_kmer = pos_kmer[0:i+1]
+
+            if len(neg_kmer) > min_len and len(pos_kmer) > min_len:
+                #Trim any degenerate sites at the end of the sequence as long as that isn't a difference
+                if neg_kmer[0] == pos_kmer[0]:
+                    if neg_kmer[0] not in ['A','T','C','G']:
+                        start-=1
+                        neg_kmer = neg_kmer[1:len(neg_kmer)]
+                        pos_kmer = pos_kmer[1:len(neg_kmer)]
+                if len(neg_kmer) == len(pos_kmer):
+                    if neg_kmer[len(neg_kmer)-1] == pos_kmer[len(pos_kmer)-1]:
+                        if neg_kmer[len(neg_kmer)-1] not in ['A','T','C','G']:
+                            end -=1
+                            neg_kmer = neg_kmer[0:len(neg_kmer)-1]
+                            pos_kmer = pos_kmer[0:len(pos_kmer)-1]
+
+            neg_kmer = list(neg_kmer)
+            pos_kmer = list(pos_kmer)
+            if variant_pos == variant_neg:
+                continue
+
+            non_gap_start = ref_non_gap_lookup[vstart]
+            pos = vstart
+            while non_gap_start == -1:
+                pos -= 1
+                non_gap_start = ref_non_gap_lookup[pos]
+
+            non_gap_end  = non_gap_start + vlen
+
+
+            kmer_name = "{}{}_{}".format(type,non_gap_start, non_gap_end)
+            aa_info = get_aa_delta(non_gap_start, non_gap_end, variant_pos, reference_info,ref_name,trans_table=1)
+
+            if aa_info['aa_start'] != -1 and aa_info['aa_end'] !=-1:
+                kmer_name_aa = "{}{}{}".format(aa_info['ref_state'], aa_info['aa_start'], aa_info['alt_state'])
+            else:
+                kmer_name_aa = 'N/A'
+            if kmer_name not in scheme:
+                scheme[kmer_name] = {
+                    'dna_name': kmer_name,
+                    'aa_name': kmer_name_aa,
+                    'type': type,
+                    'gene':aa_info['gene'],
+                    'gene_start':aa_info['gene_start'],
+                    'gene_end': aa_info['gene_end'],
+                    'cds_start': aa_info['cds_start'],
+                    'cds_end': aa_info['cds_end'],
+                    'is_silent':aa_info['is_silent'],
+                    'is_frame_shift': aa_info['is_frame_shift'],
+                    'ref_aa':aa_info['ref_state'],
+                    'alt_aa': aa_info['alt_state'],
+                    'variant_start': non_gap_start,
+                    'variant_end': non_gap_end,
+                    'kmer_start': start + 1,
+                    'kmer_end': end + 1,
+                    'variant_pos': variant_pos,
+                    'variant_neg': variant_neg,
+                    'positive': ''.join(pos_kmer),
+                    'negative': ''.join(neg_kmer),
+                    'positive_seqs': [],
+                    'partial_positive_seqs': []}
+            scheme[kmer_name]['positive_seqs'].append(seq_id)
+
+    return scheme
+
+
+def indel_kmer(input_alignment,indels,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
+    scheme = {}
+    ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_name])
+    ref_len = len(input_alignment[ref_name])
+    res = []
+    pool = Pool(processes=n_threads)
+
+    for seq_id in indels:
+        res.append(pool.apply_async(add_indel_kmer_to_scheme, (indels[seq_id], ref_len, input_alignment,
+                                           consensus_seq, reference_info, ref_name,
+                               min_len, max_len, max_ambig, min_members, 0.6, 1)))
+
+    pool.close()
+    pool.join()
+    for x in res:
+        if x._success:
+            scheme.update(x.get())
+    return scheme
+
 def find_indel_kmers(input_alignment,indels,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
+    scheme = {}
+    ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_name])
+    for seq_id in indels:
+        for indel in indels[seq_id]:
+            (vstart,vend) = indel.split(':')
+            vstart = int(vstart)
+            vend = int(vend)
+            vlen = (vend - vstart)
+
+           #determine variant type
+            ref_state = input_alignment[ref_name][vstart:vend +1].replace('-','')
+            alt_state = input_alignment[seq_id][vstart:vend +1].replace('-','')
+
+            if ref_state == alt_state:
+                continue
+
+            if len(ref_state) > len(alt_state):
+                type = 'del'
+            else:
+                type = 'ins'
+
+            if type == 'ins':
+                (start, end) = optimize_kmer(pos=vend,
+                                             aln_seqs=input_alignment,
+                                             reference_sequence=consensus_seq,
+                                             min_length=min_len,
+                                             max_length=max_len,
+                                             min_members=min_members,
+                                             max_ambig=max_ambig,
+                                             min_complexity=min_complexity,
+                                             n_threads=n_threads)
+
+
+            else:
+                #(start, end) = optimize_kmer(vend, input_alignment[seq_id], min_len, max_len, max_ambig, min_complexity)
+                (start, end) = optimize_kmer(pos=vend,
+                                             aln_seqs=input_alignment,
+                                             reference_sequence=input_alignment[seq_id],
+                                             min_length=min_len,
+                                             max_length=max_len,
+                                             min_members=min_members,
+                                             max_ambig=max_ambig,
+                                             min_complexity=min_complexity)
+
+            if (start == -1 or end == -1) :
+                continue
+
+            if vstart < start:
+                if type == 'ins':
+                    #params = optimize_kmer(vstart, consensus_seq, min_len, max_len, max_ambig, min_complexity=0.5)
+
+                    params = optimize_kmer(pos=vstart,
+                                                 aln_seqs=input_alignment,
+                                                 reference_sequence=consensus_seq,
+                                                 min_length=min_len,
+                                                 max_length=max_len,
+                                                 min_members=min_members,
+                                                 max_ambig=max_ambig,
+                                                 min_complexity=min_complexity)
+
+                else:
+                    #params = optimize_kmer(vstart, input_alignment[seq_id], min_len, max_len, max_ambig,
+                    #                             min_complexity=0.5)
+
+                    params = optimize_kmer(pos=vstart,
+                                                 aln_seqs=input_alignment,
+                                                 reference_sequence=input_alignment[seq_id],
+                                                 min_length=min_len,
+                                                 max_length=max_len,
+                                                 min_members=min_members,
+                                                 max_ambig=max_ambig,
+                                                 min_complexity=min_complexity)
+                start = params[0]
+
+            rel_start = (vstart - start)
+            rel_end = rel_start + vlen
+
+            if rel_end > end:
+                rel_end = params[1]
+
+            if (start == -1 or end == -1) :
+                continue
+
+            neg_kmer = list(consensus_seq[start:end+1])
+            pos_kmer = list(consensus_seq[start:end+1])
+
+            variant_pos = []
+            variant_neg = []
+
+            if type == 'ins':
+                for i in range(rel_start,rel_end):
+
+                    neg_kmer[i] = '-'
+                    variant_neg.append('-')
+                    variant_pos.append(pos_kmer[i])
+
+            if type == 'del':
+                for i in range(rel_start,rel_end):
+
+                    pos_kmer[i] = '-'
+                    variant_neg.append(neg_kmer[i])
+                    variant_pos.append('-')
+
+            variant_pos = ''.join(variant_pos)
+            variant_neg = ''.join(variant_neg)
+
+            #Handle long indels which exceed the max length of the kmer
+            pos_kmer = ''.join(pos_kmer)
+            neg_kmer = ''.join(neg_kmer)
+            neg_kmer = neg_kmer.replace('-','')
+            pos_kmer = pos_kmer.replace('-', '')
+            if len(neg_kmer) > max_len:
+                diff = False
+                for i in range(0,len(neg_kmer)):
+                    if i >= len(pos_kmer):
+                        break
+                    if neg_kmer[i] != pos_kmer[i]:
+                        diff = True
+                        end = start + i
+                    if diff and i >= max_len:
+                        break
+                if (end - start) < min_len:
+                    end = start + min_len
+                    i = min_len
+
+            neg_kmer = neg_kmer[0:i+1]
+            pos_kmer = pos_kmer[0:i+1]
+
+            if len(neg_kmer) > min_len and len(pos_kmer) > min_len:
+                #Trim any degenerate sites at the end of the sequence as long as that isn't a difference
+                if neg_kmer[0] == pos_kmer[0]:
+                    if neg_kmer[0] not in ['A','T','C','G']:
+                        start-=1
+                        neg_kmer = neg_kmer[1:len(neg_kmer)]
+                        pos_kmer = pos_kmer[1:len(neg_kmer)]
+                if len(neg_kmer) == len(pos_kmer):
+                    if neg_kmer[len(neg_kmer)-1] == pos_kmer[len(pos_kmer)-1]:
+                        if neg_kmer[len(neg_kmer)-1] not in ['A','T','C','G']:
+                            end -=1
+                            neg_kmer = neg_kmer[0:len(neg_kmer)-1]
+                            pos_kmer = pos_kmer[0:len(pos_kmer)-1]
+
+            neg_kmer = list(neg_kmer)
+            pos_kmer = list(pos_kmer)
+            if variant_pos == variant_neg:
+                continue
+
+            non_gap_start = ref_non_gap_lookup[vstart]
+            pos = vstart
+            while non_gap_start == -1:
+                pos -= 1
+                non_gap_start = ref_non_gap_lookup[pos]
+
+            non_gap_end  = non_gap_start + vlen
+
+
+            kmer_name = "{}{}_{}".format(type,non_gap_start, non_gap_end)
+            aa_info = get_aa_delta(non_gap_start, non_gap_end, variant_pos, reference_info,ref_name,trans_table=1)
+
+            if aa_info['aa_start'] != -1 and aa_info['aa_end'] !=-1:
+                kmer_name_aa = "{}{}{}".format(aa_info['ref_state'], aa_info['aa_start'], aa_info['alt_state'])
+            else:
+                kmer_name_aa = 'N/A'
+            if kmer_name not in scheme:
+                scheme[kmer_name] = {
+                    'dna_name': kmer_name,
+                    'aa_name': kmer_name_aa,
+                    'type': type,
+                    'gene':aa_info['gene'],
+                    'gene_start':aa_info['gene_start'],
+                    'gene_end': aa_info['gene_end'],
+                    'cds_start': aa_info['cds_start'],
+                    'cds_end': aa_info['cds_end'],
+                    'is_silent':aa_info['is_silent'],
+                    'is_frame_shift': aa_info['is_frame_shift'],
+                    'ref_aa':aa_info['ref_state'],
+                    'alt_aa': aa_info['alt_state'],
+                    'variant_start': non_gap_start,
+                    'variant_end': non_gap_end,
+                    'kmer_start': start + 1,
+                    'kmer_end': end + 1,
+                    'variant_pos': variant_pos,
+                    'variant_neg': variant_neg,
+                    'positive': ''.join(pos_kmer),
+                    'negative': ''.join(neg_kmer),
+                    'positive_seqs': [],
+                    'partial_positive_seqs': []}
+            scheme[kmer_name]['positive_seqs'].append(seq_id)
+
+    return scheme
+
+
+
+def find_indel_kmers_bck(input_alignment,indels,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
     scheme = {}
     ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_name])
     for seq_id in indels:
