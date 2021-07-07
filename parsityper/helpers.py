@@ -523,19 +523,28 @@ def get_aa_delta(start, end, variant, ref_info,ref_name,trans_table=1):
 
         if ref_seq != alt_seq:
             is_silent = False
-
+    gene_start += 1
+    gene_end += 1
+    aa_start += 1
+    aa_end += 1
     if not is_cds:
         ref_seq = ''
         alt_seq = ''
-
+    if len(gene) == 0:
+        gene_start = ''
+        gene_end = ''
+        aa_start = ''
+        aa_end = ''
+        cds_start = ''
+        cds_end = ''
     return {
         'gene': gene,
-        'gene_start':gene_start+1,
-        'gene_end':gene_end+1,
+        'gene_start':gene_start,
+        'gene_end':gene_end,
         'cds_start':cds_start,
         'cds_end':cds_end,
-        'aa_start':aa_start+1,
-        'aa_end':aa_end+1,
+        'aa_start':aa_start,
+        'aa_end':aa_end,
         'ref_state':ref_seq,
         'alt_state':alt_seq,
         'is_silent':is_silent,
@@ -580,8 +589,8 @@ def calc_consensus(input_alignment):
 
     for seq_id in input_alignment:
         seq = input_alignment[seq_id]
-        if seq_len != len(seq):
-            print(seq_id)
+        #if seq_len != len(seq):
+        #    print(seq_id)
         for i in range(0,seq_len):
             base = seq[i].upper()
             if base in consensus[i]:
@@ -710,7 +719,7 @@ def find_initial_start(pos,reference_sequence,min_length):
     start = pos - 1
     for i in range(0,ref_len):
         base = reference_sequence[start].upper()
-        if base in ['A', 'T', 'C', 'G']:
+        if base != '-':
             nt_count += 1
         if start < 0:
             start = 0
@@ -776,11 +785,12 @@ def optimize_kmer(pos,aln_seqs,reference_sequence,min_length,max_length,min_memb
     prev_score = 0
     opt_kmer = [-1,-1]
     rlen = len(reference_sequence)
-    start = find_initial_start(pos, reference_sequence, max_length) +1
-    print(opt_kmer)
+    start = find_initial_start(pos, reference_sequence, min_length) +1
+
     #set fall back kmer
     istart = start
-    iend = pos + min_length
+    iend = pos +1
+   # print("istart {}\t{}".format(istart,iend))
 
     if iend > rlen:
         iend = rlen - 1
@@ -846,7 +856,7 @@ def optimize_kmer(pos,aln_seqs,reference_sequence,min_length,max_length,min_memb
     kmers = sorted(kmers.items(), key=lambda x: x[1], reverse=True)
 
     for kmer,score in kmers:
-        print(kmer)
+        #print(kmer)
         count_ambig = len(kmer) - (kmer.count('A') + kmer.count('T') + kmer.count('C') + kmer.count('G'))
         if count_ambig > max_ambig or len(kmer) < min_length:
             continue
@@ -862,14 +872,14 @@ def optimize_kmer(pos,aln_seqs,reference_sequence,min_length,max_length,min_memb
 
     if len(kmer) < min_length or len(kmer) > max_length:
         opt_kmer = [istart, iend]
-    print(opt_kmer)
+    #print(opt_kmer)
     return opt_kmer
 
 def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
-    print("=============>{}".format([pos]))
+    #print("=============>{}".format([pos]))
     scheme = {}
     from os import getpid
-    print("I'm process", getpid())
+    #print("I'm process", getpid())
     stime = time.time()
     anything_but_bases = NEGATE_BASE_IUPAC
     ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_name])
@@ -882,7 +892,7 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
             if bases[base] > 0:
                 snps.append(base)
     count_states = len(snps)
-    print("num_states {}".format(count_states))
+    #print("num_states {}".format(count_states))
     if count_states == 1:
         return {}
 
@@ -896,7 +906,7 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
                                  min_complexity=min_complexity,
                                  n_threads=n_threads)
 
-    print("{} {}".format(start,end))
+    #print("{} {}".format(start,end))
     if start < 0:
         start = 0
 
@@ -904,10 +914,9 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
     rel_end = end + 1
 
     kmer = consensus_seq[start:end].replace('-', '')
-    print(snps)
 
     for i in range(0, len(snps)):
-        print(i)
+        #print(i)
         base = snps[i]
 
         rel_pos = pos - rel_start
@@ -917,23 +926,23 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
         neg_kmer[rel_pos] = anything_but_bases[base]
         ref_base = input_alignment[ref_name][pos]
         if ref_base == base:
-            print('skip')
+            #print('skip')
             continue
 
         non_gap_pos = ref_non_gap_lookup[pos]
         while non_gap_pos == -1:
             pos -= 1
             non_gap_pos = ref_non_gap_lookup[pos]
-            print(pos)
+            #print(pos)
 
         kmer_name = "{}{}{}".format(base, non_gap_pos, ref_base)
         aa_info = get_aa_delta(non_gap_pos, non_gap_pos, base, reference_info, ref_name, trans_table=1)
-
-        if aa_info['aa_start'] != -1 and aa_info['aa_end'] != -1:
+        #print(aa_info)
+        if len(aa_info['gene']) != 0 :
             kmer_name_aa = "{}{}{}".format(aa_info['ref_state'], aa_info['aa_start'], aa_info['alt_state'])
         else:
             kmer_name_aa = 'N/A'
-        print('------')
+        #print('------')
         scheme[kmer_name] = {
             'dna_name': kmer_name,
             'aa_name': kmer_name_aa,
@@ -959,20 +968,17 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
             'partial_positive_seqs': [],
 
         }
-        print(scheme)
+        #print(scheme)
         seq_bases = get_kmers(pos, pos + 1, input_alignment)
-        print(seq_bases)
+        #print(seq_bases)
         for seq_id in seq_bases:
             if seq_bases[seq_id] == base:
                 scheme[kmer_name]['positive_seqs'].append(seq_id)
         if len(scheme[kmer_name]['positive_seqs']) == 0:
             del (scheme[kmer_name])
-    print(scheme)
     return scheme
 
 
-def cube(x):
-    return x**3
 def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
     scheme = {}
     ref_len = len(input_alignment[ref_name])
@@ -1014,9 +1020,9 @@ def find_snp_kmers_bck(input_alignment,snp_positions,consensus_bases,consensus_s
                                     min_complexity=min_complexity,
                                     n_threads=n_threads)
         kmer = consensus_seq[start:end].replace('-','')
-        print("{}\t{}\t{}".format(start,end,kmer))
+        #print("{}\t{}\t{}".format(start,end,kmer))
 
-        print(time.time() - stime)
+        #print(time.time() - stime)
         if start < 0:
             start = 0
 
@@ -1076,7 +1082,7 @@ def find_snp_kmers_bck(input_alignment,snp_positions,consensus_bases,consensus_s
             kmer_name = "{}{}{}".format(base, non_gap_pos, ref_base)
             aa_info = get_aa_delta(non_gap_pos, non_gap_pos, base, reference_info,ref_name,trans_table=1)
 
-            if aa_info['aa_start'] != -1 and aa_info['aa_end'] !=-1:
+            if len(aa_info['gene']) != 0:
                 kmer_name_aa = "{}{}{}".format(aa_info['ref_state'], aa_info['aa_start'], aa_info['alt_state'])
             else:
                 kmer_name_aa = 'N/A'
@@ -1488,7 +1494,7 @@ def find_indel_kmers(input_alignment,indels,consensus_seq,reference_info,ref_nam
             kmer_name = "{}{}_{}".format(type,non_gap_start, non_gap_end)
             aa_info = get_aa_delta(non_gap_start, non_gap_end, variant_pos, reference_info,ref_name,trans_table=1)
 
-            if aa_info['aa_start'] != -1 and aa_info['aa_end'] !=-1:
+            if len(aa_info['gene']) != 0:
                 kmer_name_aa = "{}{}{}".format(aa_info['ref_state'], aa_info['aa_start'], aa_info['alt_state'])
             else:
                 kmer_name_aa = 'N/A'
@@ -1682,7 +1688,7 @@ def find_indel_kmers_bck(input_alignment,indels,consensus_seq,reference_info,ref
             kmer_name = "{}{}_{}".format(type,non_gap_start, non_gap_end)
             aa_info = get_aa_delta(non_gap_start, non_gap_end, variant_pos, reference_info,ref_name,trans_table=1)
 
-            if aa_info['aa_start'] != -1 and aa_info['aa_end'] !=-1:
+            if len(aa_info['aa_start']) != 0:
                 kmer_name_aa = "{}{}{}".format(aa_info['ref_state'], aa_info['aa_start'], aa_info['alt_state'])
             else:
                 kmer_name_aa = 'N/A'
@@ -1875,6 +1881,5 @@ def is_kmer_valid(df,min_members):
     is_valid = True
     counts = df['contig_id'].describe()
     if counts['freq'] > 1:
-        print("Fail freq members {}".format(counts['freq']))
         is_valid = False
     return is_valid

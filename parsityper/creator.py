@@ -6,7 +6,7 @@ from collections import Counter
 import pandas as pd
 from parsityper.helpers import init_console_logger, read_tsv, parse_reference_sequence, read_fasta, calc_consensus, generate_consensus_seq,\
 find_snp_positions, find_snp_kmers, find_indel_kmers, find_internal_gaps, scheme_to_biohansel_fasta, init_kmer_targets, count_kmers, count_ambig, \
-get_kmer_complexity, calc_md5, get_expanded_kmer_number, get_kmer_groups, get_kmer_group_mapping, add_key, generate_phase_md5
+get_kmer_complexity, calc_md5, get_expanded_kmer_number, get_kmer_groups, get_kmer_group_mapping, add_key, generate_phase_md5, is_seq_in
 from parsityper.bio_hansel import bio_hansel
 from parsityper.helpers import  profile_pairwise_distmatrix, expand_degenerate_bases, revcomp, generate_ref_kmers
 from parsityper.visualizations import dendrogram_visualization
@@ -91,7 +91,7 @@ def get_genotype_mapping(metadata_df):
     return mapping
 
 
-def build_kmer_groups(scheme):
+def build_kmer_groups_bck(scheme):
     '''
 
     :param scheme:
@@ -107,8 +107,48 @@ def build_kmer_groups(scheme):
         end = scheme[kmer_id]['kmer_end']
         key = "{}:{}".format(start,end)
         scheme[kmer_id]['group_id'] = key
+        pkmer = scheme[kmer_id]
 
     return scheme
+
+def build_kmer_groups(scheme):
+    '''
+    :param scheme:
+    :type scheme:
+    :return:
+    :rtype:
+    '''
+    kmer_ids = list(scheme.keys())
+    num_ids = len(kmer_ids)
+    groups = {}
+    group_id = 0
+    for i in range(0,num_ids):
+        kmer_id = kmer_ids[i]
+        pkmer = scheme[kmer_id]['positive']
+        nkmer = scheme[kmer_id]['negative']
+        if kmer_id not in groups:
+            group_id += 1
+            groups[kmer_id] = group_id
+        else:
+            continue
+        for k in range(i+1,num_ids):
+            kmer_id_2 = kmer_ids[k]
+            pkmer_2 = scheme[kmer_id_2]['positive']
+            nkmer_2 = scheme[kmer_id_2]['negative']
+            if is_seq_in(pkmer, pkmer_2):
+                groups[kmer_id_2] = group_id
+            elif is_seq_in(pkmer, nkmer_2):
+                groups[kmer_id_2] = group_id
+            elif is_seq_in(nkmer, pkmer_2):
+                groups[kmer_id_2] = group_id
+            elif is_seq_in(nkmer, nkmer_2):
+                groups[kmer_id_2] = group_id
+
+    for kmer_id in scheme:
+        scheme[kmer_id]['group_id'] = groups[kmer_id]
+
+    return scheme
+
 
 
 def qa_scheme(scheme,missing_targets, multiplicity_targets,min_len,max_len,max_ambig,min_complexity):
@@ -447,7 +487,6 @@ def run():
     #Identify variable positions within the alignment
     stime = time.time()
     snp_positions = find_snp_positions(consensus_seq)
-    print(time.time()-stime)
     sequence_deletions = {}
     for seq_id in input_alignment:
         sequence_deletions[seq_id] = find_internal_gaps(input_alignment[seq_id])
@@ -459,7 +498,7 @@ def run():
     logger.info("Identifying kmers for {} indels".format(len(sequence_deletions)))
     scheme.update(find_indel_kmers(input_alignment, sequence_deletions, consensus_seq, ref_features, ref_id, \
                             min_len=min_len,max_len=max_len,max_ambig=max_ambig,min_members=min_members,n_threads=n_threads ))
-    print_scheme(add_key(scheme), scheme_file)
+
     logger.info("Performing first round of qc on kmers")
     scheme = build_kmer_groups(scheme)
     #Identify problems with selected kmers so that the user can filter them
@@ -488,6 +527,7 @@ def run():
     seq = input_alignment[ref_id].replace('-','')
     fh = open(reference_fasta_file,'w')
     fh.write(">{}\n{}\n".format(ref_id,seq))
+    fh.close()
 
 
     # run kmer detection on reference sequence
@@ -496,7 +536,8 @@ def run():
     simple_file = os.path.join(outdir, "bh.simple.txt")
     logger.info("Identifying occurance of scheme kmers which are found in the reference {}".format(ref_id))
     (stdout,stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, [reference_fasta_file], kmer_file, summary_file, simple_file,max_degenerate_kmers=count_exp_kmers*2)
-
+    logging.info(stdout)
+    logging.info(stderr)
     ref_kmer_biohansel_df = read_tsv(kmer_file)
     scheme_kmer_target_keys = range(0,len(scheme.keys()))
 
