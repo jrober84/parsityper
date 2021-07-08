@@ -876,10 +876,10 @@ def optimize_kmer(pos,aln_seqs,reference_sequence,min_length,max_length,min_memb
     return opt_kmer
 
 def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
-    #print("=============>{}".format([pos]))
+    print("=============>{}".format([pos]))
     scheme = {}
     from os import getpid
-    #print("I'm process", getpid())
+    print("I'm process", getpid())
     stime = time.time()
     anything_but_bases = NEGATE_BASE_IUPAC
     ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_name])
@@ -892,7 +892,7 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
             if bases[base] > 0:
                 snps.append(base)
     count_states = len(snps)
-    #print("num_states {}".format(count_states))
+    print("num_states {}".format(count_states))
     if count_states == 1:
         return {}
 
@@ -906,7 +906,7 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
                                  min_complexity=min_complexity,
                                  n_threads=n_threads)
 
-    #print("{} {}".format(start,end))
+    print("{} {}".format(start,end))
     if start < 0:
         start = 0
 
@@ -976,6 +976,7 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
                 scheme[kmer_name]['positive_seqs'].append(seq_id)
         if len(scheme[kmer_name]['positive_seqs']) == 0:
             del (scheme[kmer_name])
+    print("time taken {}".format(time.time() - stime))
     return scheme
 
 
@@ -1776,9 +1777,14 @@ def is_seq_in(target,query):
     if len_target != len_query :
         return False
     for i in range(0,len_query ):
-
-        baseT = bases_dict[target[i]]
-        baseQ = bases_dict[query[i]]
+        if target[i] in bases_dict:
+            baseT = bases_dict[target[i]]
+        else:
+            baseT = [target[i]]
+        if query[i] in bases_dict:
+            baseQ = bases_dict[query[i]]
+        else:
+            baseQ = [query[i]]
         if baseQ != baseT:
             intersect = set(baseT) & set(baseQ)
             if len(intersect) == 0:
