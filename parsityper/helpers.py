@@ -977,6 +977,7 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
         if len(scheme[kmer_name]['positive_seqs']) == 0:
             del (scheme[kmer_name])
     print("time taken {}".format(time.time() - stime))
+    sys.stdout.flush()
     return scheme
 
 
