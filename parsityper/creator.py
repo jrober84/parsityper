@@ -498,7 +498,7 @@ def run():
     logger.info("Identifying kmers for {} indels".format(len(sequence_deletions)))
     scheme.update(find_indel_kmers(input_alignment, sequence_deletions, consensus_seq, ref_features, ref_id, \
                             min_len=min_len,max_len=max_len,max_ambig=max_ambig,min_members=min_members,n_threads=n_threads ))
-
+    scheme = add_key(scheme)
     logger.info("Performing first round of qc on kmers")
     scheme = build_kmer_groups(scheme)
     #Identify problems with selected kmers so that the user can filter them
