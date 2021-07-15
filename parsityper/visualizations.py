@@ -23,6 +23,40 @@ class dendrogram_visualization:
 
 
 
+def generate_mean_coverage_histo(profile,mapping):
+    counts = {}
+    for sample_id in profile:
+        for target in profile[sample_id]:
+
+            bin = mapping[str(target)]
+            if not bin in counts:
+                counts[bin] = []
+            counts[bin].append(profile[sample_id][target])
+    histo = {}
+    for target in counts:
+        histo[target] = sum(counts[target]) / len(counts[target])
+    return histo
+
+def generate_sample_coverage_plot(positive_kmer_data,negative_kmer_data,sample_kmer_data,target_mapping):
+    data = {}
+    if len(positive_kmer_data) > 0:
+        data['positive'] = generate_mean_coverage_histo(generate_coverage_profile(positive_kmer_data),target_mapping)
+    if len(negative_kmer_data) > 0:
+        data['negative'] = generate_mean_coverage_histo(generate_coverage_profile(negative_kmer_data),target_mapping)
+    if len(sample_kmer_data) > 0:
+        data['samples'] = generate_mean_coverage_histo(generate_coverage_profile(sample_kmer_data),target_mapping)
+    df = pd.DataFrame.from_dict(data,orient='columns')
+
+    import plotly.graph_objects as go
+
+    fig = go.Figure(data=[
+        go.Bar(name='Positive', x=df.index.tolist(), y=df['positive'].tolist()),
+        go.Bar(name='Negative', x=df.index.tolist(), y=df['negative'].tolist()),
+        go.Bar(name='Samples', x=df.index.tolist(), y=df['samples'].tolist()),
+    ])
+    # Change the bar mode
+    fig.update_layout(barmode='group')
+    return fig
 
 
 

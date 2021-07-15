@@ -7,7 +7,7 @@ import pandas as pd
 from parsityper.helpers import validate_args, init_console_logger, read_tsv, scheme_to_biohansel_fasta, \
     filter_biohansel_kmer_df, process_biohansel_kmer, \
     init_kmer_targets, generate_biohansel_kmer_names, get_scheme_template, generate_random_phrase, calc_md5, \
-    get_kmer_groups, get_kmer_group_mapping, get_sequence_files
+    get_kmer_groups, get_kmer_group_mapping, get_sequence_files, read_genotype_profiles, dist_compatible_profiles
 import copy
 from parsityper.bio_hansel import bio_hansel
 import statistics
@@ -906,7 +906,6 @@ def write_sample_summary_report(sample_report, outfile, sample_kmer_data, scheme
                                                 str(average_target_freq),
                                                 str(target_freq_stdev),
                                                 str(num_mixed_sites),
-                                                "\t".join(mutations),
                                                 kmer_profile_st,
                                                 kmer_profile_md5,
                                                 phrase,
@@ -914,7 +913,8 @@ def write_sample_summary_report(sample_report, outfile, sample_kmer_data, scheme
                                                 quality['qc_max_missing_sites'],
                                                 quality['qc_max_het_sites'],
                                                 quality['qc_cov_stdev'],
-                                                quality['qc_overall']])))
+                                                quality['qc_overall'],
+                                                "\t".join(mutations)])))
     fh = open(outfile, 'w')
     fh.write("\n".join(report))
 
@@ -1114,40 +1114,37 @@ def bin_scheme_targets(scheme_df,max_length,window_size=500):
 
     return mapping
 
-def generate_mean_coverage_histo(profile,mapping):
-    counts = {}
-    for sample_id in profile:
-        for target in profile[sample_id]:
 
-            bin = mapping[str(target)]
-            if not bin in counts:
-                counts[bin] = []
-            counts[bin].append(profile[sample_id][target])
-    histo = {}
-    for target in counts:
-        histo[target] = sum(counts[target]) / len(counts[target])
-    return histo
 
-def generate_sample_coverage_plot(positive_kmer_data,negative_kmer_data,sample_kmer_data,target_mapping):
+def identify_nearest_neighbors(sample_profiles,genotype_profile_data,max_dist=0.5,max_neighbors=10):
+    profiles = dist_compatible_profiles(genotype_profile_data)
     data = {}
-    if len(positive_kmer_data) > 0:
-        data['positive'] = generate_mean_coverage_histo(generate_coverage_profile(positive_kmer_data),target_mapping)
-    if len(negative_kmer_data) > 0:
-        data['negative'] = generate_mean_coverage_histo(generate_coverage_profile(negative_kmer_data),target_mapping)
-    if len(sample_kmer_data) > 0:
-        data['samples'] = generate_mean_coverage_histo(generate_coverage_profile(sample_kmer_data),target_mapping)
-    df = pd.DataFrame.from_dict(data,orient='columns')
+    for sample_id,profile in sample_profiles:
+        profile = set(profile.split(','))
+        n = {}
+        for id in profiles:
+            profile_2 = profiles[id]['profile']
+            if profile == profile_2:
+                j = 0
+            if len(profile) > 0 or len(profile_2) >0:
+                j = 1 - len(profile & profile_2) / len(profile | profile_2)
+            else:
+                j = 1
+            if j <= max_dist:
+                n[id] = j
+        n = sorted(n.items(), key=lambda x: x[1], reverse=False)
+        count = 0
+        neighbors = {}
+        for id in n:
+            if count < max_neighbors:
+                neighbors[id] = n[id]
+            else:
+                break
+            count+=1
+        data[sample_id] = neighbors
+    return data
 
-    import plotly.graph_objects as go
 
-    fig = go.Figure(data=[
-        go.Bar(name='Positive', x=df.index.tolist(), y=df['positive'].tolist()),
-        go.Bar(name='Negative', x=df.index.tolist(), y=df['negative'].tolist()),
-        go.Bar(name='Samples', x=df.index.tolist(), y=df['samples'].tolist()),
-    ])
-    # Change the bar mode
-    fig.update_layout(barmode='group')
-    return fig
 
 
 
@@ -1444,6 +1441,9 @@ def run():
 
     for sample_id in kmer_summary:
         profile_st[sample_id] = kmer_summary[sample_id]['positive']
+
+    genotype_profiles_data = read_genotype_profiles(genotype_profiles)
+    neighbours = identify_nearest_neighbors(profile_st,genotype_profiles_data,max_dist=genotype_dist_cutoff,max_neighbors=10)
 
     sample_report = {}
     fail_sample_count = 0
