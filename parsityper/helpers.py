@@ -15,6 +15,10 @@ from Bio import GenBank
 from Bio import SeqIO
 from Bio.Seq import Seq
 import glob
+from scipy.spatial.distance import pdist
+from scipy.spatial.distance import squareform
+from sklearn.metrics.pairwise import nan_euclidean_distances
+
 NT_SUB = str.maketrans('acgtrymkswhbvdnxACGTRYMKSWHBVDNX',
                        'tgcayrkmswdvbhnxTGCAYRKMSWDVBHNX')
 
@@ -1904,3 +1908,33 @@ def dist_compatible_profiles(profiles):
     for sample_id in profiles:
         data.append(profiles[sample_id]['profile'])
     return data
+
+def generate_target_presence_table(sample_kmer_data,min_ratio,max_ratio):
+    profiles = {}
+    for sample_id in sample_kmer_data:
+        profiles[sample_id] = {}
+        data = sample_kmer_data[sample_id]['ratios']
+        for target in data:
+
+            value = data[target]
+            if value == -1:
+                value = float("NaN")
+            elif value >= max_ratio:
+                value = 1
+            elif value >= min_ratio:
+                value = 0.5
+            else:
+                value = 0
+            profiles[sample_id][target] = value
+    return pd.DataFrame.from_dict(profiles,orient='columns')
+
+def nan_compatible_kmer_pairwise_distmatrix(profile_df):
+    '''
+    Computes pairwise jaccard distances between sample profiles
+    '''
+    i = profile_df.values.T
+    j = np.nansum((i - i[:, None]) ** 2, axis=2) ** .5
+    #df = (lambda v, c: pd.DataFrame(v, c, c))(j, profile_df.columns)
+    return j
+
+

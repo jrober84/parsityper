@@ -14,7 +14,7 @@ class bio_hansel:
                    '--min-kmer-freq',str(min_cov),
                    '--min-kmer-frac',str(min_frac),
                    '--max-degenerate-kmers',str(max_degenerate_kmers),
-                   '--force','-vvv'
+                   '--force'
                    ],
                   stdout=PIPE,
                   stderr=PIPE)
@@ -35,7 +35,7 @@ class bio_hansel:
                    '--min-kmer-freq',str(min_cov),
                    '--min-kmer-frac',str(min_frac),
                    '--max-degenerate-kmers', str(max_degenerate_kmers),
-                   '--force','--verbose'
+                   '--force'
                    ] + seq_file,
                   stdout=PIPE,
                   stderr=PIPE)

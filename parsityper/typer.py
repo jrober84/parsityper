@@ -7,13 +7,14 @@ import pandas as pd
 from parsityper.helpers import validate_args, init_console_logger, read_tsv, scheme_to_biohansel_fasta, \
     filter_biohansel_kmer_df, process_biohansel_kmer, \
     init_kmer_targets, generate_biohansel_kmer_names, get_scheme_template, generate_random_phrase, calc_md5, \
-    get_kmer_groups, get_kmer_group_mapping, get_sequence_files, read_genotype_profiles, dist_compatible_profiles
+    get_kmer_groups, get_kmer_group_mapping, get_sequence_files, read_genotype_profiles, dist_compatible_profiles, \
+    generate_target_presence_table, nan_compatible_kmer_pairwise_distmatrix
 import copy
 from parsityper.bio_hansel import bio_hansel
 import statistics
 from parsityper.constants import PRIMER_SCHEMES, TYPING_SCHEMES
 from parsityper.helpers import profile_pairwise_distmatrix
-from parsityper.visualizations import dendrogram_visualization
+from parsityper.visualizations import dendrogram_visualization, plot_mds, generate_sample_coverage_plot
 
 
 def parse_args():
@@ -34,7 +35,7 @@ def parse_args():
     parser.add_argument('--scheme', type=str, required=False,
                         help='TSV formated kmer scheme', default='SARS-COV-2')
     parser.add_argument('--primers', type=str, required=False,
-                        help='TSV formated primer file', default='arctic_v3')
+                        help='TSV formated primer file', default=None)
     parser.add_argument('--outdir', type=str, required=True,
                         help='output directory')
     parser.add_argument('--prefix', type=str, required=False,
@@ -289,18 +290,11 @@ def identify_compatible_types(scheme_df, sample_data, min_cov_frac, detection_li
                 # exclude genotypes which must have the negative kmer state
                 # This needs more thought as it has caused some issues
                 if ratio >= 1 - min_cov_frac and sum(sample_data[sample]['counts'][target].values()) >= detection_limit:
-                    temp_seqs = list(set(positive_seqs + partial_pos_seqs))
                     if len(positive_seqs) > 0:
                         e_list = list(set(genotypes) - set(positive_seqs + partial_pos_seqs))
-                        #if 'P.1' in e_list:
-                        #    print("{} pos {} exclude {}".format(sample, target, list(
-                        #        set(genotypes) - set(positive_seqs + partial_pos_seqs))))
-                        sample_data[sample]['genotypes']['exclude'].extend(
-                            list(set(genotypes) - set(positive_seqs + partial_pos_seqs)))
+                        sample_data[sample]['genotypes']['exclude'].extend(e_list)
 
             elif sum(sample_data[sample]['counts'][target].values()) >= detection_limit:
-               #if 'P.1' in positive_seqs:
-               #     print("{} neg {} exclude {}".format(sample, target, positive_seqs))
                sample_data[sample]['genotypes']['exclude'].extend(positive_seqs)
 
             sample_data[sample]['genotypes']['include'] = list(
@@ -318,16 +312,12 @@ def identify_compatible_types(scheme_df, sample_data, min_cov_frac, detection_li
     for sample in sample_data:
         include = sample_data[sample]['genotypes']['include']
         exclude = sample_data[sample]['genotypes']['exclude']
-        informative = sample_data[sample]['genotypes']['informative']
-        #print("{}\ni:{}\ne:{}\nc:{}\ninf:{}".format(sample, include, exclude, list(set(include) - set(exclude)),
-        #                                            informative))
+
         if len(include) > 0:
             sample_data[sample]['genotypes']['candidates'] = list(set(include) - set(exclude))
             sample_data[sample]['genotypes']['candidates'].sort()
-            # sample_data[sample]['genotypes']['candidates'] = list(set(sample_data[sample]['genotypes']['candidates'] ) & set(informative))
             sample_data[sample]['genotypes']['candidates'] = list(
                 set(sample_data[sample]['genotypes']['candidates']) - set('nan'))
-    #print(sample_data[sample]['genotypes']['candidates'])
     return sample_data
 
 
@@ -451,7 +441,7 @@ def type_occamization(sample_data, scheme_df, min_cov_frac=0.05, min_cov=20):
 
         type_data = sample_data[sample]['genotypes']
         candidates = type_data['candidates']
-        #print(candidates)
+
         # skip samples where no genotype is compatible with the kmer data or a single candidate is available
         if len(candidates) <= 1:
             continue
@@ -469,8 +459,6 @@ def type_occamization(sample_data, scheme_df, min_cov_frac=0.05, min_cov=20):
             for genotype in candidates:
                 num_targets = 1 + len(candidate_data[genotype]['targets'])
                 num_positives = 1 + len(genotype_kmer_assoc[genotype]['positive'])
-                #print("{}\t{}\t{}\t{}".format(genotype,candidate_data[genotype]['targets'],genotype_kmer_assoc[genotype]['positive'],genotype_kmer_assoc[genotype]['partial']))
-
             continue
 
         simplified_type_set = [] + unique
@@ -511,10 +499,6 @@ def type_occamization(sample_data, scheme_df, min_cov_frac=0.05, min_cov=20):
         genotype_kmer_count = {}
         simplified_type_set = list(set(simplified_type_set))
         candidate_data = sample_data[sample]['genotypes']['candidate_data']
-        #print("simplified")
-        #print(simplified_type_set)
-        #print("unique")
-        #print(genotype_unique_counts)
 
         for i in genotype_unique_counts:
             genotype = genotype_unique_counts[i]
@@ -533,12 +517,10 @@ def type_occamization(sample_data, scheme_df, min_cov_frac=0.05, min_cov=20):
                 filtered[genotype] = candidate_data[genotype]
         candidate_data = filtered
         del (filtered)
-        #print("Filtered")
-        #print(candidate_data)
+
         found_pos_kmer_targets = []
         for genotype in candidate_data:
             genotype_kmer_count[genotype] = len(candidate_data[genotype]['targets'])
-            #print("{}\t{}\t{}".format(genotype,genotype_kmer_count[genotype],(1+genotype_kmer_count[genotype])/(1+genotype_kmer_assoc[genotype_kmer_assoc]['positive'])))
             found_pos_kmer_targets.extend(candidate_data[genotype]['targets'])
         genotype_target_counts = {k: v for k, v in
                                   sorted(genotype_kmer_count.items(), key=lambda item: item[1], reverse=True)}
@@ -552,8 +534,7 @@ def type_occamization(sample_data, scheme_df, min_cov_frac=0.05, min_cov=20):
                 if g2 == genotype:
                     continue
                 candidate_data[g2]['targets'] = list(set(candidate_data[g2]['targets']) - set(targets))
-        #print("Candidates")
-        #print(candidate_data)
+
         filtered = {}
         for genotype in candidate_data:
             if len(candidate_data[genotype]['targets']) > 0 and genotype in simplified_type_set:
@@ -594,11 +575,6 @@ def calc_type_coverage(sample_data, scheme_df, min_cov=20, min_cov_frac=0.05, re
         if recalc:
             candidates = sample_data[sample]['genotypes']['candidates']
         frequencies = {}
-
-        if len(candidates) == 1:
-            is_isolate = True
-        else:
-            is_isolate = False
 
         for genotype in candidates:
             if not genotype in genotypes_to_kmers:
@@ -1084,37 +1060,6 @@ def write_kmer_dict(kmer_data,out_file):
                 fh.write("{}\n".format("\t".join([sample,target,seq,is_pos_kmer,freq])))
     fh.close()
 
-def generate_coverage_profile(sample_kmer_data):
-    profile = {}
-    for sample_id in sample_kmer_data:
-        profile[sample_id] = {}
-        print(sample_kmer_data[sample_id].keys())
-        counts = sample_kmer_data[sample_id]['counts']
-        for target in counts:
-            profile[sample_id][int(target)] = counts[target]['positive'] + counts[target]['negative']
-
-    return profile
-
-def bin_scheme_targets(scheme_df,max_length,window_size=500):
-    bins = []
-    mapping = {}
-    for i in range(window_size,max_length+window_size,window_size):
-        bins.append(i)
-
-    for row in scheme_df.itertuples():
-        target = str(row.index)
-        position = int(row.kmer_start)
-
-        for i in range(0,len(bins)):
-            bin = bins[i]
-            if position <= bin:
-                mapping[target] = bin
-                break
-
-
-    return mapping
-
-
 
 def identify_nearest_neighbors(sample_profiles,genotype_profile_data,max_dist=0.5,max_neighbors=10):
     profiles = dist_compatible_profiles(genotype_profile_data)
@@ -1144,6 +1089,26 @@ def identify_nearest_neighbors(sample_profiles,genotype_profile_data,max_dist=0.
         data[sample_id] = neighbors
     return data
 
+
+
+
+def bin_scheme_targets(scheme_df,max_length,window_size=500):
+    bins = []
+    mapping = {}
+    for i in range(window_size,max_length+window_size,window_size):
+        bins.append(i)
+
+    for row in scheme_df.itertuples():
+        target = str(row.index)
+        position = int(row.kmer_start)
+
+        for i in range(0,len(bins)):
+            bin = bins[i]
+            if position <= bin:
+                mapping[target] = bin
+                break
+
+    return mapping
 
 
 
@@ -1199,7 +1164,12 @@ def run():
     report_run_kmer_composition = os.path.join(outdir, "{}.run_composition.report.txt".format(prefix))
     report_qc_metrics = os.path.join(outdir, "{}.run.qc.txt".format(prefix))
     report_individual_sample_html_prefix = os.path.join(outdir, "{}.sample_#.report.html".format(prefix))
+
+    #Images
     report_run_kmer_dendrogram = os.path.join(outdir, "{}.run_kmer_dendrogram.png".format(prefix))
+    report_scipy_profile = os.path.join(outdir, "{}.scipy.features.profile".format(prefix))
+    report_run_kmer_mds = os.path.join(outdir, "{}.run_kmer_mds.png".format(prefix))
+    report_run_kmer_coverage = os.path.join(outdir, "{}.run_kmer_coverage.png".format(prefix))
 
     report_run_info_log.write("Start Time\t{}\n".format(datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")))
     report_run_info_log.write("Output Directory\t{}\n".format(outdir))
@@ -1229,7 +1199,6 @@ def run():
     biohansel_fasta_file = os.path.join(outdir, "{}.biohansel.fasta".format(prefix))
     logger.info("Writing biohansel compatible kmer scheme to {}".format(biohansel_fasta_file))
     scheme_bin_mapping = bin_scheme_targets(scheme_df,30000,window_size=500)
-    print(scheme_bin_mapping)
     scheme_to_biohansel_fasta(scheme_df, biohansel_fasta_file)
     scheme_kmer_target_info = init_kmer_targets(scheme_df)
     scheme_kmer_target_keys = list(scheme_kmer_target_info.keys())
@@ -1393,8 +1362,8 @@ def run():
         sample_kmer_results = process_biohansel_kmer(scheme_kmer_groups, scheme_target_to_group_mapping,
                                                      scheme_kmer_target_info, sample_kmer_biohansel_df, min_cov)
 
-    logger.info("Biohansel stdout: {}".format(stdout))
-    logger.info("Biohansel sterr: {}".format(stderr))
+#    logger.info("Biohansel stdout: {}".format(stdout))
+ #   logger.info("Biohansel sterr: {}".format(stderr))
     logger.info("Reading bioHansel results")
     report_run_info_log.write("Input Data\t{}\n".format(input_data))
     logger.info("Determining kmer target ratios")
@@ -1432,6 +1401,11 @@ def run():
     sample_kmer_data = calc_type_coverage(sample_kmer_data, scheme_df, min_cov_frac=min_cov_frac, min_cov=min_cov,
                                           recalc=True)
     profile_st = {}
+    logger.info("Calculating scipy compatible profile features")
+    kmer_content_profile_df = generate_target_presence_table(sample_kmer_data, min_ratio=min_cov_frac, max_ratio=1-min_cov_frac)
+    logger.info("Writing scipy compatible profile to: {}".format(report_scipy_profile))
+    kmer_content_profile_df.to_csv(report_scipy_profile,header=True,sep='\t')
+    plot_mds(nan_compatible_kmer_pairwise_distmatrix(kmer_content_profile_df), list(kmer_content_profile_df.columns),report_run_kmer_mds)
 
     # get positive kmer signature for each sample
     kmer_summary = get_detected_target_summary(sample_kmer_data, min_cov, min_cov_frac)
@@ -1441,9 +1415,11 @@ def run():
 
     for sample_id in kmer_summary:
         profile_st[sample_id] = kmer_summary[sample_id]['positive']
-
-    genotype_profiles_data = read_genotype_profiles(genotype_profiles)
-    neighbours = identify_nearest_neighbors(profile_st,genotype_profiles_data,max_dist=genotype_dist_cutoff,max_neighbors=10)
+    genotype_profiles_data = {}
+    neighbours = {}
+    if genotype_profiles is not None:
+        genotype_profiles_data = read_genotype_profiles(genotype_profiles)
+        neighbours = identify_nearest_neighbors(profile_st,genotype_profiles_data,max_dist=genotype_dist_cutoff,max_neighbors=10)
 
     sample_report = {}
     fail_sample_count = 0
@@ -1454,8 +1430,7 @@ def run():
             sample_report[sample] = {}
         total_ratio = 0
         unassigned_positive_kmers = kmer_summary[sample]['positive']
-        #print('------')
-        #print(sample_kmer_data[sample]['genotypes']['candidate_data'])
+
         for genotype in sample_kmer_data[sample]['genotypes']['candidate_data']:
             data = sample_kmer_data[sample]['genotypes']['candidate_data'][genotype]
 
@@ -1518,4 +1493,5 @@ def run():
                                       report_run_kmer_dendrogram)
     report_run_info_log.write("Samples failing QC\t{}\n".format(fail_sample_count))
     report_run_info_log.write("End Time\t{}\n".format(datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")))
-   # coverage_summary_fig = generate_sample_coverage_plot(positive_control_results, no_template_results, sample_kmer_data, scheme_bin_mapping)
+    coverage_summary_fig = generate_sample_coverage_plot(positive_control_results, no_template_results, sample_kmer_data, scheme_bin_mapping)
+    coverage_summary_fig.write_image(report_run_kmer_coverage)
