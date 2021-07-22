@@ -17,6 +17,7 @@ ordered_tasks = [
     'typer',
     'creator',
     'trainer',
+    'benchmark',
     'test',
     'version'
 ]
