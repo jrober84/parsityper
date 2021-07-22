@@ -8,6 +8,8 @@ from parsityper.typer import calc_kmer_ratio, calc_mixed_sites, identify_compati
 calc_type_coverage, type_occamization, get_detected_target_summary, get_genotype_target_associations
 import statistics
 import time
+
+import multiprocessing
 from multiprocessing import Pool
 
 def parse_args():
@@ -30,6 +32,7 @@ def generate_comparsions(samples,depth=2):
     return list(permutations(samples, depth))
 
 def call_genotype(sample_kmer_data,kmer_summary,combo,min_cov,min_cov_frac):
+    print(multiprocessing.current_process())
     sample_report = {}
     for sample in sample_kmer_data:
         sample_report[sample] = {}
