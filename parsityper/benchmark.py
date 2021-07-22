@@ -183,6 +183,10 @@ def run():
             res = []
             print("{}\t{}".format(time.time()-stime,len(results)))
             stime = time.time()
+    if len(res) > 0:
+        pool.close()
+        pool.join()
+        results.extend([x.get() for x in res])
 
     for result in results:
         print("{}".format(result))
