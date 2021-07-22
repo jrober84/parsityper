@@ -155,7 +155,8 @@ def run():
 
     #print(sample_kmer_results_main)
     combinations = generate_comparsions(list(sample_kmer_results_main.keys()),depth=2)
-
+    print("Num combinations {}".format(len(combinations)))
+    sys.stdin.flush()
     sample_ids = []
     sample_report = {}
     pool = Pool(processes=n_threads)
