@@ -9,8 +9,6 @@ calc_type_coverage, type_occamization, get_detected_target_summary, get_genotype
 import statistics
 import time
 from multiprocessing import Pool
-from multiprocessing import set_start_method
-set_start_method("spawn")
 
 def parse_args():
     "Parse the input arguments, use '-h' for help"
