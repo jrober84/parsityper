@@ -182,7 +182,7 @@ def run():
         res.append(pool.apply_async(process_sample,(sample_id,combo,sample_kmer_results_main,scheme_kmer_target_keys,scheme_df,min_cov,min_cov_frac)))
         print(sample_id)
         sys.stdin.flush()
-        if len(res) == 100:
+        if len(res) == 1000:
             pool.close()
             pool.join()
             results.extend([x.get() for x in res])
