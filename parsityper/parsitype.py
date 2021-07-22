@@ -3,7 +3,10 @@
 import sys
 sys.setrecursionlimit(3500)
 import cProfile
+import multiprocessing as mp
 
+if mp.get_start_method(allow_none=True) != 'spawn':
+        mp.set_start_method('spawn', force=True)
 
 tasks = {
     'typer': 'Reconstruct sample genotype(s) from isolate or metagenomic sample',
