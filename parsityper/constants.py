@@ -38,8 +38,10 @@ PRIMER_SCHEMES = {
 
 TYPING_SCHEMES = {
     'SARS-COV-2_v1': os.path.join(default_database_dir,'sars-cov-2-kmers.v1.scheme.txt'),
-    'SARS-COV-2_v2': '',
+    'SARS-COV-2_v2': os.path.join(default_database_dir,'sars-cov-2-kmers.v2.scheme.txt'),
     'SARS-COV-2_v3': '',
+    'NEXTCLADE-COV-2_v1':os.path.join(default_database_dir,'sars-cov-2-kmers.nextclade.v1.scheme.txt')
+
 }
 
 PANGOLIN_KMER_PROFILES = {

@@ -34,6 +34,7 @@ def expand_degenerate_bases(seq):
     Args:
          Scheme_kmers from SNV scheme fasta file
 
+
     Returns:
          List of all possible kmers given a degenerate base or not
     """

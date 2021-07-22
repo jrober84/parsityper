@@ -32,8 +32,8 @@ def parse_args():
                         help='paired-end fwd fastq read')
     parser.add_argument('--R2', type=str, required=False,
                         help='paired-end rev fastq read')
-    parser.add_argument('--scheme', type=str, required=False,
-                        help='TSV formated kmer scheme', default='SARS-COV-2')
+    parser.add_argument('--scheme', type=str, required=True,
+                        help='TSV formated kmer scheme', default='')
     parser.add_argument('--primers', type=str, required=False,
                         help='TSV formated primer file', default=None)
     parser.add_argument('--outdir', type=str, required=True,
@@ -318,6 +318,7 @@ def identify_compatible_types(scheme_df, sample_data, min_cov_frac, detection_li
             sample_data[sample]['genotypes']['candidates'].sort()
             sample_data[sample]['genotypes']['candidates'] = list(
                 set(sample_data[sample]['genotypes']['candidates']) - set('nan'))
+
     return sample_data
 
 
@@ -393,6 +394,27 @@ def type_kmer_mapping(scheme_df):
 
     return kmers
 
+def assign_targets(candidate_data,genotype_kmer_count):
+    genotype_target_counts = {k: v for k, v in
+                              sorted(genotype_kmer_count.items(), key=lambda item: item[1], reverse=True)}
+    delta = False
+
+    for genotype in genotype_target_counts:
+        targets = candidate_data[genotype]['targets']
+        for g2 in candidate_data:
+            if g2 == genotype:
+                continue
+            new = list(set(candidate_data[g2]['targets']) - set(targets))
+            old = list(set(candidate_data[g2]['targets']) )
+            candidate_data[g2]['targets'] = new
+            candidate_data[g2]['num_targets'] = len(new)
+            if len(new) != len(old):
+                delta = True
+
+        if delta:
+            break
+    return (delta,candidate_data)
+
 def get_genotype_target_associations(scheme_df):
     '''
     :param scheme_df:
@@ -425,8 +447,6 @@ def get_genotype_target_associations(scheme_df):
 
 def type_occamization(sample_data, scheme_df, min_cov_frac=0.05, min_cov=20):
     type_kmer_mappings = type_kmer_mapping(scheme_df)
-
-
     type_specific_kmers = get_type_specific_targets(scheme_df)
     genotype_kmer_assoc = get_genotype_target_associations(scheme_df)
 
@@ -524,16 +544,14 @@ def type_occamization(sample_data, scheme_df, min_cov_frac=0.05, min_cov=20):
             found_pos_kmer_targets.extend(candidate_data[genotype]['targets'])
         genotype_target_counts = {k: v for k, v in
                                   sorted(genotype_kmer_count.items(), key=lambda item: item[1], reverse=True)}
-        found_pos_kmer_targets = list(set(found_pos_kmer_targets))
-        num_found_pos_kmer_targets = len(found_pos_kmer_targets)
-        for genotype in genotype_target_counts:
-            targets = candidate_data[genotype]['targets']
-            if len(targets) == 0 or num_found_pos_kmer_targets == 1:
-                continue
-            for g2 in candidate_data:
-                if g2 == genotype:
-                    continue
-                candidate_data[g2]['targets'] = list(set(candidate_data[g2]['targets']) - set(targets))
+
+        (status,candidate_data) = assign_targets(candidate_data, genotype_kmer_count)
+
+        while status:
+            for genotype in candidate_data:
+                genotype_kmer_count[genotype] = len(candidate_data[genotype]['targets'])
+            (status,candidate_data) = assign_targets(candidate_data, genotype_kmer_count)
+
 
         filtered = {}
         for genotype in candidate_data:
@@ -543,7 +561,6 @@ def type_occamization(sample_data, scheme_df, min_cov_frac=0.05, min_cov=20):
         sample_data[sample]['genotypes']['candidate_data'] = filtered
         sample_data[sample]['genotypes']['unique'] = list(set(unique) - set(list(candidate_data.keys())))
         sample_data[sample]['genotypes']['candidates'] = list(candidate_data.keys())
-
     return sample_data
 
 
@@ -788,7 +805,7 @@ def write_sample_summary_report(sample_report, outfile, sample_kmer_data, scheme
     '''
     kmer_summary = get_detected_target_summary(sample_kmer_data, min_cov=min_cov, min_cov_frac=min_cov_frac)
     profile_names = {}
-    header = ['sample_id','detected_genotype(s)','sample_type','primary_genotype',
+    header = ['sample_id','compatible_genotype(s)','sample_type','primary_genotype',
              'primary_genotype_transition_ratio','primary_genotype_transition_slope','num_targets_detected',
               'average_target_freq','target_freq_stdev','num_mixed_targets','kmer_profile_st','kmer_profile_md5',
               'kmer_profile_name','qc_sample_type','qc_max_missing_sites','qc_max_het_sites','qc_cov_stdev','qc_overall']
