@@ -811,6 +811,7 @@ def write_sample_summary_report(sample_report, outfile, sample_kmer_data, scheme
               'kmer_profile_name','qc_sample_type','qc_max_missing_sites','qc_max_het_sites','qc_cov_stdev','qc_overall']
     for gene in genes:
         header.append("detected_mutations_{}_dna".format(gene))
+    for gene in genes:
         header.append("detected_mutations_{}_aa".format(gene))
     report = ["\t".join(header)]
 
