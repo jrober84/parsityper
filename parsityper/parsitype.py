@@ -8,6 +8,7 @@ tasks = {
     'typer': 'Reconstruct sample genotype(s) from isolate or metagenomic sample',
     'creator': 'Create a kmer scheme based on labeled data',
     'trainer': 'Train a kmer scheme on labeled genotype data to derive kmer patterns for genotypes',
+    'benchmark': 'Train a kmer scheme on labeled genotype data to derive kmer patterns for genotypes',
     'test': 'Test parsityper functionality on a small dataset',
     'version': 'Print version and exit',
 }
