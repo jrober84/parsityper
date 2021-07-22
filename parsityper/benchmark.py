@@ -110,7 +110,7 @@ def process_sample(sample_id,combo,sample_kmer_results_main,scheme_kmer_target_k
     kmer_summary = get_detected_target_summary(sample_kmer_data, min_cov, min_cov_frac)
     return call_genotype(sample_kmer_data, kmer_summary, combo, min_cov, min_cov_frac)
 
-def main():
+def run():
     cmd_args = parse_args()
     scheme = cmd_args.scheme
     input_seqs = cmd_args.input_seqs
@@ -184,6 +184,3 @@ def main():
 
     for result in results:
         print("{}".format(result))
-# call main function
-if __name__ == '__main__':
-    main()
