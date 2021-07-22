@@ -33,6 +33,7 @@ def generate_comparsions(samples,depth=2):
 
 def call_genotype(sample_kmer_data,kmer_summary,combo,min_cov,min_cov_frac):
     print(multiprocessing.current_process())
+    sys.stdin.flush()
     sample_report = {}
     for sample in sample_kmer_data:
         sample_report[sample] = {}
