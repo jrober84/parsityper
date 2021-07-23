@@ -84,7 +84,7 @@ def call_genotype(sample_kmer_data,kmer_summary,combo,min_cov,min_cov_frac):
                 'ratio_stdev': std_ratio
             }
     overlap = list(set(combo) & set(list(sample_report[sample].keys())))
-    print("call {}\t{}".format(time.time() - stime, multiprocessing.current_process()))
+    print("{} {} call {}\t{}".format(sample,os.getpid(),time.time() - stime, multiprocessing.current_process()))
     sys.stdin.flush()
     return ("{}\t{}\t{}\n".format(sample, ",".join(list(sample_report[sample].keys())), len(overlap)))
 
@@ -102,7 +102,7 @@ def process_sample(sample_id,combo,sample_kmer_results_main,scheme_kmer_target_k
                                                               'is_pos_kmer': sample_kmer_results_main[cid][t][seq][
                                                                   'is_pos_kmer']}
                 sample_kmer_results[sample_id][t][seq]['freq'] += sample_kmer_results_main[cid][t][seq]['freq']
-    print("build {}".format(time.time()-stime,multiprocessing.current_process()))
+    print("{} {} build {}".format(sample_id,os.getpid(),time.time()-stime,multiprocessing.current_process()))
     sample_kmer_data = calc_kmer_ratio(sample_kmer_results, scheme_kmer_target_keys, 20)
     sample_kmer_data = calc_mixed_sites(sample_kmer_data, min_cov_frac)
 
@@ -115,7 +115,7 @@ def process_sample(sample_id,combo,sample_kmer_results_main,scheme_kmer_target_k
     sample_kmer_data = calc_type_coverage(sample_kmer_data, scheme_df, min_cov_frac=min_cov_frac, min_cov=20,
                                           recalc=True)
     kmer_summary = get_detected_target_summary(sample_kmer_data, min_cov, min_cov_frac)
-    print("prep {}\t{}".format(time.time() - stime,multiprocessing.current_process()))
+    print("{} {} prep {}\t{}".format(sample_id,os.getpid(),time.time() - stime,multiprocessing.current_process()))
     return call_genotype(sample_kmer_data, kmer_summary, combo, min_cov, min_cov_frac)
 
 def run():
