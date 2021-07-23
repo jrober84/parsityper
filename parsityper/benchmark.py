@@ -84,9 +84,21 @@ def call_genotype(sample_kmer_data,kmer_summary,combo,min_cov,min_cov_frac):
                 'ratio_stdev': std_ratio
             }
     overlap = list(set(combo) & set(list(sample_report[sample].keys())))
-    print("{} {} call {}\t{}".format(sample,os.getpid(),time.time() - stime, multiprocessing.current_process()))
-    sys.stdin.flush()
-    return ("{}\t{}\t{}\n".format(sample, ",".join(list(sample_report[sample].keys())), len(overlap)))
+    num_pred = len(sample_report[sample])
+    status = ''
+    if num_pred == 1 and 'unknown' in sample_report[sample]:
+        status = 'no prediction'
+    elif num_pred == len(overlap):
+        status = 'perfect match'
+    elif len(overlap) == 0:
+        status = 'fully incorrect'
+    elif len(overlap) < num_pred:
+        status = 'partial match'
+    else:
+        status = 'partial match'
+    #print("{} {} call {}\t{}".format(sample,os.getpid(),time.time() - stime, multiprocessing.current_process()))
+    #sys.stdin.flush()
+    return ("{}\t{}\t{}\t{}\t{}".format(sample, ",".join(list(sample_report[sample].keys())), num_pred, len(overlap), status))
 
 def process_sample(sample_id,combo,sample_kmer_results_main,scheme_kmer_target_keys,scheme_df,min_cov,min_cov_frac):
     stime = time.time()
@@ -102,7 +114,7 @@ def process_sample(sample_id,combo,sample_kmer_results_main,scheme_kmer_target_k
                                                               'is_pos_kmer': sample_kmer_results_main[cid][t][seq][
                                                                   'is_pos_kmer']}
                 sample_kmer_results[sample_id][t][seq]['freq'] += sample_kmer_results_main[cid][t][seq]['freq']
-    print("{} {} build {}".format(sample_id,os.getpid(),time.time()-stime,multiprocessing.current_process()))
+    #print("{} {} build {}".format(sample_id,os.getpid(),time.time()-stime,multiprocessing.current_process()))
     sample_kmer_data = calc_kmer_ratio(sample_kmer_results, scheme_kmer_target_keys, 20)
     sample_kmer_data = calc_mixed_sites(sample_kmer_data, min_cov_frac)
 
@@ -115,7 +127,7 @@ def process_sample(sample_id,combo,sample_kmer_results_main,scheme_kmer_target_k
     sample_kmer_data = calc_type_coverage(sample_kmer_data, scheme_df, min_cov_frac=min_cov_frac, min_cov=20,
                                           recalc=True)
     kmer_summary = get_detected_target_summary(sample_kmer_data, min_cov, min_cov_frac)
-    print("{} {} prep {}\t{}".format(sample_id,os.getpid(),time.time() - stime,multiprocessing.current_process()))
+    #print("{} {} prep {}\t{}".format(sample_id,os.getpid(),time.time() - stime,multiprocessing.current_process()))
     return call_genotype(sample_kmer_data, kmer_summary, combo, min_cov, min_cov_frac)
 
 def run():
@@ -174,17 +186,17 @@ def run():
         combo = list(combinations[i])
         combo.sort()
         sample_id = ':'.join(combo)
-
         if sample_id in sample_ids:
             continue
         else:
             sample_ids.append(sample_id)
+        print(sample_id)
+        sys.stdin.flush()
         temp = {}
         for id in combo:
             temp[id] = sample_kmer_results_main[id]
         res.append(pool.apply_async(process_sample,(sample_id,combo,temp,scheme_kmer_target_keys,scheme_df,min_cov,min_cov_frac)))
-        print(sample_id)
-        sys.stdin.flush()
+
         if len(res) == 1000:
             pool.close()
             pool.join()
@@ -193,11 +205,15 @@ def run():
             res = []
             print("{}\t{}".format(time.time()-stime,len(results)))
             stime = time.time()
+            for result in results:
+                out.write("{}\n".format(result))
+            results = []
+
     if len(res) > 0:
         pool.close()
         pool.join()
         results.extend([x.get() for x in res])
 
     for result in results:
-        print("{}".format(result))
-    print("{}\t{}".format(time.time() - stime, len(results)))
+        out.write("{}\n".format(result))
+    
