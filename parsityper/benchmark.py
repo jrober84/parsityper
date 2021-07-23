@@ -179,7 +179,10 @@ def run():
             continue
         else:
             sample_ids.append(sample_id)
-        res.append(pool.apply_async(process_sample,(sample_id,combo,sample_kmer_results_main,scheme_kmer_target_keys,scheme_df,min_cov,min_cov_frac)))
+        temp = {}
+        for id in combo:
+            temp[id] = sample_kmer_results_main[id]
+        res.append(pool.apply_async(process_sample,(sample_id,combo,temp,scheme_kmer_target_keys,scheme_df,min_cov,min_cov_frac)))
         print(sample_id)
         sys.stdin.flush()
         if len(res) == 1000:
