@@ -197,3 +197,4 @@ def run():
 
     for result in results:
         print("{}".format(result))
+    print("{}\t{}".format(time.time() - stime, len(results)))
