@@ -1130,6 +1130,7 @@ def bin_scheme_targets(scheme_df,max_length,window_size=500):
 
 def write_genotype_report(sample_kmer_data,scheme_df,scheme_kmer_target_info,outfile,min_cov,min_cov_frac):
     genotype_targets = {}
+    genotypes = []
     for row in scheme_df.itertuples():
         target = row.key
         if isinstance(row.positive_seqs,float):
@@ -1150,6 +1151,7 @@ def write_genotype_report(sample_kmer_data,scheme_df,scheme_kmer_target_info,out
                 }
             genotype_targets[g]['positive'].append(str(target))
             genotype_targets[g]['total'].append(str(target))
+            genotypes.append(g)
 
         for g in partial_pos_seqs:
             if g not in genotype_targets:
@@ -1160,18 +1162,21 @@ def write_genotype_report(sample_kmer_data,scheme_df,scheme_kmer_target_info,out
                 }
             genotype_targets[g]['total'].append(str(target))
             genotype_targets[g]['partial'].append(str(target))
+            genotypes.append(g)
+    genotypes = list(set(genotypes))
 
 
     genotype_report = ["sample_id\tgenotype\tnum_scheme_targets_total\tnum_scheme_targets_positive\t"
                        "num_scheme_targets_partial\t"
                        "num_found_targets_positive\t"
                        "num_found_targets_partial\t"
-                       "found_pos_mutations_dna\tfound_pos_mutations_aa"
+                       "found_pos_mutations_dna\tfound_pos_mutations_aa\t"
+                       "missing_pos_mutations_dna\tmissing_pos_mutations_aa\t"
                        "found_par_mutations_dna\tfound_par_mutations_aa"]
     for sample_id in sample_kmer_data:
         genotype_data = sample_kmer_data[sample_id]['genotypes']
         compatible_genotypes = list(set(genotype_data['include']) )
-        for genotype in compatible_genotypes:
+        for genotype in genotypes:
             if not genotype in genotype_targets:
                 continue
             scheme_targets = genotype_targets[genotype]['total']
@@ -1187,13 +1192,19 @@ def write_genotype_report(sample_kmer_data,scheme_df,scheme_kmer_target_info,out
             scheme_par_targets = genotype_targets[genotype]['partial']
             found_pos_targets = list(set(scheme_pos_targets) & set(found_targets))
             found_par_targets = list(set(scheme_par_targets) & set(found_targets))
+            missing_pos_targets = list(set(scheme_pos_targets) - set(found_targets))
             found_pos_mut_dna = []
             found_pos_mut_aa = []
+            missing_pos_mut_dna = []
+            missing_pos_mut_aa = []
             found_par_mut_dna = []
             found_par_mut_aa = []
             for target in found_pos_targets:
                 found_pos_mut_dna.append(str(scheme_kmer_target_info[target]['dna_name']))
                 found_pos_mut_aa.append(str(scheme_kmer_target_info[target]['aa_name']))
+            for target in missing_pos_targets:
+                missing_pos_mut_dna.append(str(scheme_kmer_target_info[target]['dna_name']))
+                missing_pos_mut_aa.append(str(scheme_kmer_target_info[target]['aa_name']))
             for target in found_par_targets:
                 found_par_mut_dna.append(str(scheme_kmer_target_info[target]['dna_name']))
                 found_par_mut_aa.append(str(scheme_kmer_target_info[target]['aa_name']))
@@ -1204,6 +1215,8 @@ def write_genotype_report(sample_kmer_data,scheme_df,scheme_kmer_target_info,out
                    str(len(found_par_targets)),
                    ", ".join(found_pos_mut_dna),
                    ", ".join(found_pos_mut_aa),
+                   ", ".join(missing_pos_mut_dna),
+                   ", ".join(missing_pos_mut_aa),
                    ", ".join(found_par_mut_dna),
                    ", ".join(found_pos_mut_aa),
                    ]
