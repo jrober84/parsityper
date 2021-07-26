@@ -1128,6 +1128,92 @@ def bin_scheme_targets(scheme_df,max_length,window_size=500):
 
     return mapping
 
+def write_genotype_report(sample_kmer_data,scheme_df,scheme_kmer_target_info,outfile,min_cov,min_cov_frac):
+    genotype_targets = {}
+    for row in scheme_df.itertuples():
+        target = row.key
+        if isinstance(row.positive_seqs,float):
+            positive_seqs = []
+        else:
+            positive_seqs = str(row.positive_seqs).split(',')
+        if isinstance(row.partial_positive_seqs,float):
+            partial_pos_seqs = []
+        else:
+            partial_pos_seqs = str(row.partial_positive_seqs).split(',')
+
+        for g in positive_seqs:
+            if g not in genotype_targets:
+                genotype_targets[g] = {
+                    'positive':[],
+                    'partial':[],
+                    'total':[]
+                }
+            genotype_targets[g]['positive'].append(str(target))
+            genotype_targets[g]['total'].append(str(target))
+
+        for g in partial_pos_seqs:
+            if g not in genotype_targets:
+                genotype_targets[g] = {
+                    'positive': [],
+                    'partial': [],
+                    'total': []
+                }
+            genotype_targets[g]['total'].append(str(target))
+            genotype_targets[g]['partial'].append(str(target))
+
+
+    genotype_report = ["sample_id\tgenotype\tnum_scheme_targets_total\tnum_scheme_targets_positive\t"
+                       "num_scheme_targets_partial\t"
+                       "num_found_targets_positive\t"
+                       "num_found_targets_partial\t"
+                       "found_pos_mutations_dna\tfound_pos_mutations_aa"
+                       "found_par_mutations_dna\tfound_par_mutations_aa"]
+    for sample_id in sample_kmer_data:
+        genotype_data = sample_kmer_data[sample_id]['genotypes']
+        compatible_genotypes = list(set(genotype_data['include']) - set(genotype_data['exclude']))
+        for genotype in compatible_genotypes:
+            if not genotype in genotype_targets:
+                continue
+            scheme_targets = genotype_targets[genotype]['total']
+
+            found_targets = []
+            for target in scheme_targets:
+                target = str(target)
+                cov = sample_kmer_data[sample_id]['counts'][target]['positive']
+                ratio = sample_kmer_data[sample_id]['ratios'][target]
+                if cov >= min_cov and ratio >= min_cov_frac:
+                    found_targets.append(target)
+            scheme_pos_targets = genotype_targets[genotype]['positive']
+            scheme_par_targets = genotype_targets[genotype]['partial']
+            found_pos_targets = list(set(scheme_pos_targets) & set(found_targets))
+            found_par_targets = list(set(scheme_par_targets) & set(found_targets))
+            found_pos_mut_dna = []
+            found_pos_mut_aa = []
+            found_par_mut_dna = []
+            found_par_mut_aa = []
+            for target in found_pos_targets:
+                found_pos_mut_dna.append(str(scheme_kmer_target_info[target]['dna_name']))
+                found_pos_mut_aa.append(str(scheme_kmer_target_info[target]['aa_name']))
+            for target in found_par_targets:
+                found_par_mut_dna.append(str(scheme_kmer_target_info[target]['dna_name']))
+                found_par_mut_aa.append(str(scheme_kmer_target_info[target]['aa_name']))
+            row = [sample_id,genotype,str(len(scheme_targets)),
+                   str(len(scheme_pos_targets)),
+                   str(len(scheme_par_targets)),
+                   str(len(found_pos_targets)),
+                   str(len(found_par_targets)),
+                   ", ".join(found_pos_mut_dna),
+                   ", ".join(found_pos_mut_aa),
+                   ", ".join(found_par_mut_dna),
+                   ", ".join(found_pos_mut_aa),
+                   ]
+
+            genotype_report.append("\t".join(row))
+    #dna_name = str(scheme_kmer_target_info[target]['dna_name'])
+
+    fh = open(outfile,'w')
+    fh.write("\n".join(genotype_report))
+    fh.close
 
 
 
@@ -1182,6 +1268,7 @@ def run():
     report_run_kmer_composition = os.path.join(outdir, "{}.run_composition.report.txt".format(prefix))
     report_qc_metrics = os.path.join(outdir, "{}.run.qc.txt".format(prefix))
     report_individual_sample_html_prefix = os.path.join(outdir, "{}.sample_#.report.html".format(prefix))
+    report_genotype_targets = os.path.join(outdir, "{}.sample.genotype.targets.txt".format(prefix))
 
     #Images
     report_run_kmer_dendrogram = os.path.join(outdir, "{}.run_kmer_dendrogram.png".format(prefix))
@@ -1499,7 +1586,7 @@ def run():
     write_sample_summary_report(sample_report, report_sample_composition_summary, sample_kmer_data,
                                 scheme_kmer_target_info, sample_complexity, genes, max_mixed_sites=max_mixed_sites,
                                 min_cov_frac=min_cov_frac, min_cov=min_cov,sample_type=type)
-
+    write_genotype_report(sample_kmer_data, scheme_df, scheme_kmer_target_info, report_genotype_targets, min_cov, min_cov_frac)
     # create a plot of sample similarity for a multi-sample run
     if len(profile_st) > 1:
         labels = []
