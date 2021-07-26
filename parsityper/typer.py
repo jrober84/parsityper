@@ -1170,7 +1170,7 @@ def write_genotype_report(sample_kmer_data,scheme_df,scheme_kmer_target_info,out
                        "found_par_mutations_dna\tfound_par_mutations_aa"]
     for sample_id in sample_kmer_data:
         genotype_data = sample_kmer_data[sample_id]['genotypes']
-        compatible_genotypes = list(set(genotype_data['include']) - set(genotype_data['exclude']))
+        compatible_genotypes = list(set(genotype_data['include']) )
         for genotype in compatible_genotypes:
             if not genotype in genotype_targets:
                 continue
