@@ -1568,6 +1568,9 @@ def run():
     kmer_content_profile_df.insert(0, 'target', first_column)
     logger.info("Writing scipy compatible profile to: {}".format(report_scipy_profile))
     kmer_content_profile_df.to_csv(report_scipy_profile,header=True,sep='\t',index=False)
+    kmer_content_profile_df.drop(columns=kmer_content_profile_df.columns[0],
+                                 axis=1,
+                                 inplace=True)
     if len(sample_kmer_data) > 1:
         plot_mds(nan_compatible_kmer_pairwise_distmatrix(kmer_content_profile_df), list(kmer_content_profile_df.columns),report_run_kmer_mds)
 
