@@ -999,11 +999,11 @@ def process_directory(data_dir, biohansel_fasta_file, outdir, logger, prefix, sc
         num_files = len(seq_files[ftype])
 
         if num_files > 0 and num_files <= batch_size:
-            #(stdout, stderr) = bio_hansel.run_biohansel_directory(biohansel_fasta_file, data_dir, kmer_file,
-            #                                                      summary_file, simple_file, min_cov, min_cov_frac,
-            #                                                      nthreads)
-            #logger.info("Biohansel stdout: {}".format(stdout))
-            #logger.info("Biohansel sterr: {}".format(stderr))
+            (stdout, stderr) = bio_hansel.run_biohansel_directory(biohansel_fasta_file, data_dir, kmer_file,
+                                                                  summary_file, simple_file, min_cov, min_cov_frac,
+                                                                  nthreads)
+            logger.info("Biohansel stdout: {}".format(stdout))
+            logger.info("Biohansel sterr: {}".format(stderr))
             sample_kmer_biohansel_df = read_tsv(kmer_file)
             logger.info("Processing bioHansel results")
             sample_kmer_results.update(process_biohansel_kmer(scheme_kmer_groups, scheme_target_to_group_mapping,
@@ -1018,9 +1018,9 @@ def process_directory(data_dir, biohansel_fasta_file, outdir, logger, prefix, sc
                 tracker += 1
                 batch.append(seq_files[ftype][i])
                 if tracker >= batch_size or i == num_files - 1:
-                    #(stdout, stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, batch, kmer_file,
-                     #                                                  summary_file,
-                     #                                                  simple_file, min_cov, min_cov_frac, nthreads)
+                    (stdout, stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, batch, kmer_file,
+                                                                       summary_file,
+                                                                       simple_file, min_cov, min_cov_frac, nthreads)
                     tracker = 0
                     batch = []
                     sample_kmer_biohansel_df = read_tsv(kmer_file)
@@ -1028,8 +1028,8 @@ def process_directory(data_dir, biohansel_fasta_file, outdir, logger, prefix, sc
                     sample_kmer_results.update(
                         process_biohansel_kmer(scheme_kmer_groups, scheme_target_to_group_mapping,
                                                scheme_kmer_target_info, sample_kmer_biohansel_df, min_cov))
-                    #logger.info("Biohansel stdout: {}".format(stdout))
-                    #logger.info("Biohansel sterr: {}".format(stderr))
+                    logger.info("Biohansel stdout: {}".format(stdout))
+                    logger.info("Biohansel sterr: {}".format(stderr))
     return sample_kmer_results
 
 def sample_qc(sample_kmer_data,total_targets,min_cov=20,min_cov_frac=0.05,max_mixed_sites=10, max_missing_sites=1400, sample_type='single',sample_cov_stdev_perc=0.75):
