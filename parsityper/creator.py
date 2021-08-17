@@ -403,6 +403,8 @@ def qa_genotypes(genotype_mapping,kmer_profile,shared_kmers,diagnostic_kmers):
         report[genotype]['qc_message'] = '; '.join(qc_message)
     return report
 
+
+
 def convert_seqs_to_genotypes(scheme,genotype_mapping,column_name):
     '''
     :param scheme:

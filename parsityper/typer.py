@@ -66,6 +66,8 @@ def parse_args():
                         help='Fasta/Fastq formatted positive control data')
     parser.add_argument('--list', type=str, required=False,
                         help='list in-built primer and typing schemes')
+    parser.add_argument('--no_plots', required=False,
+                        help='suppress making plots, required for large datasets',action='store_true')
     return parser.parse_args()
 
 
@@ -292,10 +294,14 @@ def identify_compatible_types(scheme_df, sample_data, min_cov_frac, detection_li
                 if ratio >= 1 - min_cov_frac and sum(sample_data[sample]['counts'][target].values()) >= detection_limit:
                     if len(positive_seqs) > 0:
                         e_list = list(set(genotypes) - set(positive_seqs + partial_pos_seqs))
+                        #if 'B.1.14' in e_list:
+                        #    print("{} pos exk=clude {}".format(sample,target))
                         sample_data[sample]['genotypes']['exclude'].extend(e_list)
 
             elif sum(sample_data[sample]['counts'][target].values()) >= detection_limit:
-               sample_data[sample]['genotypes']['exclude'].extend(positive_seqs)
+                #if 'B.1.14' in positive_seqs:
+                #    print("{} neg exk=clude {}".format(sample,target))
+                sample_data[sample]['genotypes']['exclude'].extend(positive_seqs)
 
             sample_data[sample]['genotypes']['include'] = list(
                 set(sample_data[sample]['genotypes']['include']) - set(['nan']))
@@ -310,16 +316,16 @@ def identify_compatible_types(scheme_df, sample_data, min_cov_frac, detection_li
                 set(sample_data[sample]['genotypes']['informative']) - set(['nan']))
 
     for sample in sample_data:
-        include = sample_data[sample]['genotypes']['include']
+        #include = sample_data[sample]['genotypes']['include']
+        include = genotypes
         exclude = sample_data[sample]['genotypes']['exclude']
-
 
         if len(include) > 0:
             sample_data[sample]['genotypes']['candidates'] = list(set(include) - set(exclude))
             sample_data[sample]['genotypes']['candidates'].sort()
             sample_data[sample]['genotypes']['candidates'] = list(
                 set(sample_data[sample]['genotypes']['candidates']) - set('nan'))
-
+        #print("{}\t{}".format(sample,sample_data[sample]['genotypes']['candidates']))
     return sample_data
 
 
@@ -1129,13 +1135,13 @@ def bin_scheme_targets(scheme_df,max_length,window_size=500):
             if position <= bin:
                 mapping[target] = bin
                 break
-
     return mapping
 
 def write_genotype_report(sample_kmer_data,scheme_df,scheme_kmer_target_info,outfile,min_cov,min_cov_frac):
     genotype_targets = {}
     genotypes = []
     global_pos_targets = []
+    global_targets = []
     for row in scheme_df.itertuples():
         target = row.key
         if isinstance(row.positive_seqs,float):
@@ -1155,6 +1161,7 @@ def write_genotype_report(sample_kmer_data,scheme_df,scheme_kmer_target_info,out
                     'total':[]
                 }
             global_pos_targets.append(str(target))
+            global_targets.append(str(target))
             genotype_targets[g]['positive'].append(str(target))
             genotype_targets[g]['total'].append(str(target))
             genotypes.append(g)
@@ -1169,9 +1176,10 @@ def write_genotype_report(sample_kmer_data,scheme_df,scheme_kmer_target_info,out
             genotype_targets[g]['total'].append(str(target))
             genotype_targets[g]['partial'].append(str(target))
             genotypes.append(g)
+            global_targets.append(str(target))
     genotypes = list(set(genotypes))
     global_pos_targets = list(set(global_pos_targets))
-
+    global_targets = list(set(global_targets))
 
     genotype_report = ["sample_id\tgenotype\tnum_scheme_targets_total\tnum_scheme_targets_positive\t"
                        "num_scheme_targets_partial\t"
@@ -1202,21 +1210,24 @@ def write_genotype_report(sample_kmer_data,scheme_df,scheme_kmer_target_info,out
             scheme_par_targets = genotype_targets[genotype]['partial']
             pos_exclusion = []
             neg_exclusion = []
-            for target in scheme_targets:
+            for target in global_targets:
                 target = str(target)
                 cov = sample_kmer_data[sample_id]['counts'][target]['positive'] + sample_kmer_data[sample_id]['counts'][target]['negative']
                 ratio = sample_kmer_data[sample_id]['ratios'][target]
                 if cov >= min_cov and ratio >= min_cov_frac:
                     found_targets.append(target)
-                    if target not in scheme_pos_targets:
+                    if ratio >= (1-min_cov_frac) and target not in scheme_pos_targets and target in global_pos_targets:
                         neg_exclusion.append(target)
                 elif cov >= min_cov:
-                    if target in scheme_pos_targets:
+                    if target in scheme_pos_targets and target in global_pos_targets:
                         pos_exclusion.append(target)
 
             found_pos_targets = list(set(scheme_pos_targets) & set(found_targets))
             found_par_targets = list(set(scheme_par_targets) & set(found_targets))
             missing_pos_targets = list(set(scheme_pos_targets) - set(found_targets))
+
+            #print("{}\t{}\t{}".format(sample_id, found_pos_targets, found_par_targets))
+
             found_pos_mut_dna = []
             found_pos_mut_aa = []
             missing_pos_mut_dna = []
@@ -1294,6 +1305,7 @@ def run():
     R1 = cmd_args.R1
     R2 = cmd_args.R2
     SE = cmd_args.se
+    no_plots = cmd_args.no_plots
     data_dir = cmd_args.data_dir
     outdir = cmd_args.outdir
     nthreads = cmd_args.n_threads
@@ -1571,7 +1583,7 @@ def run():
     kmer_content_profile_df.drop(columns=kmer_content_profile_df.columns[0],
                                  axis=1,
                                  inplace=True)
-    if len(sample_kmer_data) > 1:
+    if len(sample_kmer_data) > 1 and no_plots == False:
         plot_mds(nan_compatible_kmer_pairwise_distmatrix(kmer_content_profile_df), list(kmer_content_profile_df.columns),report_run_kmer_mds)
 
     # get positive kmer signature for each sample
@@ -1650,7 +1662,7 @@ def run():
                                 min_cov_frac=min_cov_frac, min_cov=min_cov,sample_type=type)
     write_genotype_report(sample_kmer_data, scheme_df, scheme_kmer_target_info, report_genotype_targets, min_cov, min_cov_frac)
     # create a plot of sample similarity for a multi-sample run
-    if len(profile_st) > 1:
+    if len(profile_st) > 1 and no_plots == False:
         labels = []
         for sample in profile_st:
             genotype = ', '.join(list(sample_report[sample].keys()))

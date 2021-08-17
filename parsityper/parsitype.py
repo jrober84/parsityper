@@ -2,7 +2,6 @@
 
 import sys
 sys.setrecursionlimit(3500)
-import cProfile
 import multiprocessing as mp
 
 if mp.get_start_method(allow_none=True) != 'spawn':
@@ -11,8 +10,9 @@ if mp.get_start_method(allow_none=True) != 'spawn':
 tasks = {
     'typer': 'Reconstruct sample genotype(s) from isolate or metagenomic sample',
     'creator': 'Create a kmer scheme based on labeled data',
-    'trainer': 'Train a kmer scheme on labeled genotype data to derive kmer patterns for genotypes',
-    'benchmark': 'Train a kmer scheme on labeled genotype data to derive kmer patterns for genotypes',
+    'tuner': 'Train a kmer scheme on labeled genotype data to derive kmer patterns for genotypes',
+    'validator': 'Train a kmer scheme on labeled genotype data to derive kmer patterns for genotypes',
+    'benchmark': 'Simulate mixed samples and benchmark typing performance',
     'test': 'Test parsityper functionality on a small dataset',
     'version': 'Print version and exit',
 }
@@ -21,8 +21,9 @@ tasks = {
 ordered_tasks = [
     'typer',
     'creator',
-    'trainer',
+    'tuner',
     'benchmark',
+    'validator',
     'test',
     'version'
 ]

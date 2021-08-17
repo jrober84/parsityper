@@ -96,8 +96,7 @@ def call_genotype(sample_kmer_data,kmer_summary,combo,min_cov,min_cov_frac):
         status = 'partial match'
     else:
         status = 'partial match'
-    #print("{} {} call {}\t{}".format(sample,os.getpid(),time.time() - stime, multiprocessing.current_process()))
-    #sys.stdin.flush()
+
     return ("{}\t{}\t{}\t{}\t{}".format(sample, ",".join(list(sample_report[sample].keys())), num_pred, len(overlap), status))
 
 def process_sample(sample_id,combo,sample_kmer_results_main,scheme_kmer_target_keys,scheme_df,min_cov,min_cov_frac):
@@ -127,7 +126,6 @@ def process_sample(sample_id,combo,sample_kmer_results_main,scheme_kmer_target_k
     sample_kmer_data = calc_type_coverage(sample_kmer_data, scheme_df, min_cov_frac=min_cov_frac, min_cov=20,
                                           recalc=True)
     kmer_summary = get_detected_target_summary(sample_kmer_data, min_cov, min_cov_frac)
-    #print("{} {} prep {}\t{}".format(sample_id,os.getpid(),time.time() - stime,multiprocessing.current_process()))
     return call_genotype(sample_kmer_data, kmer_summary, combo, min_cov, min_cov_frac)
 
 def run():
@@ -216,4 +214,3 @@ def run():
 
     for result in results:
         out.write("{}\n".format(result))
-    
