@@ -273,24 +273,10 @@ def run():
     fh.write("\n".join(results))
     fh.close()
 
-    kmer_data = {}
-    for kmer_id in scheme_kmer_target_keys:
-        kmer_data[kmer_id] = {'count_negative':[],'count_positive':[],'missing_samples':[],'count_found':0}
-    for sample_id in sample_kmer_data:
-        counts = sample_kmer_data[sample_id]['counts']
-        for kmer_id in counts:
-            pos_count = counts[kmer_id]['positive']
-            neg_count = counts[kmer_id]['negative']
-            total_count = pos_count + neg_count
-            if total_count  >= min_cov:
-                kmer_data[kmer_id]['count_found']+=1
-                kmer_data[kmer_id]['count_positive'].append(pos_count)
-                kmer_data[kmer_id]['count_negative'].append(neg_count)
-            else:
-                kmer_data[kmer_id]['missing_samples'].append(sample_id)
+
     results = ["kmer_id\tcount_found\tcount_missing\tcount_pos\tave_freq_pos\tcount_neg\tave_freq_neg\tmissing_samples"]
-    for kmer_id in kmer_data:
-        data = kmer_data[kmer_id]
+    for kmer_id in sample_kmer_data:
+        data = sample_kmer_data[kmer_id]
         if len(data['count_positive']) > 0:
             ave_freq_pos = sum(data['count_positive']) / len(data['count_positive'])
         else:
@@ -322,6 +308,4 @@ def run():
             ]
             fh.write("\t".join([str(x) for x in out]))
         fh.close()
- # call main function
-if __name__ == '__main__':
-    run()
+

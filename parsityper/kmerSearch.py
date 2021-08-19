@@ -1,4 +1,5 @@
 import itertools
+import os.path
 from collections import defaultdict
 import sys
 import pandas as pd
@@ -181,7 +182,6 @@ def find_in_fasta_dict(automaton: Automaton, seqs: dict) -> pd.DataFrame:
     Returns:
         Dataframe with any matches found in input fasta file
     """
-
     res = []
     iter_keys = seqs.keys()
     for seq_id in iter_keys:
@@ -191,6 +191,44 @@ def find_in_fasta_dict(automaton: Automaton, seqs: dict) -> pd.DataFrame:
     columns = ['kmername', 'seq', 'is_revcomp', 'contig_id', 'match_index']
     return pd.DataFrame(res, columns=columns)
 
+def parallel_query_fasta_files(input_genomes,
+                            automaton: Automaton,
+                           n_threads: int = 1):
+    results = []
+
+    if n_threads == 1:
+        for i in range(0,len(input_genomes)):
+            df = find_in_fasta(automaton,input_genomes[i])
+            df['file_path'] = input_genomes[i]
+            sample = os.path.basename(input_genomes[i])
+            sample = re.sub(r"(\.fa$)|(\.fas$)|(\.fasta$)|(\.fna$)", "", sample)
+            df['sample'] = sample
+            df['is_pos_kmer'] = ~df.kmername.str.contains('negative')
+            refpositions = [x for x, y in df.kmername.str.split('-')]
+            df['refposition'] = [int(x.replace('negative', '')) for x in refpositions]
+            results.append(df)
+    else:
+        pool = Pool(processes=n_threads)
+        res = []
+        for i in range(0, len(input_genomes)):
+            res.append(pool.apply_async(find_in_fasta,  ( automaton, input_genomes[i]  )))
+
+        #cleanup
+        pool.close()
+        pool.join()
+
+        for i in range(0,len(res)):
+            df = res[i].get()
+            df['file_path'] = input_genomes[i]
+            sample = os.path.basename(input_genomes[i])
+            sample = re.sub(r"(\.fa$)|(\.fas$)|(\.fasta$)|(\.fna$)", "", sample)
+            df['sample'] = sample
+            df['is_pos_kmer'] = ~df.kmername.str.contains('negative')
+            refpositions = [x for x, y in df.kmername.str.split('-')]
+            df['refposition'] = [int(x.replace('negative', '')) for x in refpositions]
+            results.append(df)
+
+    return pd.concat(results)
 
 
 
@@ -213,7 +251,6 @@ def parallel_query_contigs_bck(input_genomes,
 def parallel_query_contigs(input_genomes,
                             automaton: Automaton,
                            n_threads: int = 1):
-    print("===>{}".format(n_threads))
     stime = time.time()
     if n_threads == 1:
         return find_in_fasta_dict(automaton,input_genomes)
@@ -308,3 +345,40 @@ def find_in_fastqs(automaton: Automaton, *fastqs):
         kmername, sequence, _ = automaton.get(kmer_seq)
         res.append((kmername, kmer_seq, freq))
     return pd.DataFrame(res, columns=['kmername', 'seq', 'freq'])
+
+def parallel_fastq_query(automaton: Automaton, fastqs, n_threads=1):
+    results = []
+    df = pd.DataFrame()
+    if n_threads == 1:
+        for file in fastqs:
+            print(file)
+            tmp = find_in_fastqs(automaton,file)
+            tmp['file'] = file
+            sample = os.path.basename(file)
+            sample = re.sub(r"(\_1.fq$)|(\_2.fq$)|(\_R1.fq$)|(\_R2.fq$)|(\_1.fastq$)|(\_2.fastq$)|(\_R1.fastq$)|(\_R2.fastq$)|(\.fq$)|(\.fastq$)", "", sample)
+            tmp['sample'] = sample
+            results.append(tmp)
+    else:
+
+        pool = Pool(processes=n_threads)
+        res = []
+        for file in fastqs:
+            res.append(pool.apply_async(find_in_fastqs,  ( automaton,file  )))
+        #cleanup
+        pool.close()
+        pool.join()
+        for i in range(0,len(res)):
+            tmp = res[i].get()
+            tmp['file'] = fastqs[i]
+            sample = os.path.basename(fastqs[i])
+            sample = re.sub(r"(\_1.fq$)|(\_2.fq$)|(\_R1.fq$)|(\_R2.fq$)|(\_1.fastq$)|(\_2.fastq$)|(\_R1.fastq$)|(\_R2.fastq$)|(\.fq$)|(\.fastq$)", "", sample)
+            tmp['sample'] = sample
+            results.append(tmp)
+
+
+    df = pd.concat(results)
+    refpositions = [x for x, y in df.kmername.str.split('-')]
+    df['refposition'] = [int(x.replace('negative', '')) for x in refpositions]
+    df['is_pos_kmer'] = ~df.kmername.str.contains('negative')
+
+    return df
