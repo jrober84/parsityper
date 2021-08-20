@@ -41,7 +41,8 @@ With pip_ from Github
 
 Install the latest master branch version directly from Github:
 
-.. code-block:: bash
+.. code-block::
+bash
     conda install bio_hansel
     pip install git+https://github.com/jrober84/parsityper.git
 
