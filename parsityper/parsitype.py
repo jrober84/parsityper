@@ -18,7 +18,6 @@ tasks = {
     'version': 'Print version and exit',
 }
 
-
 ordered_tasks = [
     'typer',
     'creator',

@@ -28,7 +28,7 @@ def parse_args():
 
     return parser.parse_args()
 
-def generate_comparsions(samples,depth=2):
+def generate_comparsions(samples,depth=1):
     return list(permutations(samples, depth))
 
 def call_genotype(sample_kmer_data,kmer_summary,combo,min_cov,min_cov_frac):

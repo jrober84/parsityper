@@ -2,18 +2,12 @@
 import time
 from argparse import (ArgumentParser, FileType)
 import logging, os, sys, re, collections, operator, math, shutil, datetime
-from collections import Counter
 import pandas as pd
-from parsityper.helpers import validate_args, init_console_logger, read_tsv, scheme_to_biohansel_fasta,filter_biohansel_kmer_df, process_biohansel_kmer, \
-    init_kmer_targets,generate_biohansel_kmer_names, get_scheme_template, generate_random_phrase, calc_md5, get_kmer_groups, get_kmer_group_mapping, get_sequence_files
+from parsityper.helpers import init_console_logger, read_tsv, process_biohansel_kmer, \
+    init_kmer_targets,get_kmer_groups, get_kmer_group_mapping, summarize_kmer_targets
 from parsityper.kmerSearch import init_automaton_dict,parallel_query_fasta_files, parallel_fastq_query
 from parsityper.typer import calc_kmer_ratio, identify_compatible_types, calc_type_coverage, type_occamization
-import copy
-from parsityper.bio_hansel import bio_hansel
-import statistics
-from parsityper.constants import PRIMER_SCHEMES, TYPING_SCHEMES
-from parsityper.helpers import  profile_pairwise_distmatrix
-from parsityper.visualizations import dendrogram_visualization
+from parsityper.helpers import  get_expanded_kmer_number
 import multiprocessing as mp
 
 if mp.get_start_method(allow_none=True) != 'spawn':
@@ -132,6 +126,7 @@ def identify_collisions(profiles,file):
 
 
 
+
 def read_samples(file):
     df = pd.read_csv(file,header=0,sep="\t")
     samples = {
@@ -168,6 +163,14 @@ def run():
     scheme_dict = {}
     scheme_df = read_tsv(scheme_file)
     genotypes = []
+
+    # initialize analysis directory
+    if not os.path.isdir(outdir):
+        logger.info("Creating analysis results directory {}".format(outdir))
+        os.mkdir(outdir, 0o755)
+    else:
+        logger.info("Results directory {} already exits, will overwrite any results files here".format(outdir))
+
     for row in scheme_df.itertuples():
         id = row.key
         pos_kmer = row.positive
@@ -190,13 +193,16 @@ def run():
     genotypes = list(set(genotypes))
     genotypes.sort()
     scheme_kmer_target_info = init_kmer_targets(scheme_df)
-
-    identify_collisions(construct_genotype_profiles(scheme_kmer_target_info, genotypes),os.path.join(outdir,"{}-scheme-genotypes.txt".format(prefix)))
+    #identify_collisions(construct_genotype_profiles(scheme_kmer_target_info, genotypes),os.path.join(outdir,"{}-scheme-genotypes.txt".format(prefix)))
     scheme_kmer_target_keys = list(scheme_kmer_target_info.keys())
+    count_exp_kmers = get_expanded_kmer_number(scheme_kmer_target_info)
+    logger.info("Expected number of expanded kmers in this scheme is {}".format(count_exp_kmers))
+
     scheme_kmer_target_keys.sort()
     scheme_kmer_target_keys = [str(i) for i in scheme_kmer_target_keys]
     scheme_kmer_groups = get_kmer_groups(scheme_kmer_target_info)
     scheme_target_to_group_mapping = get_kmer_group_mapping(scheme_kmer_target_info)
+    stime = time.time()
     A = init_automaton_dict(scheme_dict)
     samples = read_samples(input)
 
@@ -212,17 +218,15 @@ def run():
     if len(samples['fastq']) >0:
         mode = 'fastq'
         #stub need to fix
-        print(samples['fastq'])
         input_genomes = []
         for sample in samples['fastq']:
             input_genomes.append(sample['file_1'])
             reported_genotypes[sample['sample_id']] = sample['genotype']
             if len(sample['file_2']) > 0:
                 input_genomes.append(sample['file_2'])
-        print(input_genomes)
         kmer_df = parallel_fastq_query(A,input_genomes,  n_threads)
         print(kmer_df)
-    print(samples['fastq'])
+
     sample_kmer_results = process_biohansel_kmer(scheme_kmer_groups, scheme_target_to_group_mapping,
                                                  scheme_kmer_target_info, kmer_df, min_cov)
     sample_kmer_data = calc_kmer_ratio(sample_kmer_results, scheme_kmer_target_keys, min_cov)
@@ -257,6 +261,8 @@ def run():
             genotype_data[reported_genotype]['incorrect'].append(sample)
         out = [sample,reported_genotype,status,", ".join(found_genotypes)]
         results.append("\t".join(out))
+
+
     fh = open(os.path.join(outdir,"{}-sample.report.txt".format(prefix)),'w')
     fh.write("\n".join(results))
     fh.close()
@@ -274,14 +280,24 @@ def run():
     fh.close()
 
 
+    kmer_target_data = summarize_kmer_targets(scheme_kmer_target_keys, sample_kmer_data, min_cov)
+
     results = ["kmer_id\tcount_found\tcount_missing\tcount_pos\tave_freq_pos\tcount_neg\tave_freq_neg\tmissing_samples"]
-    for kmer_id in sample_kmer_data:
-        data = sample_kmer_data[kmer_id]
-        if len(data['count_positive']) > 0:
+    for kmer_id in kmer_target_data:
+        data = kmer_target_data[kmer_id]
+        if len(data) == 0:
+            data  = {
+                'count_found':0,'count_positive':0,'count_negative':0,'missing_samples':list(sample_kmer_data.keys())
+            }
+        if not 'count_positive' in data:
+            ave_freq_pos = 0
+        elif len(data['count_positive']) > 0:
             ave_freq_pos = sum(data['count_positive']) / len(data['count_positive'])
         else:
             ave_freq_pos = 0
-        if len(data['count_negative']) > 0:
+        if not 'count_negative' in data:
+            ave_freq_neg = 0
+        elif len(data['count_negative']) > 0:
             ave_freq_neg = sum(data['count_negative']) / len(data['count_negative'])
         else:
             ave_freq_neg = 0
@@ -296,7 +312,7 @@ def run():
     fh.write("\n".join(results))
     fh.close()
     if mode == 'fasta':
-        fh = open(os.path.join(outdir,"{}-target.report.txt".format(prefix)))
+        fh = open(os.path.join(outdir,"{}-target.report.txt".format(prefix)),'w')
         kmer_info = identify_degenerate_kmers(sample_kmer_data,min_cov)
         for target in kmer_info:
             out = [
@@ -306,6 +322,6 @@ def run():
                 len(kmer_info[target]['multi']),
                 ", ".join(kmer_info[target]['multi'])
             ]
-            fh.write("\t".join([str(x) for x in out]))
+            fh.write("{}\n".format("\t".join([str(x) for x in out])))
         fh.close()
 

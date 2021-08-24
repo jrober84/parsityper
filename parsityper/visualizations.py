@@ -3,23 +3,22 @@ from matplotlib import pyplot as plt
 from scipy.cluster.hierarchy import dendrogram, linkage
 import scipy.spatial.distance as ssd
 import pandas as pd
+import plotly.express as px
+import plotly.figure_factory as ff
 
 class dendrogram_visualization:
     def __init__(self):
         return
     def build_tree_from_dist_matrix(self,sample_ids,matrix,outfile):
 
-        Z = linkage(ssd.squareform(matrix), 'single')
-        # Plot with Custom leaves
-        if len(sample_ids) > 100:
-            height = 100
-        else:
-            height = len(sample_ids)
-        fig = plt.figure(figsize=(40, height),dpi=100)
-        print(sample_ids)
-        dn = dendrogram(Z, leaf_font_size=5,orientation="left", labels=sample_ids)
+        fig = ff.create_dendrogram(matrix,orientation='left', labels=sample_ids)
+        fig.update_layout(width=1000, height=800)
+        fig.show()
 
-        plt.savefig(outfile)
+    def build_dendrogram(self,sample_ids,profile_df,outfile):
+        fig = ff.create_dendrogram(profile_df,orientation='left', labels=sample_ids)
+        fig.update_layout(width=1000, height=800)
+        fig.show()
 
 
 
@@ -27,7 +26,6 @@ def generate_mean_coverage_histo(profile,mapping):
     counts = {}
     for sample_id in profile:
         for target in profile[sample_id]:
-
             bin = mapping[str(target)]
             if not bin in counts:
                 counts[bin] = []
@@ -65,10 +63,18 @@ def generate_sample_coverage_plot(positive_kmer_data,negative_kmer_data,sample_k
     if len(sample_kmer_data) > 0:
         plots.append(go.Bar(name='Samples', x=df.index.tolist(), y=df['samples'].tolist()))
 
-
     fig = go.Figure(data=plots)
+    fig.update_layout(
+        font_family="Courier New",
+        font_color="black",
+        title_font_family="Times New Roman",
+        title_font_color="red",
+        legend_title_font_color="black",
+        title="K-mer depth and breadth of coverage plot", xaxis_title="Reference Position(bp)", yaxis_title="Frequency",
+        showlegend=True
+    )
     # Change the bar mode
-    fig.update_layout(barmode='group')
+    fig.update_layout(barmode='group',)
     return fig
 
 
@@ -79,12 +85,22 @@ def plot_mds(dis_matrix,labels,outfile):
     mds_fit = mds_model.fit(dis_matrix)
     mds_coords = mds_model.fit_transform(dis_matrix)
     stress = mds_model.stress_
-    plt.figure()
-    plt.scatter(mds_coords[:, 0], mds_coords[:, 1])
+    df = pd.DataFrame(columns=['label','x','y'])
     for label, x, y in zip(labels, mds_coords[:, 0], mds_coords[:, 1]):
-        plt.annotate(label, (x, y), xycoords='data')
+        df = df.append({'label':label,'x':x,'y':y}, ignore_index=True)
 
-    plt.title("Sample k-mer similarity stress={}".format(stress))
-    plt.xlabel('First Dimension')
-    plt.ylabel('Second Dimension')
-    plt.savefig(outfile)
+
+    import plotly.express as px
+    fig = px.scatter(df, x='x', y='y',text='label')
+    if len(labels) < 200:
+        fig.update_traces(textposition="bottom right")
+    fig.update_layout(
+        font_family="Courier New",
+        font_color="black",
+        title_font_family="Times New Roman",
+        title_font_color="red",
+        legend_title_font_color="black",
+        title="MDS Plot of k-mer distances stress={}".format(stress), xaxis_title="1-Dimension", yaxis_title="2-Dimension",
+        showlegend=True
+    )
+    fig.show()

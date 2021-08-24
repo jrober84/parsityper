@@ -11,7 +11,7 @@ from parsityper.helpers import read_fasta
 def parse_args():
     "Parse the input arguments, use '-h' for help"
     parser = ArgumentParser(description='Analyse MSA')
-    parser.add_argument('--input_fasta', type=str, required=True, help='Aligned fasta file')
+    parser.add_argument('--input_msa', type=str, required=True, help='Aligned fasta file')
     parser.add_argument('--input_meta', type=str, required=True,
                         help='tab delimited sample genotype information')
     parser.add_argument('--ref_id', type=str, required=True,
@@ -64,7 +64,7 @@ def create_fasta_folder_structure(outdir, genotypes):
         os.mkdir(outdir, 0o755)
 
     for genotype in genotypes:
-        path = os.path.join(outdir, genotype)
+        path = os.path.join(outdir, str(genotype))
         if not os.path.isdir(path):
             os.mkdir(path, 0o755)
 
@@ -209,7 +209,7 @@ def create_training_sets(seq_info_df,proportion,max_size,seed):
 
 def run():
     cmd_args = parse_args()
-    fasta_file = cmd_args.input_fasta
+    fasta_file = cmd_args.input_msa
     meta_file = cmd_args.input_meta
     outdir = cmd_args.outdir
     min_genotype_count = cmd_args.min_genotype_count
@@ -236,6 +236,7 @@ def run():
 
     meta_df = read_metadata(meta_file)
     genotype_count_df = summarize_genotypes(meta_df)
+    genotype_count_df['genotype'] = genotype_count_df['genotype'].astype(str)
     genotype_count_df.to_csv(os.path.join(outdir, "genotype_counts.txt"), index=False, sep="\t")
     genotype_count_df = genotype_count_df[genotype_count_df['count'] >= min_genotype_count]
     valid_genotypes = genotype_count_df['genotype'].tolist()
@@ -254,9 +255,8 @@ def run():
     seq_report_fh.write("sample_id\tgenotype\tmd5\tnum_seq_bases\tambig_count\tgap_count\tstatus\n")
     global_consensus = []
 
-
     for seq_record in SeqIO.parse(fasta_file, format='fasta'):
-        seq = str(seq_record.seq)
+        seq = str(seq_record.seq).upper()
         length = len(seq)
         seq = re.sub(r'[^A|T|C|G|-]', 'N', seq)
         gap_count = seq.count('-')
@@ -375,7 +375,7 @@ def run():
 
     train_seqs = {}
     for seq_record in SeqIO.parse(fasta_file, format='fasta'):
-        seq = str(seq_record.seq)
+        seq = str(seq_record.seq).upper()
         seq = re.sub(r'[^A|T|C|G|-]', 'N', seq)
         id = str(seq_record.id)
         if id in training_samples:

@@ -4,9 +4,8 @@ from argparse import (ArgumentParser, FileType)
 import logging, os, sys, re, collections, operator, math, shutil, datetime
 from collections import Counter
 import pandas as pd
-from parsityper.helpers import validate_args, init_console_logger, read_tsv, scheme_to_biohansel_fasta, \
-    filter_biohansel_kmer_df, process_biohansel_kmer, \
-    init_kmer_targets, generate_biohansel_kmer_names, get_scheme_template, generate_random_phrase, calc_md5, \
+from parsityper.helpers import validate_args, init_console_logger, read_tsv, scheme_to_biohansel_fasta, process_biohansel_kmer, \
+    init_kmer_targets, get_scheme_template, generate_random_phrase, calc_md5, \
     get_kmer_groups, get_kmer_group_mapping, get_sequence_files, read_genotype_profiles, dist_compatible_profiles, \
     generate_target_presence_table, nan_compatible_kmer_pairwise_distmatrix
 import copy
@@ -68,6 +67,8 @@ def parse_args():
                         help='list in-built primer and typing schemes')
     parser.add_argument('--no_plots', required=False,
                         help='suppress making plots, required for large datasets',action='store_true')
+    parser.add_argument('--force_plots', required=False,
+                        help='Try plotting for datasets > 1000',action='store_true')
     return parser.parse_args()
 
 
@@ -294,13 +295,9 @@ def identify_compatible_types(scheme_df, sample_data, min_cov_frac, detection_li
                 if ratio >= 1 - min_cov_frac and sum(sample_data[sample]['counts'][target].values()) >= detection_limit:
                     if len(positive_seqs) > 0:
                         e_list = list(set(genotypes) - set(positive_seqs + partial_pos_seqs))
-                        #if 'B.1.14' in e_list:
-                        #    print("{} pos exk=clude {}".format(sample,target))
                         sample_data[sample]['genotypes']['exclude'].extend(e_list)
 
             elif sum(sample_data[sample]['counts'][target].values()) >= detection_limit:
-                #if 'B.1.14' in positive_seqs:
-                #    print("{} neg exk=clude {}".format(sample,target))
                 sample_data[sample]['genotypes']['exclude'].extend(positive_seqs)
 
             sample_data[sample]['genotypes']['include'] = list(
@@ -397,7 +394,7 @@ def type_kmer_mapping(scheme_df):
         else:
             partial_positive_seqs = str(row.partial_positive_seqs).split(',')
 
-        kmers[target] = positive_seqs + partial_positive_seqs
+        kmers[target] = list(set(positive_seqs + partial_positive_seqs) - set(['nan']))
 
     return kmers
 
@@ -565,6 +562,8 @@ def type_occamization(sample_data, scheme_df, min_cov_frac=0.05, min_cov=20):
             if len(candidate_data[genotype]['targets']) > 0 and genotype in simplified_type_set:
                 filtered[genotype] = candidate_data[genotype]
         candidate_data = filtered
+        if 'nan' in candidate_data:
+            del(candidate_data['nan'])
         sample_data[sample]['genotypes']['candidate_data'] = filtered
         sample_data[sample]['genotypes']['unique'] = list(set(unique) - set(list(candidate_data.keys())))
         sample_data[sample]['genotypes']['candidates'] = list(candidate_data.keys())
@@ -601,6 +600,8 @@ def calc_type_coverage(sample_data, scheme_df, min_cov=20, min_cov_frac=0.05, re
         frequencies = {}
 
         for genotype in candidates:
+            if genotype == 'nan':
+                continue
             if not genotype in genotypes_to_kmers:
                 logging.warning("Warning not genotype to kmer mapping for type {}".format(genotype))
                 continue
@@ -1122,20 +1123,22 @@ def identify_nearest_neighbors(sample_profiles,genotype_profile_data,max_dist=0.
 
 def bin_scheme_targets(scheme_df,max_length,window_size=500):
     bins = []
-    mapping = {}
+    bin_mapping = {}
     for i in range(window_size,max_length+window_size,window_size):
         bins.append(i)
 
     for row in scheme_df.itertuples():
-        target = str(row.index)
+        target = str(row.key)
         position = int(row.kmer_start)
+
 
         for i in range(0,len(bins)):
             bin = bins[i]
             if position <= bin:
-                mapping[target] = bin
+                bin_mapping[target] = bin
                 break
-    return mapping
+
+    return bin_mapping
 
 def write_genotype_report(sample_kmer_data,scheme_df,scheme_kmer_target_info,outfile,min_cov,min_cov_frac):
     genotype_targets = {}
@@ -1196,7 +1199,6 @@ def write_genotype_report(sample_kmer_data,scheme_df,scheme_kmer_target_info,out
             ratio = sample_kmer_data[sample_id]['ratios'][target]
             if cov >= min_cov and ratio >= min_cov_frac:
                 identified_positive_targets.append(target)
-        print(identified_positive_targets)
 
         genotype_data = sample_kmer_data[sample_id]['genotypes']
         compatible_genotypes = list(set(genotype_data['include']) )
@@ -1306,6 +1308,7 @@ def run():
     R2 = cmd_args.R2
     SE = cmd_args.se
     no_plots = cmd_args.no_plots
+    force_plots = cmd_args.force_plots
     data_dir = cmd_args.data_dir
     outdir = cmd_args.outdir
     nthreads = cmd_args.n_threads
@@ -1315,6 +1318,7 @@ def run():
     no_template_control = cmd_args.no_template_control
     positive_control = cmd_args.positive_control
     genotype_dist_cutoff = cmd_args.genotype_dist_cutoff
+
 
     # initialize analysis directory
     if not os.path.isdir(outdir):
@@ -1364,13 +1368,16 @@ def run():
         scheme = TYPING_SCHEMES[scheme]
     report_run_info_log.write("Scheme\t{}\n".format(scheme))
     scheme_df = read_tsv(scheme)
+    scheme_df['positive_seqs'] = scheme_df['positive_seqs'].astype(str)
+    scheme_df['partial_positive_seqs'] = scheme_df['partial_positive_seqs'].astype(str)
     genes = scheme_df['gene'].dropna().unique().tolist()
     genes.append('intergenic')
     logger.info("Found {} kmers in {}".format(len(scheme_df), scheme))
     report_run_info_log.write("Number of scheme kmer targets\t{}\n".format(len(scheme_df)))
     biohansel_fasta_file = os.path.join(outdir, "{}.biohansel.fasta".format(prefix))
+
     logger.info("Writing biohansel compatible kmer scheme to {}".format(biohansel_fasta_file))
-    scheme_bin_mapping = bin_scheme_targets(scheme_df,30000,window_size=500)
+
     scheme_to_biohansel_fasta(scheme_df, biohansel_fasta_file)
     scheme_kmer_target_info = init_kmer_targets(scheme_df)
     scheme_kmer_target_keys = list(scheme_kmer_target_info.keys())
@@ -1520,22 +1527,26 @@ def run():
         logger.info("Identifying kmers which are found in input {}".format(SE))
         (stdout, stderr) = bio_hansel.run_biohansel_single(biohansel_fasta_file, [SE], kmer_file, summary_file,
                                                            simple_file, min_cov, min_cov_frac, nthreads)
-        sample_kmer_biohansel_df = read_tsv(kmer_file)
-        logger.info("Processing bioHansel results")
-        sample_kmer_results = process_biohansel_kmer(scheme_kmer_groups, scheme_target_to_group_mapping,
-                                                     scheme_kmer_target_info, sample_kmer_biohansel_df, min_cov)
-    else:
-        input_data = "{},{}".format(R1, R2)
-        logger.info("Identifying kmers which are found in input {} {}".format(R1, R2))
-        (stdout, stderr) = bio_hansel.run_biohansel_pair(biohansel_fasta_file, R1, R2, kmer_file, summary_file,
-                                                         simple_file, min_cov, min_cov_frac, nthreads)
+        logger.info("Biohansel stdout: {}".format(stdout))
+        logger.info("Biohansel sterr: {}".format(stderr))
         sample_kmer_biohansel_df = read_tsv(kmer_file)
         logger.info("Processing bioHansel results")
         sample_kmer_results = process_biohansel_kmer(scheme_kmer_groups, scheme_target_to_group_mapping,
                                                      scheme_kmer_target_info, sample_kmer_biohansel_df, min_cov)
 
-#    logger.info("Biohansel stdout: {}".format(stdout))
- #   logger.info("Biohansel sterr: {}".format(stderr))
+    else:
+        input_data = "{},{}".format(R1, R2)
+        logger.info("Identifying kmers which are found in input {} {}".format(R1, R2))
+        (stdout, stderr) = bio_hansel.run_biohansel_pair(biohansel_fasta_file, R1, R2, kmer_file, summary_file,
+                                                         simple_file, min_cov, min_cov_frac, nthreads)
+        logger.info("Biohansel stdout: {}".format(stdout))
+        logger.info("Biohansel sterr: {}".format(stderr))
+        sample_kmer_biohansel_df = read_tsv(kmer_file)
+        logger.info("Processing bioHansel results")
+        sample_kmer_results = process_biohansel_kmer(scheme_kmer_groups, scheme_target_to_group_mapping,
+                                                     scheme_kmer_target_info, sample_kmer_biohansel_df, min_cov)
+
+
     logger.info("Reading bioHansel results")
     report_run_info_log.write("Input Data\t{}\n".format(input_data))
     logger.info("Determining kmer target ratios")
@@ -1584,7 +1595,8 @@ def run():
                                  axis=1,
                                  inplace=True)
     if len(sample_kmer_data) > 1 and no_plots == False:
-        plot_mds(nan_compatible_kmer_pairwise_distmatrix(kmer_content_profile_df), list(kmer_content_profile_df.columns),report_run_kmer_mds)
+        if len(sample_kmer_data) <= 1000 or force_plots:
+            plot_mds(nan_compatible_kmer_pairwise_distmatrix(kmer_content_profile_df), list(kmer_content_profile_df.columns),report_run_kmer_mds)
 
     # get positive kmer signature for each sample
     kmer_summary = get_detected_target_summary(sample_kmer_data, min_cov, min_cov_frac)
@@ -1663,14 +1675,20 @@ def run():
     write_genotype_report(sample_kmer_data, scheme_df, scheme_kmer_target_info, report_genotype_targets, min_cov, min_cov_frac)
     # create a plot of sample similarity for a multi-sample run
     if len(profile_st) > 1 and no_plots == False:
-        labels = []
-        for sample in profile_st:
-            genotype = ', '.join(list(sample_report[sample].keys()))
-            labels.append("{} | {}".format(sample,genotype))
-        d = dendrogram_visualization()
-        d.build_tree_from_dist_matrix(labels, profile_pairwise_distmatrix(profile_st),
-                                      report_run_kmer_dendrogram)
-    report_run_info_log.write("Samples failing QC\t{}\n".format(fail_sample_count))
-    report_run_info_log.write("End Time\t{}\n".format(datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")))
+        if len(sample_kmer_data) <= 1000 or force_plots:
+            labels = []
+            for sample in profile_st:
+                genotype = ', '.join(list(sample_report[sample].keys()))
+                labels.append("{} | {}".format(sample,genotype))
+            d = dendrogram_visualization()
+            labels = kmer_content_profile_df.columns
+            kmer_content_profile_df = kmer_content_profile_df.transpose()
+            d.build_dendrogram(labels, kmer_content_profile_df,
+                                          report_run_kmer_dendrogram)
+
+    max_value = scheme_df['kmer_end'].max()
+    scheme_bin_mapping = bin_scheme_targets(scheme_df,max_value+1,window_size=int(max_value/100))
     coverage_summary_fig = generate_sample_coverage_plot(positive_control_results, no_template_results, sample_kmer_data, scheme_bin_mapping)
     coverage_summary_fig.write_image(report_run_kmer_coverage)
+    report_run_info_log.write("Samples failing QC\t{}\n".format(fail_sample_count))
+    report_run_info_log.write("End Time\t{}\n".format(datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")))

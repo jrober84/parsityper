@@ -786,15 +786,19 @@ def optimize_kmer(pos,aln_seqs,reference_sequence,min_length,max_length,min_memb
     :param min_complexity: float maximum percentage composition of one 2-mer
     :return:
     """
+
     prev_score = 0
     opt_kmer = [-1,-1]
     rlen = len(reference_sequence)
-    start = find_initial_start(pos, reference_sequence, min_length) +1
-
-    #set fall back kmer
-    istart = start
-    iend = pos +1
-   # print("istart {}\t{}".format(istart,iend))
+    if pos > 0:
+        start = find_initial_start(pos, reference_sequence, min_length)
+        # set fall back kmer
+        istart = start
+        iend = pos + 1
+    else:
+        start = 0
+        istart = 0
+        iend = min_length+1
 
     if iend > rlen:
         iend = rlen - 1
@@ -802,6 +806,7 @@ def optimize_kmer(pos,aln_seqs,reference_sequence,min_length,max_length,min_memb
         istart = 0
     kmers = {}
     positions = {}
+
     for length_target in range(min_length,max_length):
         for k in range(start ,pos):
             s = pos - k
@@ -821,7 +826,7 @@ def optimize_kmer(pos,aln_seqs,reference_sequence,min_length,max_length,min_memb
                     base_count+=1
                 rel_end += 1
 
-            if start <= 0 or start >= rlen or rel_end >= rlen or rel_end < pos:
+            if start < 0 or start >= rlen or rel_end >= rlen or rel_end < pos:
                 continue
             kmer = reference_sequence[rel_start:rel_end].replace('-','')
             klen = len(kmer)
@@ -860,7 +865,7 @@ def optimize_kmer(pos,aln_seqs,reference_sequence,min_length,max_length,min_memb
     kmers = sorted(kmers.items(), key=lambda x: x[1], reverse=True)
 
     for kmer,score in kmers:
-        #print(kmer)
+
         count_ambig = len(kmer) - (kmer.count('A') + kmer.count('T') + kmer.count('C') + kmer.count('G'))
         if count_ambig > max_ambig or len(kmer) < min_length:
             continue
@@ -893,7 +898,6 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
             if bases[base] > 0:
                 snps.append(base)
     count_states = len(snps)
-    print("num_states {}".format(count_states))
     if count_states == 1:
         return {}
 
@@ -907,7 +911,7 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
                                  min_complexity=min_complexity,
                                  n_threads=n_threads)
 
-    print("{} {}".format(start,end))
+
     if start < 0:
         start = 0
 
@@ -933,7 +937,7 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
             pos -= 1
             non_gap_pos = ref_non_gap_lookup[pos]
 
-        kmer_name = "{}{}{}".format(base, non_gap_pos, ref_base)
+        kmer_name = "{}{}{}".format(base, non_gap_pos+1, ref_base)
         aa_info = get_aa_delta(non_gap_pos, non_gap_pos, base, reference_info, ref_name, trans_table=1)
 
         if len(aa_info['gene']) != 0 :
@@ -948,14 +952,14 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
             'gene': aa_info['gene'],
             'gene_start': aa_info['gene_start'],
             'gene_end': aa_info['gene_end'],
-            'cds_start': aa_info['cds_start'],
+            'cds_start': aa_info['cds_start']+1,
             'cds_end': aa_info['cds_end'],
             'is_silent': aa_info['is_silent'],
             'is_frame_shift': False,
             'ref_aa': aa_info['ref_state'],
             'alt_aa': aa_info['alt_state'],
-            'variant_start': non_gap_pos,
-            'variant_end': non_gap_pos,
+            'variant_start': non_gap_pos+1,
+            'variant_end': non_gap_pos+1,
             'kmer_start': rel_start + 1,
             'kmer_end': rel_end + 1,
             'variant_pos': base,
@@ -1075,8 +1079,7 @@ def find_snp_kmers_bck(input_alignment,snp_positions,consensus_bases,consensus_s
                 pos -= 1
                 non_gap_pos = ref_non_gap_lookup[pos]
 
-
-            kmer_name = "{}{}{}".format(base, non_gap_pos, ref_base)
+            kmer_name = "{}{}{}".format(base, non_gap_pos+1, ref_base)
             aa_info = get_aa_delta(non_gap_pos, non_gap_pos, base, reference_info,ref_name,trans_table=1)
 
             if len(aa_info['gene']) != 0:
@@ -1091,14 +1094,14 @@ def find_snp_kmers_bck(input_alignment,snp_positions,consensus_bases,consensus_s
                 'gene':aa_info['gene'],
                 'gene_start':aa_info['gene_start'],
                 'gene_end': aa_info['gene_end'],
-                'cds_start': aa_info['cds_start'],
+                'cds_start': aa_info['cds_start']+1,
                 'cds_end': aa_info['cds_end'],
                 'is_silent':aa_info['is_silent'],
                 'is_frame_shift': False,
                 'ref_aa':aa_info['ref_state'],
                 'alt_aa': aa_info['alt_state'],
-                'variant_start': non_gap_pos,
-                'variant_end': non_gap_pos,
+                'variant_start': non_gap_pos+1,
+                'variant_end': non_gap_pos+1,
                 'kmer_start': rel_start + 1,
                 'kmer_end': rel_end + 1,
                 'variant_pos': base,
@@ -1936,5 +1939,166 @@ def nan_compatible_kmer_pairwise_distmatrix(profile_df):
     j = np.nansum((i - i[:, None]) ** 2, axis=2) ** .5
     #df = (lambda v, c: pd.DataFrame(v, c, c))(j, profile_df.columns)
     return j
+
+
+
+def summarize_kmer_targets(scheme_kmer_target_keys,sample_kmer_data,min_cov):
+    kmer_data = {}
+    for kmer_id in scheme_kmer_target_keys:
+        kmer_data[kmer_id] = {'count_negative': [], 'count_positive': [], 'missing_samples': [], 'count_found': 0}
+    for sample_id in sample_kmer_data:
+        counts = sample_kmer_data[sample_id]['counts']
+        for kmer_id in counts:
+            pos_count = counts[kmer_id]['positive']
+            neg_count = counts[kmer_id]['negative']
+            total_count = pos_count + neg_count
+            if total_count >= min_cov:
+                kmer_data[kmer_id]['count_found'] += 1
+                kmer_data[kmer_id]['count_positive'].append(pos_count)
+                kmer_data[kmer_id]['count_negative'].append(neg_count)
+            else:
+                kmer_data[kmer_id]['missing_samples'].append(sample_id)
+    return kmer_data
+
+def get_valid_targets(kmer_data,num_samples,min_pos_freq,max_frac_missing):
+    valid = []
+    for target in kmer_data:
+        pos_count = len(kmer_data[target]['count_positive'])
+        found_count = kmer_data[target]['count_found']
+        if found_count > 0:
+            missing_frac = 1 - (found_count/num_samples)
+        status = 'Pass'
+        if pos_count < min_pos_freq:
+            status = 'Fail'
+        elif missing_frac > max_frac_missing:
+            status = 'Fail'
+        if status == 'Pass':
+            valid.append(target)
+    return valid
+
+def get_kmer_freq_by_genotype(sample_kmer_data,reported_genotypes,min_cov,min_cov_frac):
+    genotype_data = {}
+    for sample_id in sample_kmer_data:
+        counts = sample_kmer_data[sample_id]['counts']
+        ratios = sample_kmer_data[sample_id]['ratios']
+        genotype = reported_genotypes[sample_id]
+        if not genotype in genotype_data:
+            genotype_data[genotype] = {}
+        for kmer_id in counts:
+            if kmer_id not in genotype_data[genotype]:
+                genotype_data[genotype][kmer_id] = {
+                    'positive': [],
+                    'negative': [],
+                    'missing': []
+                }
+            pos_count = counts[kmer_id]['positive']
+            neg_count = counts[kmer_id]['negative']
+            total_count = pos_count + neg_count
+            if total_count < min_cov:
+                genotype_data[genotype][kmer_id]['missing'].append(sample_id)
+            else:
+                if pos_count >= min_cov and ratios[kmer_id] >= min_cov_frac:
+                    genotype_data[genotype][kmer_id]['positive'].append(sample_id)
+                if neg_count >= min_cov and 1-ratios[kmer_id] >= min_cov_frac:
+                    genotype_data[genotype][kmer_id]['negative'].append(sample_id)
+
+
+    return genotype_data
+
+def process_rules(sample_kmer_data,valid_targets,rules,genotypes,reported_genotypes,min_cov,min_cov_frac):
+    scores = {}
+    genotypes = set(genotypes)
+
+    for sample_id in sample_kmer_data:
+        counts = sample_kmer_data[sample_id]['counts']
+        ratios = sample_kmer_data[sample_id]['ratios']
+        genotype = reported_genotypes[sample_id]
+        scores[sample_id] = {
+            'conflicting_targets':[],
+            'reported_genotype':'',
+            'candidates':[],
+            'exclude':[],
+            'include':[]
+        }
+        for kmer_id in counts:
+            if not kmer_id in rules or len(rules[kmer_id]['positive']) == 0 or kmer_id not in valid_targets:
+                continue
+            pos_count = counts[kmer_id]['positive']
+            neg_count = counts[kmer_id]['negative']
+            total_count = pos_count + neg_count
+            scores[sample_id]['reported_genotype'] = reported_genotypes[sample_id]
+            if total_count < min_cov:
+                continue
+            is_mixed = pos_count >= min_cov and neg_count > min_cov and ratios[kmer_id] >= min_cov_frac
+            if is_mixed:
+                continue
+            if pos_count >= min_cov and ratios[kmer_id] >= min_cov_frac:
+                exclude = list(genotypes - (set(rules[kmer_id]['positive']).update(set(rules[kmer_id]['partials']))))
+                scores[sample_id]['exclude'].append(exclude)
+
+            else:
+                exclude = list(set(rules[kmer_id]['positive']))
+                scores[sample_id]['exclude'].append(exclude)
+
+            if genotype in exclude:
+                scores[sample_id]['conflicting_targets'].append(kmer_id)
+        scores[sample_id]['candidates'] = list(genotypes - set(scores[sample_id]['exclude']))
+    return scores
+
+def evaluate_rules(scores,rules,threshold):
+    results = {
+        'scheme_score':0,
+        'genotype_scores':{},
+        'rules':{}
+    }
+    conflicting_kmers = {}
+    genotype_counts = {}
+    genotype_scores = {}
+
+    for sample_id in scores:
+        scores[sample_id]['conflicting_targets'] = list(set(scores[sample_id]['conflicting_targets']))
+        genotype = scores[sample_id]['reported_genotype']
+        if not genotype in genotype_counts:
+            genotype_counts[genotype] = 0
+            genotype_scores[genotype] = 0
+        genotype_counts[genotype] += 1
+
+        if genotype in scores[sample_id]['candidates']:
+            genotype_scores[genotype] += 1 / len(scores[sample_id]['candidates'])
+
+        for kmer_id in scores[sample_id]['conflicting_targets']:
+            if not kmer_id in conflicting_kmers:
+                conflicting_kmers[kmer_id] = {}
+            if not genotype in conflicting_kmers[kmer_id]:
+                conflicting_kmers[kmer_id][genotype] = 0
+            conflicting_kmers[kmer_id][genotype] +=1
+    scheme_score = 0
+    for genotype in genotype_scores:
+        scheme_score+= genotype_scores[genotype]
+    num_genotypes = len(genotype_scores)
+    results['scheme_score'] = scheme_score
+    results['genotype_scores'] = genotype_scores
+    num_samples = len(scores)
+    for kmer_id in conflicting_kmers:
+        kRules = rules[kmer_id]
+        sum_conflicts = 0
+        for genotype in conflicting_kmers[kmer_id]:
+            sum_conflicts += conflicting_kmers[kmer_id][genotype]
+            percent_conflicting = conflicting_kmers[kmer_id][genotype] / genotype_counts[genotype]
+            if percent_conflicting < threshold:
+                continue
+            if genotype in kRules['positive']:
+                kRules['positive'] = list(set(kRules['positive']) - set([genotype]))
+            kRules['partials'].append(genotype)
+
+        if sum_conflicts / num_samples > threshold or \
+            len(kRules['positive']) == len(num_genotypes):
+
+            kRules['positive'] = []
+            kRules['partials'] = []
+
+        rules[kmer_id] = kRules
+    results['rules'] = rules
+    return results
 
 

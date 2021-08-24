@@ -90,7 +90,6 @@ def init_automaton_dict(seqs):
             A.add_word(seq, (seq_id, seq, False))
             A.add_word(revcomp(seq), (seq_id, seq, True))
     A.make_automaton()
-    print("time taken for build: {}".format(time.time() - stime))
     return A
 
 
@@ -184,6 +183,7 @@ def find_in_fasta_dict(automaton: Automaton, seqs: dict) -> pd.DataFrame:
     """
     res = []
     iter_keys = seqs.keys()
+    kmer_freq = {}
     for seq_id in iter_keys:
         seq = seqs[seq_id].replace('-','')
         for idx, (kmername, kmer_seq, is_revcomp) in automaton.iter(seq):
@@ -195,9 +195,12 @@ def parallel_query_fasta_files(input_genomes,
                             automaton: Automaton,
                            n_threads: int = 1):
     results = []
-
+    print("blas")
+    sys.stdin.flush()
     if n_threads == 1:
+
         for i in range(0,len(input_genomes)):
+            stime = time.time()
             df = find_in_fasta(automaton,input_genomes[i])
             df['file_path'] = input_genomes[i]
             sample = os.path.basename(input_genomes[i])
@@ -207,6 +210,8 @@ def parallel_query_fasta_files(input_genomes,
             refpositions = [x for x, y in df.kmername.str.split('-')]
             df['refposition'] = [int(x.replace('negative', '')) for x in refpositions]
             results.append(df)
+
+            print("{}\t{}".format(input_genomes[i],time.time()-stime))
     else:
         pool = Pool(processes=n_threads)
         res = []
@@ -229,24 +234,6 @@ def parallel_query_fasta_files(input_genomes,
             results.append(df)
 
     return pd.concat(results)
-
-
-
-def parallel_query_contigs_bck(input_genomes,
-                            automaton: Automaton,
-                           n_threads: int = 1):
-    if n_threads == 1:
-        return find_in_fasta_dict(automaton,input_genomes)
-    else:
-
-        pool = Pool(processes=n_threads)
-        res = []
-        for seq_id in input_genomes:
-            seq = input_genomes[seq_id]
-            res.append(pool.apply_async(find_in_fasta_dict,  ( automaton, {seq_id:seq}  )))
-
-        return pd.concat([x.get() for x in res])
-
 
 def parallel_query_contigs(input_genomes,
                             automaton: Automaton,
@@ -341,10 +328,16 @@ def find_in_fastqs(automaton: Automaton, *fastqs):
             for idx, (_, kmer_seq, _) in automaton.iter(sequence):
                 kmer_seq_counts[kmer_seq] += 1
     res = []
+    kmer_freq = {}
     for kmer_seq, freq in kmer_seq_counts.items():
         kmername, sequence, _ = automaton.get(kmer_seq)
+        if not kmername in kmer_freq:
+            kmer_freq[kmername] = 0
+        kmer_freq[kmername]+= freq
         res.append((kmername, kmer_seq, freq))
-    return pd.DataFrame(res, columns=['kmername', 'seq', 'freq'])
+    for kmername,freq in kmer_freq:
+        res.append([kmername,freq])
+    return pd.DataFrame(res, columns=['kmername','freq'])
 
 def parallel_fastq_query(automaton: Automaton, fastqs, n_threads=1):
     results = []
