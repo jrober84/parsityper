@@ -11,7 +11,7 @@ from parsityper.bio_hansel import bio_hansel
 from parsityper.helpers import  profile_pairwise_distmatrix, expand_degenerate_bases, revcomp, generate_ref_kmers
 from parsityper.visualizations import dendrogram_visualization
 from multiprocessing import Process, Manager
-from constants import  bases_dict
+from parsityper.constants import  bases_dict
 import cProfile
 
 def parse_args():
