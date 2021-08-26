@@ -439,7 +439,7 @@ def parse_reference_sequence(gbk_file):
                             seq.append(genome_seq[start:end].replace("\'", ''))
                             positions.append([start, end])
                         else:
-                            location = location.replace('complement(','').replace(')').split('.')
+                            location = location.replace('complement(','').replace(')','').split('.')
                             start = int(location[0]) - 1
                             end = int(location[2])
                             seq.append(revcomp(genome_seq[start:end].replace("\'", '')))
