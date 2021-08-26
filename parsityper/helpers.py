@@ -432,14 +432,18 @@ def parse_reference_sequence(gbk_file):
                     seq = []
 
                     for location in locations:
-                        location = location.split('.')
-
-
-                        start = int(location[0]) - 1
-                        end = int(location[2])
-
-                        seq.append(genome_seq[start:end].replace("\'", ''))
-                        positions.append([start, end])
+                        if not 'complement' in location:
+                            location = location.split('.')
+                            start = int(location[0]) - 1
+                            end = int(location[2])
+                            seq.append(genome_seq[start:end].replace("\'", ''))
+                            positions.append([start, end])
+                        else:
+                            location = location.replace('complement(','').replace(')').split('.')
+                            start = int(location[0]) - 1
+                            end = int(location[2])
+                            seq.append(revcomp(genome_seq[start:end].replace("\'", '')))
+                            positions.append([start, end])
 
                     seq = ''.join(seq)
                     sequences[gb_accession]['features'][feat.key].append(
