@@ -432,6 +432,7 @@ def parse_reference_sequence(gbk_file):
                     seq = []
 
                     for location in locations:
+                        location = location.replace('<','').replace('>','')
                         if not 'complement' in location:
                             location = location.split('.')
                             start = int(location[0]) - 1
