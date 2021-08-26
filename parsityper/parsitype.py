@@ -20,6 +20,7 @@ tasks = {
 
 ordered_tasks = [
     'typer',
+'reducer'
     'creator',
     'tuner',
     'benchmark',
