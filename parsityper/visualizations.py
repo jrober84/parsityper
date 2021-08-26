@@ -1,7 +1,4 @@
 # Libraries
-from matplotlib import pyplot as plt
-from scipy.cluster.hierarchy import dendrogram, linkage
-import scipy.spatial.distance as ssd
 import pandas as pd
 import plotly.express as px
 import plotly.figure_factory as ff
