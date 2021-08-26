@@ -13,12 +13,13 @@ class dendrogram_visualization:
 
         fig = ff.create_dendrogram(matrix,orientation='left', labels=sample_ids)
         fig.update_layout(width=1000, height=800)
-        fig.show()
+        fig.write_html(outfile)
 
     def build_dendrogram(self,sample_ids,profile_df,outfile):
+        profile_df = profile_df.fillna(0)
         fig = ff.create_dendrogram(profile_df,orientation='left', labels=sample_ids)
         fig.update_layout(width=1000, height=800)
-        fig.show()
+        fig.write_html(outfile)
 
 
 

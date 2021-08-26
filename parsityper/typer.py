@@ -14,7 +14,7 @@ import statistics
 from parsityper.constants import PRIMER_SCHEMES, TYPING_SCHEMES
 from parsityper.helpers import profile_pairwise_distmatrix
 from parsityper.visualizations import dendrogram_visualization, plot_mds, generate_sample_coverage_plot
-
+from parsityper.db_search import process_strain_db, get_neighbours
 
 def parse_args():
     "Parse the input arguments, use '-h' for help"
@@ -38,7 +38,7 @@ def parse_args():
     parser.add_argument('--outdir', type=str, required=True,
                         help='output directory')
     parser.add_argument('--prefix', type=str, required=False,
-                        help='output file prefix', default='SARS-COV-2_kmer_analysis')
+                        help='output file prefix', default='parsityper_analysis')
     parser.add_argument('--min_cov', type=int, required=False,
                         help='Absolute minimum kmer coverage for fastq read detection default=auto determine coverage',
                         default=50)
@@ -56,8 +56,6 @@ def parse_args():
     parser.add_argument('--n_threads', type=str, required=False,
                         help='output directory', default=1)
     parser.add_argument('--strain_profiles', type=str, required=False,
-                        help='Kmer profile scheme to compare against')
-    parser.add_argument('--genotype_profiles', type=str, required=False,
                         help='Kmer profile scheme to compare against')
     parser.add_argument('--no_template_control', type=str, required=False,
                         help='Fasta/Fastq formatted no template control data')
@@ -464,7 +462,7 @@ def type_occamization(sample_data, scheme_df, min_cov_frac=0.05, min_cov=20):
             continue
 
         type_data = sample_data[sample]['genotypes']
-        candidates = type_data['candidates']
+        candidates = list(set(type_data['candidates']) - set(['nan']))
 
         # skip samples where no genotype is compatible with the kmer data or a single candidate is available
         if len(candidates) <= 1:
@@ -480,7 +478,10 @@ def type_occamization(sample_data, scheme_df, min_cov_frac=0.05, min_cov=20):
 
         if len(pos_sites) == 0:
             candidate_data = sample_data[sample]['genotypes']['candidate_data']
+            if 'nan' in candidate_data:
+                del(candidate_data['nan'])
             for genotype in candidates:
+
                 num_targets = 1 + len(candidate_data[genotype]['targets'])
                 num_positives = 1 + len(genotype_kmer_assoc[genotype]['positive'])
             continue
@@ -733,7 +734,7 @@ def write_sample_detailed_report(sample_report, outfile, scheme_kmer_target_info
         ['sample_id', 'genoytpe', 'num_targets', 'average_target_freq', 'target_freq_stdev', 'average_ratio',
          'ratio_stdev', 'assigned_positive_targets'])]
     for sample_id in sample_report:
-        data = sample_report[sample_id]
+        data = sample_report[sample_id]['genotypes']
         for genotype in data:
             targets = []
             if isinstance(data[genotype]['targets'], list):
@@ -751,7 +752,7 @@ def write_sample_detailed_report(sample_report, outfile, scheme_kmer_target_info
                                                                   data[genotype]['target_freq_stdev'],
                                                                   data[genotype]['average_ratio'],
                                                                   data[genotype]['ratio_stdev'],
-                                                                  ', '.join(targets)))
+                                                                  '; '.join(targets)))
 
     fh = open(outfile, 'w')
     fh.write("\n".join(report))
@@ -816,7 +817,7 @@ def write_sample_summary_report(sample_report, outfile, sample_kmer_data, scheme
     header = ['sample_id','compatible_genotype(s)','sample_type','primary_genotype',
              'primary_genotype_transition_ratio','primary_genotype_transition_slope','num_targets_detected',
               'average_target_freq','target_freq_stdev','num_mixed_targets','kmer_profile_st','kmer_profile_md5',
-              'kmer_profile_name','qc_sample_type','qc_max_missing_sites','qc_max_het_sites','qc_cov_stdev','qc_overall']
+              'kmer_profile_name','neighbours','qc_sample_type','qc_max_missing_sites','qc_max_het_sites','qc_cov_stdev','qc_overall']
     for gene in genes:
         header.append("detected_mutations_{}_dna".format(gene))
     for gene in genes:
@@ -824,15 +825,16 @@ def write_sample_summary_report(sample_report, outfile, sample_kmer_data, scheme
     report = ["\t".join(header)]
 
     for sample_id in sample_report:
-        data = sample_report[sample_id]
+        data = sample_report[sample_id]['genotypes']
         quality = sample_kmer_data[sample_id]['quality']
         mutations_dna = {}
         mutations_aa = {}
         positive_kmers = kmer_summary[sample_id]['positive']
         positive_kmers.sort()
-        kmer_profile_st = positive_kmers
+        kmer_profile_st = sample_report[sample_id]['kmer_profile_st']
+        kmer_profile_md5 = sample_report[sample_id]['kmer_profile_md5']
+        phrase = sample_report[sample_id]['kmer_phrase']
         for target in positive_kmers:
-
             dna_name = str(scheme_kmer_target_info[target]['dna_name'])
             aa_name = str(scheme_kmer_target_info[target]['aa_name'])
             gene = scheme_kmer_target_info[target]['gene']
@@ -845,10 +847,6 @@ def write_sample_summary_report(sample_report, outfile, sample_kmer_data, scheme
             if aa_name != 'nan' and gene != 'intergenic':
                 mutations_aa[gene].append(aa_name)
 
-        kmer_profile = list(set(kmer_profile_st))
-        kmer_profile.sort()
-        kmer_profile_st = ', '.join([str(x) for x in kmer_profile])
-        kmer_profile_md5 = calc_md5(kmer_profile_st)
         genotype = ', '.join(list(data.keys()))
         mutations = []
         for gene in genes:
@@ -891,13 +889,7 @@ def write_sample_summary_report(sample_report, outfile, sample_kmer_data, scheme
                 if len(sample_complexity[sample_id]['transision_slopes']) > 0:
                     primary_genotype_slope = abs(sample_complexity[sample_id]['transision_slopes'][0])
 
-        if kmer_profile_md5 not in profile_names:
-            phrase = ' '.join(generate_random_phrase())
-            profile_names[kmer_profile_md5] = phrase
-        else:
-            phrase = profile_names[kmer_profile_md5]
-
-
+        neighbours = ', '.join(sample_kmer_data[sample_id]['neighbours'])
         report.append("{}".format("\t".join([sample_id,
                                                 genotype,
                                                 sample_type,
@@ -911,12 +903,14 @@ def write_sample_summary_report(sample_report, outfile, sample_kmer_data, scheme
                                                 kmer_profile_st,
                                                 kmer_profile_md5,
                                                 phrase,
+                                                neighbours,
                                                 quality['qc_sample_type'],
                                                 quality['qc_max_missing_sites'],
                                                 quality['qc_max_het_sites'],
                                                 quality['qc_cov_stdev'],
                                                 quality['qc_overall'],
-                                                "\t".join(mutations)])))
+                                                "\t".join(mutations),
+                                                ])))
     fh = open(outfile, 'w')
     fh.write("\n".join(report))
 
@@ -951,8 +945,8 @@ def perform_sample_complexity_analysis(sample_report, sample_kmer_data, min_cov_
             num_genotypes = 0
             genotypes = []
             count_valid = 0
-            for genotype in sample_report[sample_id]:
-                targets = sample_report[sample_id][genotype]['targets']
+            for genotype in sample_report[sample_id]['genotypes']:
+                targets = sample_report[sample_id]['genotypes'][genotype]['targets']
                 count_valid = 0
                 for target in targets:
                     if counts[target]['positive'] >= min_cov and ratios[target] >= x:
@@ -989,6 +983,17 @@ def perform_sample_complexity_analysis(sample_report, sample_kmer_data, min_cov_
                 complexity[sample_id]['transision_slopes'].append((y2 - y1) / (x2 - x1))
 
     return complexity
+
+def write_dbsearch_file(sample_report,outfile):
+    fh = open(outfile,'w')
+    fh. write("sample_id\tmd5\tprofile\tphrase\tgenotype\n")
+    for sample_id in sample_report:
+        kmer_profile_st = sample_report[sample_id]['kmer_profile_st']
+        kmer_profile_md5 = sample_report[sample_id]['kmer_profile_md5']
+        phrase = sample_report[sample_id]['kmer_phrase']
+        genotype = ', '.join([ str(x) for x in sample_report[sample_id]['genotypes']])
+        fh.write("{}\t{}\t{}\t{}\n".format(sample_id,kmer_profile_md5,kmer_profile_st,phrase,genotype))
+    fh.close()
 
 
 
@@ -1088,36 +1093,6 @@ def write_kmer_dict(kmer_data,out_file):
                 freq = str(kmer_data[sample][target][seq]['freq'])
                 fh.write("{}\n".format("\t".join([sample,target,seq,is_pos_kmer,freq])))
     fh.close()
-
-
-def identify_nearest_neighbors(sample_profiles,genotype_profile_data,max_dist=0.5,max_neighbors=10):
-    profiles = dist_compatible_profiles(genotype_profile_data)
-    data = {}
-    for sample_id,profile in sample_profiles:
-        profile = set(profile.split(','))
-        n = {}
-        for id in profiles:
-            profile_2 = profiles[id]['profile']
-            if profile == profile_2:
-                j = 0
-            if len(profile) > 0 or len(profile_2) >0:
-                j = 1 - len(profile & profile_2) / len(profile | profile_2)
-            else:
-                j = 1
-            if j <= max_dist:
-                n[id] = j
-        n = sorted(n.items(), key=lambda x: x[1], reverse=False)
-        count = 0
-        neighbors = {}
-        for id in n:
-            if count < max_neighbors:
-                neighbors[id] = n[id]
-            else:
-                break
-            count+=1
-        data[sample_id] = neighbors
-    return data
-
 
 
 
@@ -1277,8 +1252,6 @@ def write_genotype_report(sample_kmer_data,scheme_df,scheme_kmer_target_info,out
                    ]
 
             genotype_report.append("\t".join(row))
-    #dna_name = str(scheme_kmer_target_info[target]['dna_name'])
-
     fh = open(outfile,'w')
     fh.write("\n".join(genotype_report))
     fh.close
@@ -1313,7 +1286,6 @@ def run():
     outdir = cmd_args.outdir
     nthreads = cmd_args.n_threads
     strain_profiles = cmd_args.strain_profiles
-    genotype_profiles = cmd_args.genotype_profiles
     primers = cmd_args.primers
     no_template_control = cmd_args.no_template_control
     positive_control = cmd_args.positive_control
@@ -1340,6 +1312,7 @@ def run():
     report_qc_metrics = os.path.join(outdir, "{}.run.qc.txt".format(prefix))
     report_individual_sample_html_prefix = os.path.join(outdir, "{}.sample_#.report.html".format(prefix))
     report_genotype_targets = os.path.join(outdir, "{}.sample.genotype.targets.txt".format(prefix))
+    report_dbsearch = os.path.join(outdir, "{}.dbsearch.txt".format(prefix))
 
     #Images
     report_run_kmer_dendrogram = os.path.join(outdir, "{}.run_kmer_dendrogram.png".format(prefix))
@@ -1358,7 +1331,6 @@ def run():
     report_run_info_log.write("Max missing sites\t{}\n".format(max_missing_sites))
     report_run_info_log.write("Max mixed sites\t{}\n".format(max_missing_sites))
     report_run_info_log.write("Strain Profiles\t{}\n".format(strain_profiles))
-    report_run_info_log.write("Genotype Profiles\t{}\n".format(genotype_profiles))
     report_run_info_log.write("Positive Control\t{}\n".format(positive_control))
     report_run_info_log.write("No Template Control\t{}\n".format(no_template_control))
     report_run_info_log.write("Primers\t{}\n".format(primers))
@@ -1583,7 +1555,7 @@ def run():
     sample_kmer_data = type_occamization(sample_kmer_data, scheme_df, min_cov_frac=min_cov_frac, min_cov=min_cov)
     sample_kmer_data = calc_type_coverage(sample_kmer_data, scheme_df, min_cov_frac=min_cov_frac, min_cov=min_cov,
                                           recalc=True)
-    profile_st = {}
+
     logger.info("Calculating scipy compatible profile features")
     kmer_content_profile_df = generate_target_presence_table(sample_kmer_data, min_ratio=min_cov_frac, max_ratio=1-min_cov_frac)
     kmer_content_profile_df['target'] = kmer_content_profile_df.index
@@ -1604,13 +1576,41 @@ def run():
     sample_kmer_data = sample_qc(sample_kmer_data, len(scheme_df), min_cov=min_cov, min_cov_frac=min_cov_frac, max_mixed_sites=max_mixed_sites,
               max_missing_sites=max_missing_sites, sample_type=type, sample_cov_stdev_perc=0.75)
 
-    for sample_id in kmer_summary:
-        profile_st[sample_id] = kmer_summary[sample_id]['positive']
-    genotype_profiles_data = {}
+    strain_profiles_data = {}
+    profile_st_phrases = {}
+    if strain_profiles is not None:
+        strain_profiles_data = process_strain_db(strain_profiles)
+        for md5 in strain_profiles_data:
+            profile = strain_profiles_data[md5]['profile']
+            phrase = strain_profiles_data[md5]['phrase']
+            profile_st_phrases[md5] = phrase
+
+    #assign kmer profile st
+    profile_st = {}
     neighbours = {}
-    if genotype_profiles is not None:
-        genotype_profiles_data = read_genotype_profiles(genotype_profiles)
-        neighbours = identify_nearest_neighbors(profile_st,genotype_profiles_data,max_dist=genotype_dist_cutoff,max_neighbors=10)
+    for sample_id in kmer_summary:
+        profile_st[sample_id] = list(set(kmer_summary[sample_id]['positive']))
+        mixed = kmer_summary[sample_id]['mixed']
+        for i in range(0,len(mixed)):
+            profile_st[sample_id].append("-{}".format(mixed[i]))
+        profile_st[sample_id].sort()
+        profile_st[sample_id] = '; '.join([str(x) for x in profile_st[sample_id]])
+        sample_kmer_data[sample_id]['kmer_profile_md5'] = calc_md5(profile_st[sample_id])
+        sample_kmer_data[sample_id]['kmer_profile_st'] = profile_st[sample_id]
+        md5 = sample_kmer_data[sample_id]['kmer_profile_md5']
+        if sample_kmer_data[sample_id]['kmer_profile_md5'] in profile_st_phrases:
+            sample_kmer_data[sample_id]['kmer_phrase'] = profile_st_phrases[md5]
+        else:
+            sample_kmer_data[sample_id]['kmer_phrase'] =  ' '.join(generate_random_phrase())
+        sample_kmer_data[sample_id]['neighbours'] = []
+        if strain_profiles is not None:
+            neighbours = get_neighbours(profile_st[sample_id],md5,strain_profiles_data,threshold=genotype_dist_cutoff)
+            for n in neighbours:
+                sample_kmer_data[sample_id]['neighbours'].extend(strain_profiles_data[n]['samples'])
+
+
+
+
 
     sample_report = {}
     fail_sample_count = 0
@@ -1618,7 +1618,10 @@ def run():
         if sample_kmer_data[sample]['quality']['qc_overall'] == 'Fail':
             fail_sample_count+=1
         if not sample in sample_report:
-            sample_report[sample] = {}
+            sample_report[sample] = {'kmer_profile_st':sample_kmer_data[sample]['kmer_profile_st'],
+                                     'kmer_profile_md5':sample_kmer_data[sample]['kmer_profile_md5'],
+                                     'kmer_phrase':sample_kmer_data[sample]['kmer_phrase'],
+                                     'genotypes':{}}
         total_ratio = 0
         unassigned_positive_kmers = kmer_summary[sample]['positive']
 
@@ -1633,7 +1636,7 @@ def run():
             data['targets'].sort()
             unassigned_positive_kmers = list(set(unassigned_positive_kmers) - set(data['targets']))
             total_ratio += data['average_ratio']
-            sample_report[sample][genotype] = {
+            sample_report[sample]['genotypes'][genotype] = {
                 'num_targets': data['num_targets'],
                 'targets': data['targets'],
                 'average_target_freq': data['average_target_freq'],
@@ -1657,7 +1660,7 @@ def run():
             ave_ratio = sum(ratios) / len(ratios)
             std_ratio = statistics.pstdev(counts)
 
-            sample_report[sample]['unknown'] = {
+            sample_report[sample]['genotypes']['unknown'] = {
                 'num_targets': len(unassigned_positive_kmers),
                 'targets': unassigned_positive_kmers,
                 'average_target_freq': ave_count,
@@ -1673,6 +1676,7 @@ def run():
                                 scheme_kmer_target_info, sample_complexity, genes, max_mixed_sites=max_mixed_sites,
                                 min_cov_frac=min_cov_frac, min_cov=min_cov,sample_type=type)
     write_genotype_report(sample_kmer_data, scheme_df, scheme_kmer_target_info, report_genotype_targets, min_cov, min_cov_frac)
+    write_dbsearch_file(sample_report,report_dbsearch)
     # create a plot of sample similarity for a multi-sample run
     if len(profile_st) > 1 and no_plots == False:
         if len(sample_kmer_data) <= 1000 or force_plots:

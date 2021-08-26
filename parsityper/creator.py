@@ -58,7 +58,7 @@ def print_scheme(scheme,file):
     df = pd.DataFrame().from_dict(scheme,orient='index')
     df.to_csv(file,sep="\t",index=False)
 
-def build_kmer_profiles(scheme):
+def build_kmer_profiles(sequence_ids,scheme):
     '''
     :param scheme:
     :type scheme:
@@ -66,12 +66,16 @@ def build_kmer_profiles(scheme):
     :rtype:
     '''
     profiles = {}
+    for sample_id in sequence_ids:
+        profiles[sample_id] = {}
     for kmer_id in scheme:
         sequences = scheme[kmer_id]['positive_seqs']
-        for sample_id in sequences:
-            if not sample_id in profiles:
-                profiles[sample_id] = []
-            profiles[sample_id].append(kmer_id)
+        for sample_id in sequence_ids:
+            if sample_id in sequences:
+                state = 1
+            else:
+                state = 0
+            profiles[sample_id][kmer_id] = state
     return profiles
 
 def get_genotype_mapping(metadata_df):
@@ -471,7 +475,7 @@ def run():
     #output files
     scheme_file = os.path.join(outdir,"{}-scheme.txt".format(prefix))
     genotypes_file = os.path.join(outdir,"{}-mutations.txt".format(prefix))
-    genotype_dendrogram = os.path.join(outdir, "{}-dendropgram.png".format(prefix))
+    genotype_dendrogram = os.path.join(outdir, "{}-dendropgram.html".format(prefix))
     reference_fasta_file = os.path.join(outdir, "{}-{}.fasta".format(prefix,ref_id))
     biohansel_fasta_file = os.path.join(outdir,"{}-biohansel-scheme.fasta".format(prefix))
 
@@ -601,14 +605,28 @@ def run():
 
 
     #get the kmer profile for each sample
-    kmer_profile = build_kmer_profiles(scheme)
+    kmer_profile = build_kmer_profiles(list(genotype_mapping.keys()),scheme)
 
     logger.info("Plotting Sample dendrogram")
     #create a plot of sample similarity for a multi-sample run
+   # if len(kmer_profile ) > 1:
+   #     dist_matrix = profile_pairwise_distmatrix(kmer_profile)
+   #     d = dendrogram_visualization()
+   #     d.build_tree_from_dist_matrix(list(kmer_profile.keys()),dist_matrix ,genotype_dendrogram)
+
+    # create a plot of sample similarity for a multi-sample run
     if len(kmer_profile ) > 1:
-        dist_matrix = profile_pairwise_distmatrix(kmer_profile)
-        d = dendrogram_visualization()
-        d.build_tree_from_dist_matrix(list(kmer_profile.keys()),dist_matrix ,genotype_dendrogram)
+            labels = []
+            for sample in kmer_profile:
+                if sample in genotype_mapping:
+                    genotype = genotype_mapping[sample]
+                else:
+                    genotype = 'n/a'
+                labels.append("{} | {}".format(sample,genotype))
+            d = dendrogram_visualization()
+            kmer_content_profile_df = pd.DataFrame.from_dict(kmer_profile,orient='index')
+            d.build_dendrogram(labels, kmer_content_profile_df,
+                                          genotype_dendrogram)
 
     #identify genotype shared kmers
     shared_kmers = identify_shared_kmer(genotype_mapping,kmer_profile,min_thresh=0.5,max_thresh=1)
