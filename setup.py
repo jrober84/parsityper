@@ -55,7 +55,7 @@ setup(
         'six',
         'matplotlib',
         'argparse',
-        'statistics'
+        'statistics',
         'plotly'
 
     ],
