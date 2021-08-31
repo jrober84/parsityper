@@ -174,7 +174,7 @@ def get_valid_positions(global_consensus,threshold=1):
             valid_positions.append(i)
     return valid_positions
 
-def create_alignment(ref_lookup,ref_id,ref_seq,seqs,valid_positions):
+def create_alignment(ref_lookup,ref_id,ref_seq,seqs,valid_positions,n_threads=1):
     aln = {ref_id:ref_seq.upper()}
     ref_len = len(ref_seq)
     for seq_id in seqs:
@@ -192,6 +192,19 @@ def create_alignment(ref_lookup,ref_id,ref_seq,seqs,valid_positions):
         aln[seq_id] = ''.join(aln_seq)
 
     return aln
+
+def mafft_add_seq(input_ref_seq,input_msa,output,n_threads):
+    fh = open(output,'w')
+    p = Popen(['mafft', '--add',input_ref_seq,
+               '--auto', '--quiet', '--thread',"{}".format(n_threads),
+               input_msa],
+              stdin=PIPE,
+              stdout=fh,
+              stderr=PIPE)
+    stdout, stderr = p.communicate()
+    fh.close()
+    return (stderr)
+
 
 def create_training_sets(seq_info_df,proportion,max_size,seed):
     training_sets = {}
@@ -391,11 +404,18 @@ def run():
 
     pseudo_seqs.update(cons_seqs)
     pseudo_seqs.update(train_seqs)
-    aln = create_alignment(ref_lookup, gb_accession, aligned_seq[gb_accession], pseudo_seqs, valid_positions)
-    fasta_fh = open(os.path.join(consensus_outdir, "allgenotype_consensus.fasta"), 'w')
-    for seq_id in aln:
-        fasta_fh.write(">{}\n{}\n".format(seq_id,aln[seq_id]))
+    ref_seq_path = os.path.join(outdir, "ref.unaligned.fasta")
+    input_msa_path = os.path.join(outdir, "pseudo.unaligned.fasta")
+    fasta_fh = open(input_msa_path, 'w')
+    for id in pseudo_seqs:
+        fasta_fh.write(">{}\n{}\n".format(id, pseudo_seqs[id]))
     fasta_fh.close()
+    fasta_fh = open(ref_seq_path, 'w')
+    fasta_fh.write(">{}\n{}\n".format(gb_accession, genome_seq))
+    output_msa = os.path.join(consensus_outdir, "allgenotype_consensus.fasta")
+    mafft_add_seq(ref_seq_path, input_msa_path, output_msa, n_threads)
+    #aln = create_alignment(ref_lookup, gb_accession, aligned_seq[gb_accession], pseudo_seqs, valid_positions,n_threads)
+
 
 # call main function
 if __name__ == '__main__':
