@@ -608,12 +608,6 @@ def run():
     kmer_profile = build_kmer_profiles(list(genotype_mapping.keys()),scheme)
 
     logger.info("Plotting Sample dendrogram")
-    #create a plot of sample similarity for a multi-sample run
-   # if len(kmer_profile ) > 1:
-   #     dist_matrix = profile_pairwise_distmatrix(kmer_profile)
-   #     d = dendrogram_visualization()
-   #     d.build_tree_from_dist_matrix(list(kmer_profile.keys()),dist_matrix ,genotype_dendrogram)
-
     # create a plot of sample similarity for a multi-sample run
     if len(kmer_profile ) > 1:
             labels = []
