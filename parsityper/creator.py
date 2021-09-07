@@ -503,7 +503,7 @@ def run():
         if sample in genotype_mapping:
             del(genotype_mapping[sample])
 
-
+    print(genotype_mapping)
     #Identify variable positions within the alignment
     stime = time.time()
     snp_positions = find_snp_positions(consensus_seq)
@@ -515,7 +515,7 @@ def run():
     logger.info("Identifying kmers for {} SNPs".format(len(snp_positions)))
     scheme = find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,ref_features,ref_id, \
                             min_len=min_len,max_len=max_len,max_ambig=max_ambig,min_members=min_members,n_threads=n_threads )
-
+    print(scheme)
     logger.info("Identifying kmers for {} indels".format(len(sequence_deletions)))
     scheme.update(find_indel_kmers(input_alignment, sequence_deletions, consensus_seq, ref_features, ref_id, \
                             min_len=min_len,max_len=max_len,max_ambig=max_ambig,min_members=min_members,n_threads=n_threads ))
@@ -524,7 +524,7 @@ def run():
     scheme = build_kmer_groups(scheme)
     #Identify problems with selected kmers so that the user can filter them
     scheme = qa_scheme(scheme,missing_targets=[], multiplicity_targets=[], min_len=min_len,max_len=max_len,max_ambig=max_ambig,min_complexity=min_complexity)
-
+    print(scheme)
 
     #write the initial scheme to a file
     print_scheme(scheme, scheme_file)
@@ -602,8 +602,7 @@ def run():
     #Identify problems with selected kmers so that the user can filter them
     scheme = qa_scheme(scheme,missing_targets, multiplicity_targets, min_len=min_len,max_len=max_len,max_ambig=max_ambig,min_complexity=min_complexity)
 
-
-
+    logger.info("Building genotype kmer profiles")
     #get the kmer profile for each sample
     kmer_profile = build_kmer_profiles(list(genotype_mapping.keys()),scheme)
 
@@ -623,15 +622,18 @@ def run():
                                           genotype_dendrogram)
 
     #identify genotype shared kmers
+    logger.info("Identifying shared kmers by genotype")
     shared_kmers = identify_shared_kmer(genotype_mapping,kmer_profile,min_thresh=0.5,max_thresh=1)
     positive_seqs = identify_shared_kmer(genotype_mapping,kmer_profile,min_thresh=0.95,max_thresh=1)
     partial_positive_seqs = identify_shared_kmer(genotype_mapping, kmer_profile, min_thresh=0.01, max_thresh=0.94999)
 
     #identify genotype diagnostic kmers
+    logger.info("Identifying diagnostic kmers by genotype")
     diagnostic_kmers = identify_diagnostic_kmer(genotype_mapping, kmer_profile, thresh=0.5)
 
 
     #Analyse the genotypes for conflicts
+    logger.info("Identifying conflicting genotypes")
     genotype_report = qa_genotypes(genotype_mapping,kmer_profile,shared_kmers,diagnostic_kmers)
     scheme = convert_seqs_to_genotypes(scheme, genotype_mapping,  'positive_seqs')
 
@@ -656,9 +658,11 @@ def run():
         scheme[kmer_id]['partial_positive_seqs'] = ','.join([str(x) for x in partials])
 
     #write the final scheme to a file
+    logger.info("Writting completed scheme")
     print_scheme(scheme, scheme_file)
 
 
     # write the genotype file
+    logger.info("Writting genotype report")
     print_scheme(genotype_report, genotypes_file)
 

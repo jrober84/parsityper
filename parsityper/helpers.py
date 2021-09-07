@@ -540,12 +540,12 @@ def get_aa_delta(start, end, variant, ref_info,ref_name,trans_table=1):
         ref_seq = ''
         alt_seq = ''
     if len(gene) == 0:
-        gene_start = ''
-        gene_end = ''
-        aa_start = ''
-        aa_end = ''
-        cds_start = ''
-        cds_end = ''
+        gene_start = -1
+        gene_end = -1
+        aa_start = -1
+        aa_end = -1
+        cds_start = -1
+        cds_end = -1
     return {
         'gene': gene,
         'gene_start':gene_start,
@@ -916,7 +916,6 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
                                  min_complexity=min_complexity,
                                  n_threads=n_threads)
 
-
     if start < 0:
         start = 0
 
@@ -949,7 +948,7 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
             kmer_name_aa = "{}{}{}".format(aa_info['ref_state'], aa_info['aa_start'], aa_info['alt_state'])
         else:
             kmer_name_aa = 'N/A'
-        #print('------')
+
         scheme[kmer_name] = {
             'dna_name': kmer_name,
             'aa_name': kmer_name_aa,
@@ -973,15 +972,16 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
             'negative': ''.join(neg_kmer),
             'positive_seqs': [],
             'partial_positive_seqs': [],
-
         }
+        if aa_info['cds_start'] == -1:
+            scheme[kmer_name]['cds_start'] = -1
         seq_bases = get_kmers(pos, pos + 1, input_alignment)
         for seq_id in seq_bases:
             if seq_bases[seq_id] == base:
                 scheme[kmer_name]['positive_seqs'].append(seq_id)
         if len(scheme[kmer_name]['positive_seqs']) == 0:
             del (scheme[kmer_name])
-    sys.stdout.flush()
+
     return scheme
 
 
