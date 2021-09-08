@@ -2054,7 +2054,7 @@ def evaluate_rules(scores,rules,threshold):
     results = {
         'scheme_score':0,
         'genotype_scores':{},
-        'rules':{}
+        'rules':rules
     }
     conflicting_kmers = {}
     genotype_counts = {}
