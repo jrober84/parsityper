@@ -176,11 +176,13 @@ def run():
                 rules[target]['partials'].append(genotype)
     logging.info("Calculating scheme score")
     scores = process_rules(sample_kmer_data, valid_targets, rules, genotypes, reported_genotypes, min_cov, min_cov_frac)
+    print(scores)
     scheme_tuning_iter1 = evaluate_rules(scores, rules, 0.05)
 
     logging.info("Iteration 1: {}".format(scheme_tuning_iter1['scheme_score']))
     logging.info("Calculating scheme score")
     scores = process_rules(sample_kmer_data, valid_targets, scheme_tuning_iter1['rules'], genotypes, reported_genotypes, min_cov, min_cov_frac)
+    print(scores)
     scheme_tuning_iter2 = evaluate_rules(scores, rules, 0.05)
     logging.info("Iteration 2: {}".format(scheme_tuning_iter1['scheme_score']))
 
