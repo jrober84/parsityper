@@ -94,6 +94,7 @@ def run():
             genotypes.extend(partial_genotypes)
     genotypes = list(set(genotypes))
     genotypes.sort()
+    logging.info("Read {} kmer targets".format(len(scheme_df)))
     scheme_kmer_target_info = init_kmer_targets(scheme_df)
 
 
@@ -102,9 +103,10 @@ def run():
     scheme_kmer_target_keys = [str(i) for i in scheme_kmer_target_keys]
     scheme_kmer_groups = get_kmer_groups(scheme_kmer_target_info)
     scheme_target_to_group_mapping = get_kmer_group_mapping(scheme_kmer_target_info)
+    logging.info("Initializing kmer search object")
     A = init_automaton_dict(scheme_dict)
     samples = read_samples(input)
-
+    logging.info("Found {} fasta samples and {} fastq samples {}".format(len(samples['fasta']),len(samples['fastq'])))
     mode = 'fasta'
     reported_genotypes = {}
     if len(samples['fasta']) > 0:
@@ -112,6 +114,8 @@ def run():
         for sample in samples['fasta']:
             input_genomes.append(sample['file_1'])
             reported_genotypes[sample['sample_id']] = sample['genotype']
+        logging.info(
+            "Begining kmer search on {} samples".format(len(samples['fasta'])))
         kmer_df = parallel_query_fasta_files(input_genomes,A,n_threads)
         kmer_df['freq'] = min_cov
     if len(samples['fastq']) >0:
@@ -122,16 +126,19 @@ def run():
             reported_genotypes[sample['sample_id']] = sample['genotype']
             if len(sample['file_2']) > 0:
                 input_genomes.append(sample['file_2'])
+            logging.info(
+                "Begining kmer search on {} samples".format(len(samples['fastq'])))
         kmer_df = parallel_fastq_query(A,input_genomes,  n_threads)
-
+    logging.info("Processing k-mer results")
     sample_kmer_results = process_biohansel_kmer(scheme_kmer_groups, scheme_target_to_group_mapping,
                                                  scheme_kmer_target_info, kmer_df, min_cov)
     sample_kmer_data = calc_kmer_ratio(sample_kmer_results, scheme_kmer_target_keys, min_cov)
 
     # Get list of strains which are compatible with the kmer information in the scheme
+    logging.info("Identifying compatible genotypes")
     sample_kmer_data = identify_compatible_types(scheme_df, sample_kmer_data, min_cov_frac,
                                                  detection_limit=detection_limit)
-
+    logging.info("Identifying genotype profiles")
     genotype_profiles = construct_genotype_profiles(scheme_kmer_target_info, genotypes)
     kmer_data = summarize_kmer_targets(scheme_kmer_target_keys,sample_kmer_data,min_cov)
     valid_targets = get_valid_targets(kmer_data, len(sample_kmer_data), min_pos_freq, max_frac_missing)
@@ -166,13 +173,15 @@ def run():
                 rules[target]['positive'].append(genotype)
             elif count_pos / total >= min_partial_frac:
                 rules[target]['partials'].append(genotype)
-
+    logging.info("Calculating scheme score")
     scores = process_rules(sample_kmer_data, valid_targets, rules, genotypes, reported_genotypes, min_cov, min_cov_frac)
     scheme_tuning_iter1 = evaluate_rules(scores, rules, 0.05)
+    logging.info("Iteration 1: {}".format(scheme_tuning_iter1['scheme_scores']))
+    logging.info("Calculating scheme score")
     scores = process_rules(sample_kmer_data, valid_targets, scheme_tuning_iter1['rules'], genotypes, reported_genotypes, min_cov, min_cov_frac)
     scheme_tuning_iter2 = evaluate_rules(scores, rules, 0.05)
-    print(scheme_tuning_iter1['scheme_scores'])
-    print(scheme_tuning_iter2['scheme_scores'])
+    logging.info("Iteration 2: {}".format(scheme_tuning_iter1['scheme_scores']))
+
 
     if scheme_tuning_iter1['scheme_score'] >= scheme_tuning_iter2['scheme_score']:
         scheme_rules = scheme_tuning_iter1['rules']
