@@ -106,7 +106,8 @@ def run():
     logging.info("Initializing kmer search object")
     A = init_automaton_dict(scheme_dict)
     samples = read_samples(input)
-    logging.info("Found {} fasta samples and {} fastq samples {}".format(len(samples['fasta']),len(samples['fastq'])))
+
+    logging.info("Found {} fasta samples and {} fastq samples".format(len(samples['fasta']),len(samples['fastq'])))
     mode = 'fasta'
     reported_genotypes = {}
     if len(samples['fasta']) > 0:
@@ -176,11 +177,12 @@ def run():
     logging.info("Calculating scheme score")
     scores = process_rules(sample_kmer_data, valid_targets, rules, genotypes, reported_genotypes, min_cov, min_cov_frac)
     scheme_tuning_iter1 = evaluate_rules(scores, rules, 0.05)
-    logging.info("Iteration 1: {}".format(scheme_tuning_iter1['scheme_scores']))
+
+    logging.info("Iteration 1: {}".format(scheme_tuning_iter1['scheme_score']))
     logging.info("Calculating scheme score")
     scores = process_rules(sample_kmer_data, valid_targets, scheme_tuning_iter1['rules'], genotypes, reported_genotypes, min_cov, min_cov_frac)
     scheme_tuning_iter2 = evaluate_rules(scores, rules, 0.05)
-    logging.info("Iteration 2: {}".format(scheme_tuning_iter1['scheme_scores']))
+    logging.info("Iteration 2: {}".format(scheme_tuning_iter1['scheme_score']))
 
 
     if scheme_tuning_iter1['scheme_score'] >= scheme_tuning_iter2['scheme_score']:

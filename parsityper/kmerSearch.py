@@ -195,7 +195,6 @@ def parallel_query_fasta_files(input_genomes,
                             automaton: Automaton,
                            n_threads: int = 1):
     results = []
-    print("blas")
     sys.stdin.flush()
     if n_threads == 1:
 
