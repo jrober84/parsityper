@@ -42,6 +42,7 @@ def parse_args():
     return parser.parse_args()
 
 def run():
+    print(mp.get_context())
     cmd_args = parse_args()
     logger = init_console_logger(2)
 
