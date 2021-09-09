@@ -10,7 +10,8 @@ NT_SUB = str.maketrans('acgtrymkswhbvdnxACGTRYMKSWHBVDNX',
                        'tgcayrkmswdvbhnxTGCAYRKMSWDVBHNX')
 import time
 import re
-from multiprocessing import Pool
+from multiprocessing import Pool, current_process
+from os import fork, getpid
 
 bases_dict = {
     'A': ['A'],
@@ -164,6 +165,7 @@ def find_in_fasta(automaton: Automaton, fasta: str) -> pd.DataFrame:
     Returns:
         Dataframe with any matches found in input fasta file
     """
+    print("Hi I am worker {} with PID {}".format(current_process(),getpid()))
     res = []
     for contig_header, sequence in parse_fasta(fasta):
         for idx, (kmername, kmer_seq, is_revcomp) in automaton.iter(sequence):
@@ -212,11 +214,12 @@ def parallel_query_fasta_files(input_genomes,
 
             print("{}\t{}".format(input_genomes[i],time.time()-stime))
     else:
+        print("creating pool")
         pool = Pool(processes=n_threads)
         res = []
         for i in range(0, len(input_genomes)):
             res.append(pool.apply_async(find_in_fasta,  ( automaton, input_genomes[i]  )))
-
+        print("closing pool")
         #cleanup
         pool.close()
         pool.join()
