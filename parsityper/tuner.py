@@ -74,8 +74,15 @@ def run():
     scheme_df = read_tsv(scheme_file)
 
     genotypes = []
+    input_scheme_rules = {}
     for row in scheme_df.itertuples():
-        id = row.key
+        id = str(row.key)
+        if not id in input_scheme_rules:
+            input_scheme_rules[id] = {
+                'positive': [],
+                'partials': []
+            }
+
         pos_kmer = row.positive
         neg_kmer = row.negative
         scheme_dict["{}-{}".format(id,id)] = pos_kmer
@@ -85,6 +92,7 @@ def run():
             positive_genotypes = []
         else:
             positive_genotypes = positive_genotypes.split(',')
+            input_scheme_rules[id]['positive'] = positive_genotypes
             genotypes.extend(positive_genotypes)
 
         partial_genotypes = str(row.partial_positive_seqs)
@@ -92,6 +100,7 @@ def run():
             partial_genotypes = []
         else:
             partial_genotypes = partial_genotypes.split(',')
+            input_scheme_rules[id]['partials'] = partial_genotypes
             genotypes.extend(partial_genotypes)
     genotypes = list(set(genotypes))
     genotypes.sort()
@@ -188,18 +197,26 @@ def run():
     logging.info("Iteration 2: {}".format(scheme_tuning_iter2['scheme_score']))
 
 
+
     if scheme_tuning_iter1['scheme_score'] >= scheme_tuning_iter2['scheme_score']:
         scheme_rules = scheme_tuning_iter1['rules']
     else:
         scheme_rules = scheme_tuning_iter2['rules']
 
+
+
     for target in scheme_kmer_target_info:
         if not target in scheme_rules:
-            scheme_kmer_target_info[target]['positive_seqs'] = ''
-            scheme_kmer_target_info[target]['partial_positive_seqs'] = ''
+            scheme_kmer_target_info[target]['positive_seqs'] = ', '.join(input_scheme_rules[target]['positive'])
+            scheme_kmer_target_info[target]['partial_positive_seqs'] = ', '.join(input_scheme_rules[target]['partials'])
         else:
-            scheme_kmer_target_info[target]['positive_seqs'] = ', '.join(scheme_rules[target]['positive'])
-            scheme_kmer_target_info[target]['partial_positive_seqs'] = ', '.join(scheme_rules[target]['partials'])
+            positive = set(input_scheme_rules[target]['positive']) - set(scheme_rules[target]['partials'])
+            partial = input_scheme_rules[target]['partials'] - set(scheme_rules[target]['positive'])
+            positive = list(positive).extend(scheme_rules[target]['positive'])
+            partial = list(partial).extend(scheme_rules[target]['partials'])
+
+            scheme_kmer_target_info[target]['positive_seqs'] = ', '.join(positive)
+            scheme_kmer_target_info[target]['partial_positive_seqs'] = ', '.join(partial)
     pd.DataFrame().from_dict(scheme_kmer_target_info,orient='index').to_csv(os.path.join(outdir,"{}-updated.scheme.txt".format(prefix)),sep="\t",index=False)
 
 if __name__ == '__main__':
