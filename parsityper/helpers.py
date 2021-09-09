@@ -2025,6 +2025,7 @@ def process_rules(sample_kmer_data,valid_targets,rules,genotypes,reported_genoty
             'exclude':[],
             'include':[]
         }
+        exclude = []
         for kmer_id in counts:
             if not kmer_id in rules or len(rules[kmer_id]['positive']) == 0 or kmer_id not in valid_targets:
                 continue
