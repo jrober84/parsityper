@@ -165,13 +165,17 @@ def find_in_fasta(automaton: Automaton, fasta: str) -> pd.DataFrame:
     Returns:
         Dataframe with any matches found in input fasta file
     """
-    print("Hi I am worker {} with PID {} at time {}".format(current_process(),getpid(),time.time()))
-    sys.stdin.flush()
+    stime = time.time()
+
+
+
     res = []
     for contig_header, sequence in parse_fasta(fasta):
         for idx, (kmername, kmer_seq, is_revcomp) in automaton.iter(sequence):
             res.append((kmername, kmer_seq, is_revcomp, contig_header, idx))
     columns = ['kmername', 'seq', 'is_revcomp', 'contig_id', 'match_index']
+    print("Hi I am worker {} with PID {} at time {} and {} elapsed time".format(current_process(), getpid(), stime,time.time()-stime))
+    sys.stdin.flush()
     return pd.DataFrame(res, columns=columns)
 
 def find_in_fasta_dict(automaton: Automaton, seqs: dict) -> pd.DataFrame:
