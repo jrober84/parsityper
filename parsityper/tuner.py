@@ -211,7 +211,7 @@ def run():
             scheme_kmer_target_info[target]['partial_positive_seqs'] = ', '.join(input_scheme_rules[target]['partials'])
         else:
             positive = set(input_scheme_rules[target]['positive']) - set(scheme_rules[target]['partials'])
-            partial = input_scheme_rules[target]['partials'] - set(scheme_rules[target]['positive'])
+            partial = set(input_scheme_rules[target]['partials']) - set(scheme_rules[target]['positive'])
             positive = list(positive).extend(scheme_rules[target]['positive'])
             partial = list(partial).extend(scheme_rules[target]['partials'])
 
