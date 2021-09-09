@@ -2038,8 +2038,11 @@ def process_rules(sample_kmer_data,valid_targets,rules,genotypes,reported_genoty
             if is_mixed:
                 continue
             if pos_count >= min_cov and ratios[kmer_id] >= min_cov_frac:
-                exclude = list(genotypes - (set(rules[kmer_id]['positive']).update(set(rules[kmer_id]['partials']))))
-                scores[sample_id]['exclude'].append(exclude)
+                if genotypes is not None:
+                    temp = set(rules[kmer_id]['positive']).update(set(rules[kmer_id]['partials']))
+                    if temp is not None:
+                        exclude = list(genotypes - temp)
+                        scores[sample_id]['exclude'].append(exclude)
 
             else:
                 exclude = list(set(rules[kmer_id]['positive']))
