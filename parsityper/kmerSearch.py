@@ -165,7 +165,7 @@ def find_in_fasta(automaton: Automaton, fasta: str) -> pd.DataFrame:
     Returns:
         Dataframe with any matches found in input fasta file
     """
-    print("Hi I am worker {} with PID {} at time {}".format(current_process(),getpid()),time.time())
+    print("Hi I am worker {} with PID {} at time {}".format(current_process(),getpid(),time.time()))
     sys.stdin.flush()
     res = []
     for contig_header, sequence in parse_fasta(fasta):
@@ -219,7 +219,7 @@ def parallel_query_fasta_files(input_genomes,
         pool = Pool(processes=n_threads)
         res = []
         for i in range(0, len(input_genomes)):
-            print("submitting job".format(time.time()))
+            print("submitting job {}".format(time.time()))
             res.append(pool.apply_async(find_in_fasta,  ( automaton, input_genomes[i]  )))
         print("closing pool")
         #cleanup
