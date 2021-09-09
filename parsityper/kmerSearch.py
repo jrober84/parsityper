@@ -166,6 +166,7 @@ def find_in_fasta(automaton: Automaton, fasta: str) -> pd.DataFrame:
         Dataframe with any matches found in input fasta file
     """
     print("Hi I am worker {} with PID {}".format(current_process(),getpid()))
+    sys.stdin.flush()
     res = []
     for contig_header, sequence in parse_fasta(fasta):
         for idx, (kmername, kmer_seq, is_revcomp) in automaton.iter(sequence):
