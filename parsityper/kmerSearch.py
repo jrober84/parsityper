@@ -203,6 +203,7 @@ def parallel_query_fasta_files(input_genomes,
                            n_threads: int = 1):
     results = []
     sys.stdin.flush()
+    batch_size = 100
     if n_threads == 1:
 
         for i in range(0,len(input_genomes)):
@@ -225,6 +226,11 @@ def parallel_query_fasta_files(input_genomes,
         for i in range(0, len(input_genomes)):
             print("submitting job {}".format(time.time()))
             res.append(pool.apply_async(find_in_fasta,  ( automaton, input_genomes[i]  )))
+            if i % 100 == 0:
+                pool.close()
+                pool.join()
+                pool = Pool(processes=n_threads)
+
         print("closing pool")
         #cleanup
         pool.close()

@@ -888,6 +888,116 @@ def optimize_kmer(pos,aln_seqs,reference_sequence,min_length,max_length,min_memb
         opt_kmer = [istart, iend]
     return opt_kmer
 
+def optimize_kmer_testing(pos,aln_seqs,reference_sequence,min_length,max_length,min_members,max_ambig=5,min_complexity=0.2,n_threads=1):
+    """
+    Accepts a position and a sequence and determines the kmer stretch which maximizes length, complexity and minimizes
+    ambiguous characters
+    :param pos: int position
+    :param reference_sequence: str reference sequence
+    :param min_length: int minimum length of kmer
+    :param max_length: int maximum length of kmer
+    :param max_ambig:  int maximum number of iupac characters
+    :param min_complexity: float maximum percentage composition of one 2-mer
+    :return:
+    """
+
+    prev_score = 0
+    opt_kmer = [-1,-1]
+    rlen = len(reference_sequence)
+    if pos > 0:
+        start = find_initial_start(pos, reference_sequence, min_length)
+        # set fall back kmer
+        istart = start
+        iend = pos + 1
+    else:
+        start = 0
+        istart = 0
+        iend = min_length+1
+
+    if iend > rlen:
+        iend = rlen - 1
+    if istart < 0:
+        istart = 0
+    kmers = {}
+    positions = {}
+
+    for length_target in range(min_length,max_length):
+        for k in range(start ,pos):
+            s = pos - k
+            if s > length_target :
+                continue
+            rel_start = k
+            nt_count = 0
+            rel_end = k
+            base_count = 0
+            while nt_count < length_target:
+                if base_count >= length_target or rel_end >= rlen -1:
+                    break
+                base = reference_sequence[rel_end]
+                if base in ['A', 'T', 'C', 'G']:
+                    nt_count += 1
+                if base != '-':
+                    base_count+=1
+                rel_end += 1
+
+            if start < 0 or start >= rlen or rel_end >= rlen or rel_end < pos:
+                continue
+            kmer = reference_sequence[rel_start:rel_end].replace('-','')
+            klen = len(kmer)
+
+
+            if klen > max_length :
+                continue
+
+            #count ambiguous characters
+            bases = ['A','T','C','G']
+            nt_count = 0
+            mers = count_kmers(kmer, K=1)
+            for b in bases:
+                if b in mers:
+                    nt_count+=mers[b]
+            count_ambig = klen - nt_count
+
+            #determine the complexity of the sequence and remove kmers composed heavily of the same 2-mer
+            mers = count_kmers(kmer, K=2)
+            num_mers = sum(mers.values())
+            mer_perc = []
+
+            for m in mers:
+                mer_perc.append(mers[m]/num_mers )
+
+            if len(mer_perc) > 0:
+                minimum = min(mer_perc)
+            else:
+                minimum = 1
+            score = (1 - ((nt_count+count_ambig)/max_length)) + (1 - minimum) + (1-count_ambig/max_length)
+            if count_ambig <= max_ambig:
+                kmers[kmer] = score
+                positions[kmer] = [rel_start,rel_end]
+
+
+    kmers = sorted(kmers.items(), key=lambda x: x[1], reverse=True)
+
+    for kmer,score in kmers:
+
+        count_ambig = len(kmer) - (kmer.count('A') + kmer.count('T') + kmer.count('C') + kmer.count('G'))
+        if count_ambig > max_ambig or len(kmer) < min_length:
+            continue
+        A = init_automaton_dict({kmer:kmer})
+        df = find_in_fasta_dict(A, aln_seqs)
+        if is_kmer_valid(df, min_members):
+            opt_kmer = opt_kmer = [positions[kmer][0], positions[kmer][1]]
+            break
+
+    if opt_kmer[0] == -1:
+        opt_kmer = [istart, iend]
+    kmer = reference_sequence[opt_kmer[0]:opt_kmer[1]].replace('-', '')
+
+    if len(kmer) < min_length or len(kmer) > max_length:
+        opt_kmer = [istart, iend]
+    return opt_kmer
+
+
 def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
     scheme = {}
     from os import getpid
@@ -985,6 +1095,104 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
     return scheme
 
 
+def add_snp_kmer_to_scheme_testing(pos,ref_len,input_alignment,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
+    scheme = {}
+    from os import getpid
+    stime = time.time()
+    anything_but_bases = NEGATE_BASE_IUPAC
+    ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_name])
+    scheme = {}
+    # remove any cases of variable site where it is a IUPAC character as the delta
+    bases = consensus_bases[pos]
+    snps = []
+    for base in bases:
+        if base in ['A', 'T', 'C', 'G']:
+            if bases[base] > 0:
+                snps.append(base)
+    count_states = len(snps)
+    if count_states == 1:
+        return {}
+
+    (start, end) = optimize_kmer(pos=pos,
+                                 aln_seqs=input_alignment,
+                                 reference_sequence=consensus_seq,
+                                 min_length=min_len,
+                                 max_length=max_len,
+                                 min_members=min_members,
+                                 max_ambig=max_ambig,
+                                 min_complexity=min_complexity,
+                                 n_threads=n_threads)
+
+    if start < 0:
+        start = 0
+
+    rel_start = start
+    rel_end = end + 1
+
+    kmer = consensus_seq[start:end].replace('-', '')
+
+    for i in range(0, len(snps)):
+        base = snps[i]
+
+        rel_pos = pos - rel_start
+        pos_kmer = list(consensus_seq[rel_start:rel_end])
+        pos_kmer[rel_pos] = base
+        neg_kmer = list(consensus_seq[rel_start:rel_end])
+        neg_kmer[rel_pos] = anything_but_bases[base]
+        ref_base = input_alignment[ref_name][pos]
+        if ref_base == base:
+            continue
+
+        non_gap_pos = ref_non_gap_lookup[pos]
+        while non_gap_pos == -1:
+            pos -= 1
+            non_gap_pos = ref_non_gap_lookup[pos]
+
+        kmer_name = "{}{}{}".format(base, non_gap_pos+1, ref_base)
+        aa_info = get_aa_delta(non_gap_pos, non_gap_pos, base, reference_info, ref_name, trans_table=1)
+
+        if len(aa_info['gene']) != 0 :
+            kmer_name_aa = "{}{}{}".format(aa_info['ref_state'], aa_info['aa_start'], aa_info['alt_state'])
+        else:
+            kmer_name_aa = 'N/A'
+
+        scheme[kmer_name] = {
+            'dna_name': kmer_name,
+            'aa_name': kmer_name_aa,
+            'type': 'snp',
+            'gene': aa_info['gene'],
+            'gene_start': aa_info['gene_start'],
+            'gene_end': aa_info['gene_end'],
+            'cds_start': aa_info['cds_start']+1,
+            'cds_end': aa_info['cds_end'],
+            'is_silent': aa_info['is_silent'],
+            'is_frame_shift': False,
+            'ref_aa': aa_info['ref_state'],
+            'alt_aa': aa_info['alt_state'],
+            'variant_start': non_gap_pos+1,
+            'variant_end': non_gap_pos+1,
+            'kmer_start': rel_start + 1,
+            'kmer_end': rel_end + 1,
+            'variant_pos': base,
+            'variant_neg': anything_but_bases[base],
+            'positive': ''.join(pos_kmer),
+            'negative': ''.join(neg_kmer),
+            'positive_seqs': [],
+            'partial_positive_seqs': [],
+        }
+        if aa_info['cds_start'] == -1:
+            scheme[kmer_name]['cds_start'] = -1
+        seq_bases = get_kmers(pos, pos + 1, input_alignment)
+        for seq_id in seq_bases:
+            if seq_bases[seq_id] == base:
+                scheme[kmer_name]['positive_seqs'].append(seq_id)
+        if len(scheme[kmer_name]['positive_seqs']) == 0:
+            del (scheme[kmer_name])
+
+    return scheme
+
+
+
 def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
     scheme = {}
     ref_len = len(input_alignment[ref_name])
@@ -1002,6 +1210,25 @@ def find_snp_kmers(input_alignment,snp_positions,consensus_bases,consensus_seq,r
             scheme.update(x.get())
 
     return scheme
+
+def find_snp_kmers_testing(input_alignment,snp_positions,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
+    scheme = {}
+    ref_len = len(input_alignment[ref_name])
+    res = []
+    pool = Pool(processes=n_threads)
+
+    for pos in snp_positions:
+        res.append(pool.apply_async(add_snp_kmer_to_scheme, args=(pos, ref_len, input_alignment, consensus_bases,
+                                           consensus_seq, reference_info, ref_name,
+                               min_len, max_len, max_ambig, min_members, 0.6, 1)))
+    pool.close()
+    pool.join()
+    for x in res:
+        if x._success:
+            scheme.update(x.get())
+
+    return scheme
+
 
 def find_snp_kmers_bck(input_alignment,snp_positions,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
     scheme = {}
