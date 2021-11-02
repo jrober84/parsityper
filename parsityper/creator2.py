@@ -12,7 +12,7 @@ from parsityper.scheme import SCHEME_HEADER, parseScheme, constructSchemeLookups
 from parsityper.kmerSearch.kmerSearch import init_automaton_dict, perform_kmerSearch_fasta,process_kmer_results
 from parsityper.ext_tools.mash import mash_sample_comparisons
 from multiprocessing import Pool
-from ext_tools.jellyfish import run_jellyfish_count,parse_jellyfish_counts
+from parsityper.ext_tools.jellyfish import run_jellyfish_count,parse_jellyfish_counts
 from parsityper.kmerSearch.kmerSearch import  revcomp
 
 
