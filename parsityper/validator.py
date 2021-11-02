@@ -1,11 +1,11 @@
 #!/usr/bin/python
 import time
-from argparse import (ArgumentParser, FileType)
-import logging, os, sys, re, collections, operator, math, shutil, datetime
+from argparse import (ArgumentParser)
+import os
 import pandas as pd
 from parsityper.helpers import init_console_logger, read_tsv, process_biohansel_kmer, \
     init_kmer_targets,get_kmer_groups, get_kmer_group_mapping, summarize_kmer_targets
-from parsityper.kmerSearch import init_automaton_dict,parallel_query_fasta_files, parallel_fastq_query
+from parsityper.kmerSearch.kmerSearch import init_automaton_dict,parallel_query_fasta_files, parallel_fastq_query
 from parsityper.typer import calc_kmer_ratio, identify_compatible_types, calc_type_coverage, type_occamization
 from parsityper.helpers import  get_expanded_kmer_number
 import multiprocessing as mp

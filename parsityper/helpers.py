@@ -1,13 +1,11 @@
-from Bio import SeqIO
 import pandas as pd
-import logging, os, sys, re, collections, operator, math, shutil, datetime, copy, time
+import logging, os, re, operator, datetime, copy, time
 from itertools import product
-from multiprocessing import Pool, Manager
-from collections import Counter
+from multiprocessing import Pool
 from scipy.spatial.distance import cdist
-from parsityper.constants import HTML_TEMPLATE_FILE, LOG_FORMAT, TYPING_SCHEMES, RUN_INFO, NEGATE_BASE_IUPAC, IUPAC_LOOK_UP, bases_dict
-from parsityper.words import NOUNS, COLORS, DESCRIPTORS
-from parsityper.kmerSearch import  init_automaton_dict,expand_degenerate_bases,find_in_fasta_dict,parallel_query_contigs
+from parsityper.constants import HTML_TEMPLATE_FILE, LOG_FORMAT, TYPING_SCHEMES, NEGATE_BASE_IUPAC, IUPAC_LOOK_UP, bases_dict
+from parsityper.reporting.words import NOUNS, COLORS, DESCRIPTORS
+from parsityper.kmerSearch.kmerSearch import  init_automaton_dict, find_in_fasta_dict
 import random, hashlib
 import numpy as np
 from datetime import datetime
@@ -15,9 +13,6 @@ from Bio import GenBank
 from Bio import SeqIO
 from Bio.Seq import Seq
 import glob
-from scipy.spatial.distance import pdist
-from scipy.spatial.distance import squareform
-from sklearn.metrics.pairwise import nan_euclidean_distances
 
 NT_SUB = str.maketrans('acgtrymkswhbvdnxACGTRYMKSWHBVDNX',
                        'tgcayrkmswdvbhnxTGCAYRKMSWDVBHNX')
@@ -453,99 +448,116 @@ def parse_reference_sequence(gbk_file):
     return sequences
 
 
-
-def get_aa_delta(start, end, variant, ref_info,ref_name,trans_table=1):
-    #print("start {} end {}".format(start,end))
-    vlen = end - start
-    is_cds = False
-    gene = ''
-    gene_start = -1
-    gene_end = -1
-    aa_start = -1
-    aa_end = -1
-    ref_seq = ''
-    alt_seq = ''
-    ref_target = []
-    alt_target = []
-    is_frame_shift = False
-
+def find_overlaping_gene_feature(start,end,ref_info,ref_name):
     cds_start = start
-    cds_end = cds_start + vlen
-
-    is_silent = True
-
-
-    count_gaps = variant.count('-')
-    if count_gaps % 3 > 0:
-        is_frame_shift = True
-
-    found = False
+    cds_end = end
     for feat in ref_info[ref_name]['features']['CDS']:
         positions = feat['positions']
-        dna_seq = feat['dna_seq']
-        aa_seq = str(Seq(feat['dna_seq']).translate(trans_table))
         gene_start = -1
         gene_end = -1
-        spacer = 0
         for s, e in positions:
             if gene_start == -1:
                 gene_start = s
             if gene_end < e:
                 gene_end = e
             if cds_start  >= s and cds_end  <= e:
+                return feat
+    return None
 
-                gene = feat['gene_name']
-                cds_start -= gene_start
-                r = int(cds_start % 3)
-                cds_start -= r
-                spacer = r
-                vlen += r
-                r = vlen % 3
-                num_codons = int((vlen - r) / 3)
-                cds_end = cds_start + (num_codons * 3) + 1
-                length = cds_end - cds_start
-                r = int(length % 3)
-                cds_end += r +1
-                num_codons = int((cds_end - cds_start ) / 3)
-                is_cds = True
-                found = True
-                ref_target = list(dna_seq[cds_start:cds_end])
-                alt_target = list(dna_seq[cds_start:cds_end])
-                aa_start = int(cds_start / 3)
-                aa_end = aa_start + num_codons - 1
-                break
-        if found:
-            break
 
-    if len(ref_target) > 0:
-       #mutate sequence to match variant
-        #print(alt_target)
-        for i in range(0,len(variant)):
-            #if i + spacer >= len(alt_target):
-                #print("{} out of range {} {} {}".format(i,len(variant),variant,alt_target))
-            alt_target[i+spacer] = variant[i]
+def get_aa_delta(start, end, variant, mutation_type,ref_info,ref_name,trans_table=1):
+    gene_feature = find_overlaping_gene_feature(start,end,ref_info,ref_name)
+    gene = ''
+    gene_start = -1
+    gene_end = -1
+    aa_start = -1
+    aa_end = -1
+    cds_start = -1
+    cds_end = -1
+    ref_seq = ''
+    alt_seq = ''
+    ref_target = []
+    alt_target = []
+    is_frame_shift = False
+    is_silent = True
+    variant = list(variant)
+    variant_len = len(variant)
 
-        #print("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}".format(start, end, cds_start, cds_end, variant, vlen, ref_target,alt_target))
+    if gene_feature is None:
+        is_cds = False
+    else:
+        is_cds = True
 
-        ref_seq = "{}".format(Seq(''.join(ref_target).replace('-','N')).translate(table=trans_table))
-        alt_seq = "{}".format(Seq(''.join(alt_target).replace('-','N')).translate(table=trans_table))
+    if is_cds:
+        for s,e in gene_feature['positions']:
+            if gene_start == -1:
+                gene_start = s
+                gene_end = e
+            else:
+                if gene_start > s:
+                    gene_start = s
+                if gene_end < e:
+                    gene_end = e
+        dnaSeq = gene_feature['dna_seq']
+        gene = gene_feature['gene_name']
+
+        cds_start = start - gene_start
+        r = int(cds_start % 3)
+        cds_start -= r
+        spacer = r
+        variant_len += r
+        r = variant_len % 3
+        num_codons = int((variant_len - r) / 3)
+        cds_end = cds_start + (num_codons * 3)
+        length = cds_end - cds_start
+        r = int(length % 3)
+        cds_end += r
+        aa_start = int(cds_start / 3)
+        aa_end = aa_start + num_codons
+        num_codons = int((cds_end - cds_start) / 3)
+        if start == end:
+            cds_end = cds_start + 3
+        else:
+            cds_end = cds_end
+
+        if mutation_type != 'snp':
+            if variant_len % 3 > 0:
+                is_frame_shift = True
+
+        ref_target = list(dnaSeq[cds_start:cds_end ])
+        alt_target = list(dnaSeq[cds_start:cds_end ])
+
+        if len(ref_target) > 0:
+            if mutation_type == 'snp':
+                for i in range(0, len(variant)):
+                    alt_target[i + spacer] = variant[i]
+            elif mutation_type == 'del':
+                ref_target = list(dnaSeq[cds_start:cds_end + variant_len])
+                alt_target = list(dnaSeq[cds_start:cds_end + variant_len])
+                for i in range(0, len(variant)):
+                    del(alt_target[i + spacer])
+            else:
+                bases_to_subtract = (3 - variant_len % 3)
+                ref_target = list(dnaSeq[cds_start:cds_end + variant_len])
+                alt_target = list(dnaSeq[cds_start:cds_end + variant_len])
+                for i in range(0, len(variant)):
+                        pos = i + spacer
+                        alt_target.insert(pos,variant[i])
+                alt_target = alt_target[:-bases_to_subtract or None]
+            rem = len(ref_target) % 3
+            if rem > 0:
+                ref_target = ref_target[:-rem or None]
+
+            rem = len(alt_target) % 3
+            if rem % 3 > 0:
+                alt_target = alt_target[:-rem or None]
+
+            ref_seq = "{}".format(Seq(''.join(ref_target).replace('-','N')).translate(table=trans_table))
+            alt_seq = "{}".format(Seq(''.join(alt_target).replace('-','N')).translate(table=trans_table))
 
         if ref_seq != alt_seq:
             is_silent = False
-    gene_start += 1
-    gene_end += 1
-    aa_start += 1
-    aa_end += 1
-    if not is_cds:
-        ref_seq = ''
-        alt_seq = ''
-    if len(gene) == 0:
-        gene_start = -1
-        gene_end = -1
-        aa_start = -1
-        aa_end = -1
-        cds_start = -1
-        cds_end = -1
+
     return {
         'gene': gene,
         'gene_start':gene_start,
@@ -598,8 +610,7 @@ def calc_consensus(input_alignment):
 
     for seq_id in input_alignment:
         seq = input_alignment[seq_id]
-        #if seq_len != len(seq):
-        #    print(seq_id)
+
         for i in range(0,seq_len):
             base = seq[i].upper()
             if base in consensus[i]:
@@ -678,7 +689,11 @@ def find_internal_gaps(seq):
     iupac = IUPAC_LOOK_UP
     for gap in gaps:
         start = gap[0]
-        end = gap[1]
+        if start != gap[1]:
+            end = gap[1] - 1
+        else:
+            end = gap[1]
+
         if start == 0 or end >= seq_len:
             continue
 
@@ -1000,7 +1015,6 @@ def optimize_kmer_testing(pos,aln_seqs,reference_sequence,min_length,max_length,
 
 def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
     scheme = {}
-    from os import getpid
     stime = time.time()
     anything_but_bases = NEGATE_BASE_IUPAC
     ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_name])
@@ -1097,7 +1111,6 @@ def add_snp_kmer_to_scheme(pos,ref_len,input_alignment,consensus_bases,consensus
 
 def add_snp_kmer_to_scheme_testing(pos,ref_len,input_alignment,consensus_bases,consensus_seq,reference_info,ref_name,min_len,max_len,max_ambig,min_members,min_complexity=0.6,n_threads=1):
     scheme = {}
-    from os import getpid
     stime = time.time()
     anything_but_bases = NEGATE_BASE_IUPAC
     ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_name])
@@ -1253,9 +1266,7 @@ def find_snp_kmers_bck(input_alignment,snp_positions,consensus_bases,consensus_s
                                     min_complexity=min_complexity,
                                     n_threads=n_threads)
         kmer = consensus_seq[start:end].replace('-','')
-        #print("{}\t{}\t{}".format(start,end,kmer))
 
-        #print(time.time() - stime)
         if start < 0:
             start = 0
 

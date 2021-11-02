@@ -10,7 +10,7 @@ if mp.get_start_method(allow_none=True) != 'spawn':
 tasks = {
     'typer': 'Reconstruct sample genotype(s) from isolate or metagenomic sample',
     'reducer': 'Compress a large MSA into a minimum set of sequences to represent diversity',
-    'creator': 'Create a kmer scheme based on labeled data',
+    'creator2': 'Create a kmer scheme based on labeled data',
     'tuner': 'Train a kmer scheme on labeled genotype data to derive kmer patterns for genotypes',
     'validator': 'Train a kmer scheme on labeled genotype data to derive kmer patterns for genotypes',
     'benchmark': 'Simulate mixed samples and benchmark typing performance',
@@ -21,7 +21,7 @@ tasks = {
 ordered_tasks = [
     'typer',
     'reducer',
-    'creator',
+    'creator2',
     'tuner',
     'benchmark',
     'validator',

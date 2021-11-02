@@ -12,9 +12,6 @@ from parsityper.scheme import SCHEME_HEADER, parseScheme, constructSchemeLookups
 from parsityper.kmerSearch.kmerSearch import init_automaton_dict, perform_kmerSearch_fasta,process_kmer_results
 from parsityper.ext_tools.mash import mash_sample_comparisons
 from multiprocessing import Pool
-from ext_tools.jellyfish import run_jellyfish_count,parse_jellyfish_counts
-from parsityper.kmerSearch.kmerSearch import  revcomp
-
 
 def parse_args():
     "Parse the input arguments, use '-h' for help"
@@ -51,7 +48,6 @@ def parse_args():
                         help='fraction of bases needed for imputing ambiguous bases',default=0.9)
     return parser.parse_args()
 
-
 def get_non_gap_position(ref_non_gap_lookup,pos):
 
     non_gap_position = ref_non_gap_lookup[pos]
@@ -60,122 +56,206 @@ def get_non_gap_position(ref_non_gap_lookup,pos):
         non_gap_position = ref_non_gap_lookup[pos]
     return non_gap_position
 
-def runKmerCounting(input_seqs,out_dir,kLen,n_threads=1):
-    kCount_files = []
-    seqFiles = []
-    for seq_id in input_seqs:
-        seq_file = os.path.join(out_dir, "{}.fasta".format(seq_id))
-        out_file = os.path.join(out_dir, "{}.mers".format(seq_id))
-        kCount_files.append(out_file)
-        seqFiles.append(seq_file)
-        fh = open(seq_file, 'w')
-        fh.write(">{}\n{}\n".format(seq_id, input_seqs[seq_id]))
-        fh.close()
-    if n_threads > 1:
-        pool = Pool(processes=n_threads)
-        res = []
-        for i in range(0,len(seqFiles)):
-           res.append(pool.apply_async(run_jellyfish_count,(seqFiles[i],kCount_files[i],kLen,n_threads)))
-        pool.close()
-        pool.join()
-        for i in range(0, len(res)):
-            res[i].get()
-    #else:
-    #   for i in range(0,len(seqFiles)):
-    #       run_jellyfish_count(seqFiles[i],kCount_files[i],kLen,n_threads)
+def build_kmer_profiles(sequence_ids,scheme):
+    '''
+    :param scheme:
+    :type scheme:
+    :return:
+    :rtype:
+    '''
+    profiles = {}
+    mutations = list(scheme.keys())
+    for sample_id in sequence_ids:
+        profiles[sample_id] = {}
+        for mutation_key in mutations:
+            profiles[sample_id][mutation_key] = 0
 
-    return kCount_files
+    #only flip the alt status
+    for mutation_key in scheme:
+        for kmer_entry in scheme[mutation_key]['alt']:
+            seq_ids = kmer_entry['seq_ids']
+            for seq_id in seq_ids:
+                profiles[seq_id][mutation_key] = 1
 
-def getKmerCounts(input_seqs,out_dir,kLen,max_count=1,max_ambig=0,n_threads=1):
-    stime = time.time()
-    kCount_files = runKmerCounting(input_seqs,out_dir,kLen,n_threads)
-    stime = time.time()
-    kMers = {}
-    for file in kCount_files:
-        sample_id = os.path.basename(file).replace('.mers','')
-        kmer_df = parse_jellyfish_counts(file)
-        kmer_df = kmer_df[kmer_df['count'] <= max_count]
-        for row in kmer_df.itertuples():
-            kmer = row.kmer
-            bCounts = Counter(kmer)
-            if 'N' in bCounts:
-                if bCounts['N'] > max_ambig:
+    return profiles
+
+def get_genotype_mapping(metadata_df):
+    '''
+
+    :param metadata_df:
+    :type metadata_df:
+    :return:
+    :rtype:
+    '''
+    mapping = {}
+    for row in metadata_df.itertuples():
+        sample_id = row.sample_id
+        genotype = row.genotype
+        mapping[sample_id] = genotype
+    return mapping
+
+def calc_kmer_complexity(kSeq):
+    mers = count_kmers(kSeq, K=2)
+    num_kmers = sum(mers.values())
+    mer_perc = []
+    for m in mers:
+        mer_perc.append(mers[m] / num_kmers)
+    if len(mer_perc) > 0:
+        m = max(mer_perc)
+    else:
+        m = 1
+    return m
+
+def calc_complexity_scheme(scheme):
+    for mutation in scheme:
+        states = ['ref','alt']
+        for state in states:
+            for entry in scheme[mutation][state]:
+                kSeq = entry['unalign_kseq']
+                entry['complexity'] = calc_kmer_complexity(kSeq)
+    return scheme
+
+def calc_kmer_summary(kmers):
+    kmer_data = {}
+    kmer_info = {}
+    for seq_id in kmers:
+        for position in kmers[seq_id]:
+            if not position in kmer_data:
+                kmer_data[position] = {'lengths':[],'complexities':[],'kmers':{}}
+            kmer_data[position]['lengths'].append(len(kmers[seq_id][position]))
+            kmer_data[position]['complexities'].append(calc_kmer_complexity(kmers[seq_id][position]))
+            kmer_data[position]['kmers'][kmers[seq_id][position]] = ''
+
+    for position in kmer_data:
+        kmer_info[position] = {'min_len': min(kmer_data[position]['lengths']),
+                               'max_len': max(kmer_data[position]['lengths']),
+                               'total_kmers': len(kmer_data[position]['kmers']),
+                               'min_complexity': max(kmer_data[position]['complexities'])}
+
+    return kmer_info
+
+def calc_score_kmers(kmer_info,min_length,max_length):
+    scores = {}
+    max_num_kmers = 0
+    for position in kmer_info:
+        entry = kmer_info[position]
+        if entry['min_len'] < min_length:
+            continue
+
+        if max_num_kmers < entry['total_kmers']:
+            max_num_kmers = entry['total_kmers']
+
+    for position in kmer_info:
+        entry = kmer_info[position]
+        if entry['min_len'] < min_length:
+            continue
+        score = (1 - entry['max_len']/ max_length) + 2*(1 - entry['min_complexity']) + 1 - ( entry['total_kmers']/ max_num_kmers)
+        scores[position] = score
+
+    return scores
+
+def multiplicity_check(scheme,input_alignment,genotype_mapping):
+    kmers_to_uid = {}
+    uid_to_kmer = {}
+    uid_to_state = {}
+    mut_to_uid = {}
+    uid = 0
+    for mutation in scheme:
+        mut_to_uid[mutation] = []
+        for state in ['ref','alt']:
+            for i in range(0,len(scheme[mutation][state])):
+                record = scheme[mutation][state][i]
+                uid_to_kmer[uid] = record['unalign_kseq']
+                uid_to_state[uid] = state
+                if not record['unalign_kseq'] in kmers_to_uid:
+                    kmers_to_uid[record['unalign_kseq']] = []
+                kmers_to_uid[record['unalign_kseq']].append(uid)
+                mut_to_uid[mutation].append(uid)
+                record['key'] = uid
+                uid+=1
+
+
+    A = init_automaton_dict(uid_to_kmer)
+    kmer_results = {}
+    for sample_id in input_alignment:
+        kmer_results[sample_id] = perform_kmerSearch_fasta(uid_to_kmer, kmers_to_uid, A, {sample_id:input_alignment[sample_id]},1)
+        for kmer in kmers_to_uid:
+            uids = kmers_to_uid[kmer]
+            for uid in uids:
+                if uid in kmer_results[sample_id]:
+                    freq = kmer_results[sample_id][uid]
+                    break
+            for uid in uids:
+                kmer_results[sample_id][uid] = freq
+
+
+
+
+
+    info = {'warnings':{},'errors':{},'valid':{}}
+    for sample_id in kmer_results:
+        results = kmer_results[sample_id]
+        for mutation in mut_to_uid:
+            count_ref = 0
+            count_alt = 0
+            uids = mut_to_uid[mutation]
+
+            for uid in uids:
+                if results [uid] == 0:
                     continue
-            if not kmer in kMers:
-                kMers[kmer] = []
-            kMers[kmer].append(sample_id)
-    return kMers
+                state = uid_to_state[uid]
+                if state == 'ref':
+                    count_ref += results[uid]
+                else:
+                    count_alt += results[uid]
 
-def generate_gap_lookup(aln,seq):
-    aLen = len(aln)
-    sLen = len(seq)
-    seq_lookup = []
-    p = 0
-    for i in range(0,sLen):
-        padding = 0
-        for k in range(p,aLen):
-            aBase = aln[k]
-            sBase = seq[i]
-            if aBase == '-':
-                padding+=1
-                continue
-            if aBase == sBase:
-                break
-        p = k
-        seq_lookup.append(p)
-    return seq_lookup
+            if count_ref == count_alt and count_ref == 0:
+                if not mutation in info['warnings']:
+                    info['warnings'][mutation] = {}
+                info['warnings'][mutation][sample_id] = 'missing'
 
-def getCandidateKmers(variant_positions,input_alignment,unaligned,unal_to_aln_coords,ref_id,path,kLen,max_count=1,max_ambig=0,n_threads=1):
-    raw_kmers = getKmerCounts(unaligned, path, kLen, max_count, max_ambig,
-                              n_threads)
-    aln_len = len(input_alignment[ref_id])
-    num_samples = len(input_alignment)
-    filtered_kmers = {}
+            elif count_ref >= 1 and count_alt >= 1 :
+                if not mutation in info['errors']:
+                    info['errors'][mutation] = {}
+                info['errors'][mutation][sample_id] = 'multi'
 
-    for kmer in raw_kmers:
-        kLen = len(kmer)
-        seq_ids = raw_kmers[kmer]
-        if len(seq_ids) == num_samples:
+            else:
+                if not mutation in info['valid']:
+                    info['valid'][mutation] = {}
+                info['valid'][mutation][sample_id] = 'valid'
+
+    for mutation in scheme:
+        for state in ['ref','alt']:
+            for i in range(0,len(scheme[mutation][state])):
+                if mutation in info['valid'] or mutation in info['errors']:
+                    scheme[mutation][state][i]['is_kmer_found'] = True
+                else:
+                    scheme[mutation][state][i]['is_kmer_found'] = False
+                    scheme[mutation][state][i]['is_valid'] = False
+                if mutation in info['errors']:
+                    scheme[mutation][state][i]['is_kmer_unique'] = False
+                    scheme[mutation][state][i]['is_valid'] = False
+
+    return scheme
+
+def impute_ambiguous_bases(input_alignment,ref_id,min_frac=0.9):
+    align_len = len(input_alignment[ref_id])
+    consensus_bases = calc_consensus(input_alignment)
+    num_seqs = len(input_alignment)
+    for seq_id in input_alignment:
+        if seq_id == ref_id:
             continue
-        seq_id = seq_ids[0]
-        kStart_unaln = unaligned[seq_id].find(kmer)
-
-        kEnd_unaln = kStart_unaln + kLen
-        kStart_aln = unal_to_aln_coords[seq_id][kStart_unaln]
-        # revcomp kmer sequences to correct strand
-        if kStart_unaln == -1:
-            kmer = revcomp(kmer)
-            kStart_unaln = unaligned[seq_id].find(kmer)
-            kEnd_unaln = kStart_unaln + kLen
-            kStart_aln = unal_to_aln_coords[seq_id][kStart_unaln]
-
-        count_bases = 1
-        for i in range(kStart_aln, aln_len):
-            if input_alignment[seq_id][i] == '-':
+        seq = list(input_alignment[seq_id])
+        for i in range(0,align_len):
+            base = seq[i]
+            if base in ['A','T','C','G','-']:
                 continue
-            count_bases += 1
-            if count_bases == kLen:
-                break
-        kEnd_aln = i
-        overlapping_variants = []
-        for (vStart, vEnd) in variant_positions:
-            if vStart >= kStart_aln and vStart <= kEnd_aln:
-                overlapping_variants.append([vStart, vEnd])
-            elif vEnd >= kStart_aln and vEnd <= kEnd_aln:
-                overlapping_variants.append([vStart, vEnd])
-
-        # disregard kmers which are not involved in a variant
-        if len(overlapping_variants) == 0:
-            continue
-
-        filtered_kmers[kmer] = {'kStart_unalign': kStart_unaln,
-                                'kEnd_unalign': kEnd_unaln,
-                                'kStart_align': kStart_aln,
-                                'kEnd_align': kEnd_aln,
-                                'affect_variants': overlapping_variants,
-                                'num_seqs': len(seq_ids),
-                                'seq_ids': seq_ids}
-    return filtered_kmers
+            consensus_base = max(consensus_bases[i].items(), key=operator.itemgetter(1))[0]
+            consensus_base_count = consensus_bases[i][consensus_base]
+            if consensus_base in ['A','T','C','G'] and consensus_base_count/num_seqs > min_frac:
+                seq[i] = consensus_base
+        input_alignment[seq_id] = ''.join(seq)
+    return input_alignment
 
 def build_mutation_lookup(variant_positions,ref_id,input_alignment,kmer_len):
     # init ref kmer data structure
@@ -212,6 +292,14 @@ def build_mutation_lookup(variant_positions,ref_id,input_alignment,kmer_len):
                                        'vEnd':vEnd,'vLen':(vEnd-vStart)+1,'kStart':kStart,'kEnd':kEnd,'ref_variant':variant}
 
     return mutations
+
+def get_non_gap_position(ref_non_gap_lookup,pos):
+
+    non_gap_position = ref_non_gap_lookup[pos]
+    while non_gap_position == -1:
+        pos -= 1
+        non_gap_position = ref_non_gap_lookup[pos]
+    return non_gap_position
 
 def get_alt_variants(input_alignment,mutations,align_len):
     variants = {}
@@ -277,25 +365,153 @@ def get_alt_variants(input_alignment,mutations,align_len):
 
     return variants
 
-def select_overlapping_kmers(raw_kmers,vStart,vEnd):
-    filt_kmers = {}
-    for kmer in raw_kmers:
-        kStart_aln = raw_kmers[kmer]['kStart_align']
-        kEnd_aln = raw_kmers[kmer]['kEnd_align']
-        is_found = False
-        if vStart >= kStart_aln and vStart <= kEnd_aln:
-            is_found=True
-        elif vEnd >= kStart_aln and vEnd <= kEnd_aln:
-            is_found=True
-        if is_found:
-            filt_kmers[kmer] = raw_kmers[kmer]
-    return filt_kmers
+def chunk_dict(input_dict,chunk_size):
+    subset = {}
+    chunks = []
+    for key in input_dict:
+        subset[key] = input_dict[key]
+        if len(subset) == chunk_size:
+            chunks.append(subset)
+            subset = {}
+    if len(subset) > 0:
+        chunks.append(subset)
+    return chunks
+
+def get_valid_base_position(numpy_seqarray,position,increment,lower_limit,upper_limit):
+    initial_pos = position
+    rBase = numpy_seqarray[position]
+    while rBase == '-' and position > lower_limit and position < upper_limit:
+        rBase = numpy_seqarray[position]
+        position += increment
+    if rBase == '-':
+        position = initial_pos
+    return  position
+
+def get_kmer_ranges(seq,positions,kmer_length,max_degenerate):
+    align_len = len(seq) - 1
+    kmers = {}
+    for (vStart,vEnd) in positions:
+        anchors = list(set([vStart, vEnd]))
+        for anchor in anchors:
+            kStart = anchor
+
+            if kStart - kmer_length > 0:
+                kStart -= kmer_length -1
+                kEnd = anchor + 1
+            else:
+                kStart = 0
+                kEnd = (kmer_length - anchor)
+            if kEnd >= align_len:
+                kEnd = align_len - 2
+
+            kStart = get_valid_base_position(seq,kStart,-1,1,align_len)
+            kEnd = get_valid_base_position(seq, kEnd, 1, 1, align_len)
+            kmer = seq[kStart:kEnd]
+            klen = len(kmer) - kmer.count('-')
+            #modify coordinates until a kmer which meets length requirements is found
+            while klen < kmer_length and kEnd < align_len:
+                if kStart > 0:
+                    kStart -= 1
+                else:
+                    kEnd += 1
+                kStart = get_valid_base_position(seq, kStart, -1, 1, align_len)
+                kEnd = get_valid_base_position(seq, kEnd, 1, 1, align_len)
+                kmer = seq[kStart:kEnd]
+                klen = len(kmer) - kmer.count('-')
+            if seq[kEnd] == '-':
+                kEnd = get_valid_base_position(seq, kEnd, -1, 1, align_len)
+
+            #perform sliding window kmer selection
+            for i in range(0, kmer_length):
+                kAmbig = kmer.count('N')
+                if kAmbig > max_degenerate:
+                    continue
+                if klen != kmer_length:
+                    continue
+                kSeq_align = kmer
+                kSeq_unalign = kSeq_align.replace('-', '')
+                kmers[kSeq_unalign] = [kStart,kEnd]
+
+                if kStart < anchor:
+                    kStart+=1
+                if kEnd < align_len:
+                    kEnd+=1
+                kStart = get_valid_base_position(seq, kStart, -1, 1, align_len)
+                kEnd = get_valid_base_position(seq, kEnd, 1, 1, align_len)
+                if seq[kEnd] == '-':
+                    kEnd = get_valid_base_position(seq, kEnd, -1, 1, align_len)
+                kmer = seq[kStart:kEnd]
+                klen = len(kmer) - kmer.count('-')
+    return kmers
+
+def batch_extract_seq_kmers(input_alignment,positions,min_len,max_len,max_degenerate):
+    kmers = {}
+    for seq_id in input_alignment:
+        kmers[seq_id] = {}
+        for i in range(min_len,max_len+1):
+            kmers[seq_id].update(get_kmer_ranges(input_alignment[seq_id], positions, i, max_degenerate))
+    return kmers
+
+def mp_kmer_getter(input_alignment,positions,min_len,max_len,n_threads=1):
+    kmers = {}
+    if n_threads > 1:
+        pool = Pool(processes=n_threads)
+        seq_array_chunks = chunk_dict(input_alignment, 1)
+        res = []
+        for seqs in seq_array_chunks:
+            res.append(pool.apply_async(batch_extract_seq_kmers, (seqs, positions, min_len, max_len, 0)))
+        pool.close()
+        pool.join()
+        for i in range(0, len(res)):
+            kmers.update(res[i].get())
+    else:
+        kmers.update(batch_extract_seq_kmers(input_alignment, positions, min_len, max_len, 0))
+
+    return kmers
+
+def get_optimal_kmers(in_seq_ids,in_kmers,out_kmers,min_len,max_len):
+    candidate_kmers = list(set(list(in_kmers.keys())) - set(list(out_kmers.keys())))
+    valid_kmers = []
+    for kmer in candidate_kmers:
+        klen = len(kmer)
+        if klen < min_len or klen > max_len:
+            continue
+        for k in out_kmers:
+            if kmer in k:
+                continue
+            valid_kmers.append(kmer)
+
+    if len(valid_kmers) == 0:
+        return {}
+    kmer_scores = {}
+    num_in_seq = len(in_seq_ids)
+    for kmer in valid_kmers:
+        score = 3*(len(in_kmers[kmer]['seq_ids']) / num_in_seq)
+        score += 1 - (len(kmer) / max_len)
+        score += 1 - calc_kmer_complexity(kmer)
+        kmer_scores[kmer] = score
+    kmer_scores = sorted(kmer_scores.items(), key=lambda x: x[1],reverse=True)
+    in_seq_ids = set(in_seq_ids)
+    found_seqs = []
+    optimal_kmers = {}
+    for (kmer,score) in kmer_scores:
+        if len(in_seq_ids - set(found_seqs)) == 0:
+            break
+        kStart = in_kmers[kmer]['kStart']
+        kEnd = in_kmers[kmer]['kEnd']
+        seq_ids = in_kmers[kmer]['seq_ids']
+
+        if len(in_seq_ids & set(seq_ids)) >0 and len(set(seq_ids) - set(found_seqs)) >0:
+            optimal_kmers[kmer] = {'kStart':kStart,'kEnd':kEnd,'seq_ids':seq_ids}
+            found_seqs.extend(seq_ids)
+
+    return optimal_kmers
 
 def create_entry(variant_key,dna_name,mutation_type,groups,vStart,vEnd,unalign_vstart,unalign_vend,variant_seq,ref_seq,ref_non_gap_lookup,state):
     kmer_entries = []
     for kmer in groups:
-        kStart = groups[kmer]['kStart_align']
-        kEnd = groups[kmer]['kEnd_align']
+        kStart = groups[kmer]['kStart']
+        kEnd = groups[kmer]['kEnd']
         kMembers = groups[kmer]['seq_ids']
         unalign_kstart = get_non_gap_position(ref_non_gap_lookup, kStart)
         unalign_kend = get_non_gap_position(ref_non_gap_lookup, kEnd)
@@ -332,55 +548,33 @@ def create_entry(variant_key,dna_name,mutation_type,groups,vStart,vEnd,unalign_v
             })
     return kmer_entries
 
-def process_variant(kmers,mutation_type,vStart,vEnd,unalign_vstart,unalign_vend,ref_non_gap_lookup,ref_variant_seq,variant_events,seq_ids,seq_kmers,min_kmer_len, max_kmer_len):
+def process_variant(mutation_type,vStart,vEnd,unalign_vstart,unalign_vend,ref_non_gap_lookup,ref_variant_seq,variant_events,seq_ids,seq_kmers,min_kmer_len, max_kmer_len):
     kmer_scheme = {}
-    #get kmers exclusive to each variant
     for variant in variant_events:
         in_seq_ids = variant_events[variant]['seq_ids']
         out_seq_ids = list(set(seq_ids) - set(in_seq_ids))
-        valid_alt_kmers = {}
-        valid_ref_kmers = {}
-        for kmer in kmers:
-            kmer_seq_ids = list(set(kmers[kmer]['seq_ids']))
-            if len(kmer_seq_ids) == 0:
-                continue
-            in_overlap = len(set(in_seq_ids) & set(kmer_seq_ids))
-            if in_overlap == len(kmer_seq_ids):
-                valid_alt_kmers[kmer] = len(kmer_seq_ids)
-            elif in_overlap == 0:
-                valid_ref_kmers[kmer] = len(kmer_seq_ids)
+        in_kmers = {}
+        out_kmers = {}
+        for seq_id in seq_ids:
+            for kmer in seq_kmers[seq_id]:
+                (kStart, kEnd) = seq_kmers[seq_id][kmer]
+                if vEnd < kStart or kStart > kEnd:
+                    continue
+                if seq_id in in_seq_ids:
+                    if not kmer in in_kmers:
+                        in_kmers[kmer] = {'kStart': kStart, 'kEnd': kEnd, 'seq_ids': []}
+                    in_kmers[kmer]['seq_ids'].append(seq_id)
+                else:
+                    if not kmer in out_kmers:
+                        out_kmers[kmer] = {'kStart': kStart, 'kEnd': kEnd, 'seq_ids': []}
+                    out_kmers[kmer]['seq_ids'].append(seq_id)
+        alt_kmers = get_optimal_kmers(in_seq_ids, in_kmers, out_kmers, min_kmer_len, max_kmer_len)
 
-        if len(valid_alt_kmers) == 0:
+        if len(alt_kmers) == 0:
             continue
-
-        valid_alt_kmers = sorted(valid_alt_kmers.items(), key=lambda x: x[1], reverse=True)
-        valid_ref_kmers = sorted(valid_ref_kmers.items(), key=lambda x: x[1], reverse=True)
-
-        selected_alt_kmers = {}
-        assigned_alt_samples = []
-        num_in_samples = len(in_seq_ids)
-        for (kmer,count) in valid_alt_kmers:
-            kmer_seq_ids = list(set(kmers[kmer]['seq_ids']))
-            unassigned_samples = list(set(kmer_seq_ids) - set(assigned_alt_samples))
-            if len(unassigned_samples) == 0:
-                continue
-            assigned_alt_samples.extend(unassigned_samples)
-            selected_alt_kmers[kmer] = kmers[kmer]
-            if len(assigned_alt_samples) == num_in_samples:
-                break
-
-        selected_ref_kmers = {}
-        assigned_ref_samples = []
-        num_out_samples = len(out_seq_ids)
-        for (kmer,count) in valid_ref_kmers:
-            kmer_seq_ids = list(set(kmers[kmer]['seq_ids']))
-            unassigned_samples = list(set(kmer_seq_ids) - set(assigned_ref_samples))
-            if len(unassigned_samples) == 0:
-                continue
-            assigned_ref_samples.extend(unassigned_samples)
-            selected_ref_kmers[kmer] = kmers[kmer]
-            if len(assigned_ref_samples) == num_out_samples:
-                break
+        ref_kmers = get_optimal_kmers(out_seq_ids, out_kmers, in_kmers, min_kmer_len, max_kmer_len)
+        if len(ref_kmers) == 0:
+            continue
 
         if mutation_type == 'snp':
             variant_key = "{}_{}_{}_{}".format(mutation_type, ref_variant_seq, vStart, variant)
@@ -389,61 +583,43 @@ def process_variant(kmers,mutation_type,vStart,vEnd,unalign_vstart,unalign_vend,
             variant_key = "{}_{}_{}".format(mutation_type, vStart, vEnd)
             dna_name = variant_key
         kmer_scheme[variant_key] = {'ref': [], 'alt': []}
-        kmer_scheme[variant_key]['alt'] = create_entry(variant_key, dna_name, mutation_type, selected_alt_kmers , vStart, vEnd,
+        kmer_scheme[variant_key]['alt'] = create_entry(variant_key, dna_name, mutation_type, alt_kmers, vStart, vEnd,
                                                        unalign_vstart, unalign_vend,
                                                        variant, ref_variant_seq, ref_non_gap_lookup, 'alt')
-        kmer_scheme[variant_key]['ref'] = create_entry(variant_key, dna_name, mutation_type, selected_ref_kmers , vStart,
+        kmer_scheme[variant_key]['ref'] = create_entry(variant_key, dna_name, mutation_type, ref_kmers, vStart,
                                                        vEnd, unalign_vstart, unalign_vend,
                                                        variant, ref_variant_seq, ref_non_gap_lookup, 'ref')
     return kmer_scheme
 
-def calc_kmer_complexity(kSeq):
-    mers = count_kmers(kSeq, K=2)
-    num_kmers = sum(mers.values())
-    mer_perc = []
-    for m in mers:
-        mer_perc.append(mers[m] / num_kmers)
-    if len(mer_perc) > 0:
-        m = max(mer_perc)
-    else:
-        m = 1
-    return m
+def select_overlapping_kmers(seq_ids,vStart,vEnd,seq_kmers):
+    filt_kmers = {}
+    for seq_id in seq_ids:
+        filt_kmers[seq_id] = {}
+        is_found = False
+        for kmer in seq_kmers[seq_id]:
+            (kStart, kEnd) = seq_kmers[seq_id][kmer]
+            if vEnd < kStart or vStart > kEnd:
+                if is_found:
+                    break
+                continue
+            filt_kmers[seq_id][kmer] = seq_kmers[seq_id][kmer]
+            is_found = True
+    return filt_kmers
 
-def calc_complexity_scheme(scheme):
-    for mutation in scheme:
-        states = ['ref','alt']
-        for state in states:
-            for entry in scheme[mutation][state]:
-                kSeq = entry['unalign_kseq']
-                entry['complexity'] = calc_kmer_complexity(kSeq)
-    return scheme
-
-def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,min_kmer_len,max_kmer_len,n_threads=1):
-    # initialize analysis directory
-    if not os.path.isdir(jellyfish_path):
-        logging.info("Creating analysis results directory {}".format(jellyfish_path))
-        os.mkdir(jellyfish_path, 0o755)
-    else:
-        logging.info("Results directory {} already exits, will overwrite any results files here".format(jellyfish_path))
+def construct_scheme(variant_positions, ref_id, input_alignment,min_kmer_len,max_kmer_len,n_threads=1):
 
     seq_ids = list(input_alignment.keys())
     ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_id])
     unaligned_seqs = {}
-    unal_to_aln_coords = {}
     logging.info("Building unaligned lookup")
     for seq_id in input_alignment:
         unaligned_seqs[seq_id] = input_alignment[seq_id].replace('-','')
-        unal_to_aln_coords[seq_id] = generate_gap_lookup(input_alignment[seq_id], unaligned_seqs[seq_id])
-
-
-
     align_len = len(input_alignment[ref_id])
     logging.info("Building mutation event lookup")
     mutations = build_mutation_lookup(variant_positions, ref_id, input_alignment, min_kmer_len)
     logging.info("Cataloguing variants")
     variant_events = get_alt_variants(input_alignment,mutations,align_len)
     positions = []
-
     for mutation_key in variant_events:
         if not mutation_key in variant_events:
             logging.info("Mutation {} did not have a valid alt state..skipping".format(mutation_key))
@@ -452,16 +628,12 @@ def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,
             vStart = variant_events[mutation_key][variant]['vStart']
             vEnd = variant_events[mutation_key][variant]['vEnd']
             positions.append([vStart,vEnd])
-
     if n_threads > 1:
         pool = Pool(processes=n_threads)
-
     logging.info("Begining k-mer extraction for {} variant positions".format(len(positions)))
     stime = time.time()
-
-    seq_kmers = getCandidateKmers(variant_positions,input_alignment,unaligned_seqs,unal_to_aln_coords,ref_id,jellyfish_path,max_kmer_len,max_count=1,max_ambig=0,n_threads=n_threads)
+    seq_kmers = mp_kmer_getter(input_alignment,positions,min_kmer_len,max_kmer_len,n_threads)
     logging.info("time for kmer extraction {}".format(time.time() - stime))
-
     stime = time.time()
     res = []
     kmer_scheme = {}
@@ -498,25 +670,25 @@ def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,
     logging.info("Optimizing k-mer selection for {} variant positions using ranges {}-{}".format(len(positions),min_kmer_len,max_kmer_len))
     for mutation_key in mutations:
         count+=1
+
         if not mutation_key in variant_events:
             continue
         stime = time.time()
         mutation_type = mutations[mutation_key]['mutation_type']
         vStart = mutations[mutation_key]['vStart']
         vEnd = mutations[mutation_key]['vEnd']
-        ovKmers = select_overlapping_kmers(seq_kmers, vStart, vEnd)
-        if len(ovKmers) == 0:
-            continue
-
         unalign_vstart =  get_non_gap_position(ref_non_gap_lookup, vStart)
         unalign_vend =  get_non_gap_position(ref_non_gap_lookup, vEnd)
         ref_variant_seq = input_alignment[ref_id][vStart:vEnd +1]
-        ovKmers = select_overlapping_kmers(seq_kmers,vStart,vEnd)
+        ovKmers = select_overlapping_kmers(seq_ids,vStart,vEnd,seq_kmers)
+        print(time.time() - stime)
+        if len(ovKmers) == 0:
+            continue
 
         if n_threads == 1:
-            kmer_scheme.update(process_variant(ovKmers,mutation_type,vStart,vEnd,unalign_vstart, unalign_vend,ref_non_gap_lookup,ref_variant_seq,variant_events[mutation_key],seq_ids,ovKmers,min_kmer_len, max_kmer_len))
+            kmer_scheme.update(process_variant(mutation_type,vStart,vEnd,unalign_vstart, unalign_vend,ref_non_gap_lookup,ref_variant_seq,variant_events[mutation_key],seq_ids,ovKmers,min_kmer_len, max_kmer_len))
         else:
-            res.append(pool.apply_async(process_variant, (ovKmers,mutation_type,vStart,vEnd,unalign_vstart, unalign_vend,ref_non_gap_lookup,ref_variant_seq,variant_events[mutation_key],seq_ids,ovKmers,min_kmer_len, max_kmer_len)))
+            res.append(pool.apply_async(process_variant, (mutation_type,vStart,vEnd,unalign_vstart, unalign_vend,ref_non_gap_lookup,ref_variant_seq,variant_events[mutation_key],seq_ids,ovKmers,min_kmer_len, max_kmer_len)))
 
     if n_threads > 1:
         pool.close()
@@ -573,7 +745,84 @@ def qa_scheme(scheme,input_alignment,ref_id,genotype_mapping,min_len, max_len,mi
                     row['is_valid'] = False
                 if not row['is_valid']:
                     problem_mutations.append(mutation_key)
-    return scheme
+
+    ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_id])
+    problem_mutations = list(set(problem_mutations))
+
+    #Triage kmers
+    for mutation_key in problem_mutations:
+        print(mutation_key)
+        row = scheme[mutation_key]['ref'][0]
+        vStart = row['align_variant_start']
+        vEnd = row['align_variant_end']
+        unalign_vstart = row['unalign_variant_start']
+        unalign_vend = row['unalign_variant_end']
+        mutation_type = row['mutation_type']
+        ref_variant_seq = input_alignment[ref_id][vStart:vEnd + 1]
+        invalid_kmers = []
+        variant_positions= [[vStart,vEnd]]
+        mutations = build_mutation_lookup(variant_positions, ref_id, input_alignment, min_len)
+        variant_events = get_alt_variants(input_alignment, mutations, len(input_alignment[ref_id]))
+        variant_events = variant_events[next(iter(mutations))]
+        seq_ids = list(input_alignment.keys())
+        for state in scheme[mutation_key]:
+            for row in scheme[mutation_key][state]:
+                seq = row['unalign_kseq']
+                invalid_kmers.append(seq)
+
+        seq_kmers = mp_kmer_getter(input_alignment, variant_positions, min_len, max_len, n_threads)
+        uKmers = {}
+        for sample_id in seq_kmers:
+            for kmer in invalid_kmers:
+                if kmer in seq_kmers[sample_id]:
+                    del(seq_kmers[sample_id][kmer])
+                else:
+                    uKmers[kmer]=''
+        uid = 0
+        uid_to_kmer = {}
+        kmers_to_uid = {}
+        for kmer in uKmers:
+            uid_to_kmer[uid] = kmer
+            kmers_to_uid[kmer] = [uid]
+            uid+=1
+        A = init_automaton_dict(uid_to_kmer)
+        kmer_results = {}
+        for sample_id in input_alignment:
+            kmer_results[sample_id] = perform_kmerSearch_fasta(uid_to_kmer, kmers_to_uid, A,
+                                                               {sample_id: input_alignment[sample_id]}, 1)
+
+        for event in variant_events:
+            in_seqs = variant_events[event]['seq_ids']
+            out_seqs = list(set(seq_ids) - set(in_seqs))
+            in_kmer_uids = []
+            out_kmer_uids = []
+            for sample_id in kmer_results:
+                uids = list(kmer_results[sample_id].keys())
+                if sample_id in in_seqs:
+                    in_kmer_uids.extend(uids)
+                else:
+                    out_kmer_uids.extend(uids)
+
+                in_kmer_uids = list(set(in_kmer_uids))
+                out_kmer_uids = list(set(out_kmer_uids))
+
+            invalid_kmer_uids = list(set(in_kmer_uids) & set(out_kmer_uids))
+
+        for uid in invalid_kmer_uids:
+            invalid_kmers.append(uid_to_kmer[uid])
+
+        for sample_id in seq_kmers:
+            for kmer in invalid_kmers:
+                if kmer in seq_kmers[sample_id]:
+                    print(kmer)
+                    del(seq_kmers[sample_id][kmer])
+
+
+        new = process_variant(mutation_type, vStart, vEnd, unalign_vstart, unalign_vend, ref_non_gap_lookup, ref_variant_seq,
+                        variant_events, seq_ids, seq_kmers, min_len, max_len)
+        scheme[mutation_key] = new[mutation_key]
+
+    return multiplicity_check(scheme, unaligned,genotype_mapping)
 
 def format_scheme_human_readable(scheme,ref_id,input_alignment):
     seq = input_alignment[ref_id]
@@ -853,148 +1102,6 @@ def print_scheme(scheme,file,header):
                 fh.write("{}\n".format("\t".join([str(x) for x in row])))
     fh.close()
 
-def impute_ambiguous_bases(input_alignment,ref_id,min_frac=0.9):
-    align_len = len(input_alignment[ref_id])
-    consensus_bases = calc_consensus(input_alignment)
-    num_seqs = len(input_alignment)
-    for seq_id in input_alignment:
-        if seq_id == ref_id:
-            continue
-        seq = list(input_alignment[seq_id])
-        for i in range(0,align_len):
-            base = seq[i]
-            if base in ['A','T','C','G','-']:
-                continue
-            consensus_base = max(consensus_bases[i].items(), key=operator.itemgetter(1))[0]
-            consensus_base_count = consensus_bases[i][consensus_base]
-            if consensus_base in ['A','T','C','G'] and consensus_base_count/num_seqs > min_frac:
-                seq[i] = consensus_base
-        input_alignment[seq_id] = ''.join(seq)
-    return input_alignment
-
-def get_genotype_mapping(metadata_df):
-    '''
-
-    :param metadata_df:
-    :type metadata_df:
-    :return:
-    :rtype:
-    '''
-    mapping = {}
-    for row in metadata_df.itertuples():
-        sample_id = row.sample_id
-        genotype = row.genotype
-        mapping[sample_id] = genotype
-    return mapping
-
-def build_kmer_profiles(sequence_ids,scheme):
-    '''
-    :param scheme:
-    :type scheme:
-    :return:
-    :rtype:
-    '''
-    profiles = {}
-    mutations = list(scheme.keys())
-    for sample_id in sequence_ids:
-        profiles[sample_id] = {}
-        for mutation_key in mutations:
-            profiles[sample_id][mutation_key] = 0
-
-    #only flip the alt status
-    for mutation_key in scheme:
-        for kmer_entry in scheme[mutation_key]['alt']:
-            seq_ids = kmer_entry['seq_ids']
-            for seq_id in seq_ids:
-                profiles[seq_id][mutation_key] = 1
-
-    return profiles
-
-def multiplicity_check(scheme,input_alignment,genotype_mapping):
-    kmers_to_uid = {}
-    uid_to_kmer = {}
-    uid_to_state = {}
-    mut_to_uid = {}
-    uid = 0
-    for mutation in scheme:
-        mut_to_uid[mutation] = []
-        for state in ['ref','alt']:
-            for i in range(0,len(scheme[mutation][state])):
-                record = scheme[mutation][state][i]
-                uid_to_kmer[uid] = record['unalign_kseq']
-                uid_to_state[uid] = state
-                if not record['unalign_kseq'] in kmers_to_uid:
-                    kmers_to_uid[record['unalign_kseq']] = []
-                kmers_to_uid[record['unalign_kseq']].append(uid)
-                mut_to_uid[mutation].append(uid)
-                record['key'] = uid
-                uid+=1
-
-
-    A = init_automaton_dict(uid_to_kmer)
-    kmer_results = {}
-    for sample_id in input_alignment:
-        kmer_results[sample_id] = perform_kmerSearch_fasta(uid_to_kmer, kmers_to_uid, A, {sample_id:input_alignment[sample_id]},1)
-        for kmer in kmers_to_uid:
-            uids = kmers_to_uid[kmer]
-            for uid in uids:
-                if uid in kmer_results[sample_id]:
-                    freq = kmer_results[sample_id][uid]
-                    break
-            for uid in uids:
-                kmer_results[sample_id][uid] = freq
-
-
-
-
-
-    info = {'warnings':{},'errors':{},'valid':{}}
-    for sample_id in kmer_results:
-        results = kmer_results[sample_id]
-        for mutation in mut_to_uid:
-            count_ref = 0
-            count_alt = 0
-            uids = mut_to_uid[mutation]
-
-            for uid in uids:
-                if results [uid] == 0:
-                    continue
-                state = uid_to_state[uid]
-                if state == 'ref':
-                    count_ref += results[uid]
-                else:
-                    count_alt += results[uid]
-
-            if count_ref == count_alt and count_ref == 0:
-                if not mutation in info['warnings']:
-                    info['warnings'][mutation] = {}
-                info['warnings'][mutation][sample_id] = 'missing'
-
-            elif count_ref >= 1 and count_alt >= 1 :
-                if not mutation in info['errors']:
-                    info['errors'][mutation] = {}
-                info['errors'][mutation][sample_id] = 'multi'
-
-            else:
-                if not mutation in info['valid']:
-                    info['valid'][mutation] = {}
-                info['valid'][mutation][sample_id] = 'valid'
-
-    for mutation in scheme:
-        for state in ['ref','alt']:
-            for i in range(0,len(scheme[mutation][state])):
-                if mutation in info['valid'] or mutation in info['errors']:
-                    scheme[mutation][state][i]['is_kmer_found'] = True
-                else:
-                    scheme[mutation][state][i]['is_kmer_found'] = False
-                    scheme[mutation][state][i]['is_valid'] = False
-                if mutation in info['errors']:
-                    scheme[mutation][state][i]['is_kmer_unique'] = False
-                    scheme[mutation][state][i]['is_valid'] = False
-
-    return scheme
-
-
 def run():
     #get arguments
     cmd_args = parse_args()
@@ -1014,7 +1121,6 @@ def run():
     max_missing = cmd_args.max_missing
     n_threads = cmd_args.n_threads
     impute_min_frac = cmd_args.iFrac
-    jellyfish_path = os.path.join(outdir,"jellyfish")
 
 
     # initialize analysis directory
@@ -1041,6 +1147,7 @@ def run():
     if ref_id not in input_alignment:
         logger.error("Reference id specified '{}' is not found in alignment, make sure it is present and retry".format(ref_id))
         sys.exit()
+
     if cmd_args.impute:
         logger.info("Imputing ambiguous bases enabled with fraction of {}".format(impute_min_frac))
         input_alignment = impute_ambiguous_bases(input_alignment, ref_id, min_frac=impute_min_frac)
@@ -1092,8 +1199,9 @@ def run():
         variant_positions.append([int(start),int(end)])
 
     logger.info("Creating scheme based on identified SNPs and indels")
+    scheme = construct_scheme(variant_positions, ref_id, input_alignment, min_len, max_len,n_threads)
 
-    scheme = construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path, min_len, max_len,n_threads)
+
 
     logger.info("Performing QA on selected k-mers")
     scheme = qa_scheme(scheme, input_alignment, ref_id, genotype_mapping,min_len=min_len, max_len=max_len,min_complexity=min_complexity)
@@ -1239,8 +1347,4 @@ def run():
     logger.info("Writting genotype report")
     pd.DataFrame.from_dict(genotype_report_mutation,orient='index').to_csv(genotypes_mut_file,sep='\t',index=False)
     pd.DataFrame.from_dict(genotype_report_kmer, orient='index').to_csv(genotypes_kmers_file, sep='\t', index=False)
-
-
-run()
-
 

@@ -1,15 +1,14 @@
 import sys, os
-from argparse import (ArgumentParser, FileType)
+from argparse import (ArgumentParser)
 from itertools import permutations
-from parsityper.kmerSearch import init_automaton_dict,find_in_fasta_dict
+from parsityper.kmerSearch.kmerSearch import init_automaton_dict,find_in_fasta_dict
 from parsityper.helpers import read_tsv, read_fasta, init_kmer_targets, get_kmer_groups, \
     get_kmer_group_mapping, process_biohansel_kmer
 from parsityper.typer import calc_kmer_ratio, calc_mixed_sites, identify_compatible_types, \
-calc_type_coverage, type_occamization, get_detected_target_summary, get_genotype_target_associations
+calc_type_coverage, type_occamization, get_detected_target_summary
 import statistics
 import time
 
-import multiprocessing
 from multiprocessing import Pool
 
 def parse_args():

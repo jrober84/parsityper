@@ -1,14 +1,12 @@
 #!/usr/bin/python
-import time
-from argparse import (ArgumentParser, FileType)
-import logging, os, sys, re, collections, operator, math, shutil, datetime, copy, statistics
-from collections import Counter
+from argparse import (ArgumentParser)
+import logging, os
 import pandas as pd
 from parsityper.helpers import process_rules, init_console_logger, read_tsv, get_valid_targets, process_biohansel_kmer, \
     init_kmer_targets,summarize_kmer_targets,get_kmer_groups, get_kmer_group_mapping, get_kmer_freq_by_genotype, evaluate_rules
-from parsityper.kmerSearch import init_automaton_dict,parallel_query_fasta_files, parallel_fastq_query
-from parsityper.typer import calc_kmer_ratio, identify_compatible_types, calc_type_coverage, type_occamization
-from parsityper.validator import construct_genotype_profiles, identify_degenerate_kmers, read_samples
+from parsityper.kmerSearch.kmerSearch import init_automaton_dict,parallel_query_fasta_files, parallel_fastq_query
+from parsityper.typer import calc_kmer_ratio, identify_compatible_types
+from parsityper.validator import construct_genotype_profiles, read_samples
 import multiprocessing as mp
 
 if mp.get_start_method(allow_none=True) != 'spawn':

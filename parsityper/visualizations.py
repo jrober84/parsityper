@@ -7,7 +7,6 @@ class dendrogram_visualization:
     def __init__(self):
         return
     def build_tree_from_dist_matrix(self,sample_ids,matrix,outfile):
-
         fig = ff.create_dendrogram(matrix,orientation='left', labels=sample_ids)
         fig.update_layout(width=1000, height=800)
         fig.write_html(outfile)
