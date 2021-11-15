@@ -84,7 +84,6 @@ def folder_tracker(genotype_counts_df):
         tracker[genotype] = {'total': count, 'index': 0, 'tracker': 0}
     return tracker
 
-
 def generate_consensus(df):
     maxValueIndexObj = df.idxmax(axis=1)
     return maxValueIndexObj.tolist()
@@ -162,7 +161,6 @@ def map_positions(seq_1,seq_2):
             if base_1 == base_2:
                 look_up[i] = {'ref_aln_pos': i, 'mapped_aln_pos': k}
                 break
-
     return look_up
 
 def get_valid_positions(global_consensus,threshold=1):
@@ -267,7 +265,8 @@ def run():
     seq_report_fh = open(os.path.join(outdir, 'seq_info.txt'), 'w')
     seq_report_fh.write("sample_id\tgenotype\tmd5\tnum_seq_bases\tambig_count\tgap_count\tstatus\n")
     global_consensus = []
-
+    unalign_file = os.path.join(outdir, 'unaligned.fasta')
+    unalign_fh = open(os.path.join(outdir, unalign_file), 'w')
     for seq_record in SeqIO.parse(fasta_file, format='fasta'):
         seq = str(seq_record.seq).upper()
         length = len(seq)
@@ -324,7 +323,7 @@ def run():
             seq_fh = open(os.path.join(fasta_out, "{}.fasta".format(sample_id)), 'w')
             seq_fh.write(">{}\n{}".format(sample_id, re.sub(r'-', '', seq)))
             seq_fh.close()
-
+            unalign_fh.write(">{}\n{}".format(sample_id, re.sub(r'-', '', seq)))
 
         seq_report_fh.write(
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(sample_id, genotype, md5, num_seq_bases, ambig_count, gap_count,status))

@@ -1,7 +1,11 @@
 # Libraries
+import sys
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.figure_factory as ff
+import plotly.graph_objects as go
+from scipy.spatial.distance import pdist, squareform
 
 class dendrogram_visualization:
     def __init__(self):
@@ -10,12 +14,221 @@ class dendrogram_visualization:
         fig = ff.create_dendrogram(matrix,orientation='left', labels=sample_ids)
         fig.update_layout(width=1000, height=800)
         fig.write_html(outfile)
+        return fig
 
     def build_dendrogram(self,sample_ids,profile_df,outfile):
         profile_df = profile_df.fillna(0)
         fig = ff.create_dendrogram(profile_df,orientation='left', labels=sample_ids)
         fig.update_layout(width=1000, height=800)
         fig.write_html(outfile)
+        return fig
+
+    def build_dendrogram_heatmap(self,sample_ids,profile_df,outfile):
+        profile_df = profile_df.fillna(0)
+        # Initialize figure by creating upper dendrogram
+        fig = ff.create_dendrogram(profile_df, orientation='bottom', labels=sample_ids)
+        for i in range(len(fig['data'])):
+            fig['data'][i]['yaxis'] = 'y2'
+
+        # Create Side Dendrogram
+        dendro_side = ff.create_dendrogram(profile_df, orientation='right')
+        for i in range(len(dendro_side['data'])):
+            dendro_side['data'][i]['xaxis'] = 'x2'
+
+        # Add Side Dendrogram Data to Figure
+        for data in dendro_side['data']:
+            fig.add_trace(data)
+
+        # Create Heatmap
+        dendro_leaves = dendro_side['layout']['yaxis']['ticktext']
+        dendro_leaves = list(map(int, dendro_leaves))
+        data_dist = pdist(profile_df)
+        heat_data = squareform(data_dist)
+        heat_data = heat_data[dendro_leaves, :]
+        heat_data = heat_data[:, dendro_leaves]
+
+        heatmap = [
+            go.Heatmap(
+                x=dendro_leaves,
+                y=dendro_leaves,
+                z=heat_data,
+                colorscale='Blues'
+            )
+        ]
+
+        heatmap[0]['x'] = fig['layout']['xaxis']['tickvals']
+        heatmap[0]['y'] = dendro_side['layout']['yaxis']['tickvals']
+
+        # Add Heatmap Data to Figure
+        for data in heatmap:
+            fig.add_trace(data)
+
+        # Edit Layout
+        fig.update_layout({'width': 1000, 'height': 800,
+                           'showlegend': False, 'hovermode': 'closest',
+                           })
+        # Edit xaxis
+        fig.update_layout(xaxis={'domain': [.15, 1],
+                                 'mirror': False,
+                                 'showgrid': False,
+                                 'showline': False,
+                                 'zeroline': False,
+                                 'ticks': ""})
+        # Edit xaxis2
+        fig.update_layout(xaxis2={'domain': [0, .15],
+                                  'mirror': False,
+                                  'showgrid': False,
+                                  'showline': False,
+                                  'zeroline': False,
+                                  'showticklabels': False,
+                                  'ticks': ""})
+
+        # Edit yaxis
+        fig.update_layout(yaxis={'domain': [0, .85],
+                                 'mirror': False,
+                                 'showgrid': False,
+                                 'showline': False,
+                                 'zeroline': False,
+                                 'showticklabels': False,
+                                 'ticks': ""
+                                 })
+        # Edit yaxis2
+        fig.update_layout(yaxis2={'domain': [.825, .975],
+                                  'mirror': False,
+                                  'showgrid': False,
+                                  'showline': False,
+                                  'zeroline': False,
+                                  'showticklabels': False,
+                                  'ticks': ""})
+
+        fig.write_html(outfile)
+        return fig
+
+    def build_dendrogram_heatmap_features(self,sample_labels,feature_labels,profile_df,outfile):
+        profile_df = profile_df.fillna(0)
+        profile_df = profile_df.T
+        label_map = {}
+        uids = list(profile_df.index.values)
+        for i in range(0,len(uids)):
+            label_map[uids[i]] = feature_labels[i]
+
+        # Create Side Dendrogram
+        profile_df = profile_df.T
+        dendro_side = ff.create_dendrogram(profile_df, orientation='right',labels=sample_labels)
+        for i in range(len(dendro_side['data'])):
+            dendro_side['data'][i]['xaxis'] = 'x2'
+
+
+        sample_labels_order = list(dendro_side['layout']['yaxis']['ticktext'])
+        profile_df = profile_df.T
+        profile_df = profile_df[sample_labels_order]
+
+        # Initialize figure by creating upper dendrogram
+        fig = ff.create_dendrogram(profile_df , orientation='bottom', labels=feature_labels)
+        for i in range(len(fig['data'])):
+            fig['data'][i]['yaxis'] = 'y2'
+
+
+        feature_labels_order = fig['layout']['xaxis']['ticktext']
+        new_column_order = []
+        for i in feature_labels_order:
+            col = int(i.split(':')[0])
+            new_column_order.append(col)
+        profile_df = profile_df.T
+        profile_df = profile_df[new_column_order]
+        #profile_df = profile_df.T
+
+        # Add Side Dendrogram Data to Figure
+        for data in dendro_side['data']:
+            fig.add_trace(data)
+
+        # Create Heatmap
+
+        sample_labels = list(profile_df.index.values)
+
+        heat_data = profile_df.values.tolist()
+
+        heatmap = [
+            go.Heatmap(
+                x=feature_labels_order,
+                y=sample_labels,
+                z=heat_data,
+                colorscale='Blues'
+            )
+        ]
+
+        heatmap[0]['x'] = fig['layout']['xaxis']['tickvals']
+        heatmap[0]['y'] = dendro_side['layout']['yaxis']['tickvals']
+
+        # Add Heatmap Data to Figure
+        for data in heatmap:
+            fig.add_trace(data)
+
+        fig['layout']['xaxis']['ticktext'] = np.asarray(feature_labels_order)
+        fig['layout']['xaxis']['tickvals'] = np.asarray(fig['layout']['xaxis']['tickvals'])
+        fig['layout']['yaxis']['ticktext'] = np.asarray(sample_labels)
+        fig['layout']['yaxis']['tickvals'] = np.asarray(dendro_side['layout']['yaxis']['tickvals'])
+
+        # Edit Layout
+        fig.update_layout({'width': 1000, 'height': 800,
+                           'showlegend': False, 'hovermode': 'closest',
+                           })
+
+        fig.update_layout(
+            xaxis={'side': 'bottom'},
+            yaxis={'side': 'right'}
+        )
+
+        # Edit xaxis
+        fig.update_layout(xaxis={'domain': [.15, 1],
+                                 'mirror': False,
+                                 'showgrid': False,
+                                 'showline': False,
+                                 'zeroline': False,
+                                 'showticklabels': True,
+                                 'ticks': ""})
+        # Edit xaxis2
+        fig.update_layout(xaxis2={'domain': [0, .15],
+                                  'mirror': False,
+                                  'showgrid': False,
+                                  'showline': False,
+                                  'zeroline': False,
+                                  'showticklabels': False,
+                                  'ticks': ""})
+
+        # Edit yaxis
+        fig.update_layout(yaxis={'domain': [0, .85],
+                                 'mirror': False,
+                                 'showgrid': False,
+                                 'showline': False,
+                                 'zeroline': False,
+                                 'showticklabels': True,
+                                 'ticks': ""
+                                 })
+        # Edit yaxis2
+        fig.update_layout(yaxis2={'domain': [.825, .975],
+                                  'mirror': False,
+                                  'showgrid': False,
+                                  'showline': False,
+                                  'zeroline': False,
+                                  'showticklabels': False,
+                                  'ticks': ""})
+
+        fig.write_html(outfile)
+        return fig
+
+
+def create_heatmap(sample_labels,feature_labels,profile_df,outfile):
+    heat_data = profile_df.values.tolist()
+    fig = go.Figure(data = go.Heatmap(
+                x=feature_labels,
+                y=sample_labels,
+                z=heat_data,
+                colorscale='Cividis'
+            ))
+    fig.write_html(outfile)
+    return fig
+
 
 
 
@@ -42,7 +255,30 @@ def generate_coverage_profile(sample_kmer_data):
 
     return profile
 
-def generate_sample_coverage_plot(positive_kmer_data,negative_kmer_data,sample_kmer_data,target_mapping):
+
+def generate_sample_coverage_plot(sample_kmer_data,target_mapping):
+    data = {}
+    plots = []
+    import plotly.graph_objects as go
+    plot = generate_mean_coverage_histo(sample_kmer_data,target_mapping)
+
+    fig = go.Figure(data=plot)
+    fig.update_layout(
+        font_family="Courier New",
+        font_color="black",
+        title_font_family="Times New Roman",
+        title_font_color="red",
+        legend_title_font_color="black",
+        title="K-mer depth and breadth of coverage plot", xaxis_title="Reference Position(bp)", yaxis_title="Frequency",
+        showlegend=True
+    )
+    # Change the bar mode
+    fig.update_layout(barmode='group',)
+    return fig
+
+
+
+def generate_sample_coverage_plot_summary(positive_kmer_data,negative_kmer_data,sample_kmer_data,target_mapping):
     data = {}
     plots = []
     import plotly.graph_objects as go
@@ -100,4 +336,5 @@ def plot_mds(dis_matrix,labels,outfile):
         title="MDS Plot of k-mer distances stress={}".format(stress), xaxis_title="1-Dimension", yaxis_title="2-Dimension",
         showlegend=True
     )
-    fig.show()
+    fig.write_html(outfile)
+    return fig

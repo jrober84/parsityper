@@ -13,6 +13,11 @@ from Bio import GenBank
 from Bio import SeqIO
 from Bio.Seq import Seq
 import glob
+import gzip
+from mimetypes import guess_type
+from functools import partial
+from Bio import SeqIO
+
 
 NT_SUB = str.maketrans('acgtrymkswhbvdnxACGTRYMKSWHBVDNX',
                        'tgcayrkmswdvbhnxTGCAYRKMSWDVBHNX')
@@ -222,11 +227,6 @@ def validate_args(cmd_args,logger):
     scheme= cmd_args.scheme
     if not scheme in TYPING_SCHEMES and not os.path.isfile(scheme):
         logger.error("Error specified scheme name or file does not exist".format(scheme))
-        is_valid = False
-
-    mode = cmd_args.mode
-    if mode != 'single' and mode != 'batch':
-        logger.error("Error specified operating mode is invalid, enter 'single' or 'batch'")
         is_valid = False
 
     type = cmd_args.type
@@ -661,8 +661,14 @@ def read_fasta(fasta_file):
     :return: dict of sequences
     """
     reference = {}
-    for seq_record in SeqIO.parse(fasta_file,format='fasta'):
-        reference[str(seq_record.id)] = str(seq_record.seq).upper()
+
+    encoding = guess_type(fasta_file)[1]
+    _open = partial(gzip.open, mode='rt') if encoding == 'gzip' else open
+
+    with _open(fasta_file) as f:
+        for seq_record in SeqIO.parse(f, 'fasta'):
+            reference[str(seq_record.id)] = str(seq_record.seq).upper()
+
     return reference
 
 def find_gaps(seq):
@@ -2347,5 +2353,23 @@ def evaluate_rules(scores,rules,threshold):
         rules[kmer_id] = kRules
     results['rules'] = rules
     return results
+
+def read_samples(file):
+    df = pd.read_csv(file,header=0,sep="\t")
+    samples = {
+        'fasta':[],
+        'fastq':[]
+    }
+
+    for row in df.itertuples():
+        sample_id = row.sample_id
+        genotype = row.genotype
+        file_1 = row.file_1
+        file_2 = row.file_2
+        mode = 'fasta'
+        if '.fastq' in file_1 or '.fq' in file_1:
+            mode = 'fastq'
+        samples[mode].append({'sample_id':sample_id,'genotype':genotype,'file_1':file_1,'file_2':file_2})
+    return samples
 
 

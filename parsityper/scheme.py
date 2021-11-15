@@ -5,7 +5,6 @@ import pandas as pd
 SCHEME_HEADER = [
                 'key',
                 'mutation_key',
-                'index',
                 'dna_name',
                 'align_variant_start',
                 'align_variant_end',
@@ -70,8 +69,10 @@ def parseScheme(scheme_file):
         variant_end = row.unalign_variant_end
         ref_state = row.ref_state
         alt_state = row.alt_state
-        seq_ids = row.seq_ids
+       # seq_ids = row.seq_ids
         uid = row.key
+        aa_name = row.aa_name
+        is_cds = row.is_cds
         if not mutation_key in scheme:
             scheme[mutation_key] = {
                 'ref':{},
@@ -80,13 +81,14 @@ def parseScheme(scheme_file):
 
         scheme[mutation_key][state][uid] = {
             'dna_name':dna_name,
-           # 'aa_name':aa_name,
+            'aa_name':aa_name,
+            'is_cds':is_cds,
             'gene':gene,
             'variant_start':variant_start,
             'variant_end':variant_end,
             'ref_state':ref_state,
             'alt_state':alt_state,
-            'seq_ids':seq_ids,
+           # 'seq_ids':seq_ids,
             'positive_genotypes':positive_genotypes,
             'partial_genotypes':partial_genotypes,
             'seq':seq
@@ -96,11 +98,18 @@ def parseScheme(scheme_file):
 
 def constructSchemeLookups(scheme):
     profiles = {
+        'max_variant_positions':0,
+        'gene_features':[],
         'genotypes':[],
+        'genotype_rule_sets':{},
+        'kmer_to_genotypes':{},
         'uid_to_state':{},
         'uid_to_kseq':{},
         'kseq_to_uids':{},
         'uid_to_mutation':{},
+        'uid_to_dna_name': {},
+        'uid_to_aa_name': {},
+        'uid_to_gene_feature':{},
         'mutation_to_uid': {},
         'kmer_profiles':{},
         'mutation_profiles': {},
@@ -117,6 +126,17 @@ def constructSchemeLookups(scheme):
         profiles['mutation_to_uid'][mutation_key] = []
         for state in scheme[mutation_key]:
             for uid in scheme[mutation_key][state]:
+                if scheme[mutation_key][state][uid]['is_cds']:
+                    feature_name = scheme[mutation_key][state][uid]['gene']
+                else:
+                    feature_name = 'intergenic'
+                variant_end = scheme[mutation_key][state][uid]['variant_end']
+                if profiles['max_variant_positions'] < variant_end:
+                    profiles['max_variant_positions'] = variant_end
+
+                profiles['uid_to_gene_feature'][uid] = feature_name
+                profiles['gene_features'].append(feature_name)
+                profiles['gene_features'] = list(set(profiles['gene_features']))
                 seq = scheme[mutation_key][state][uid]['seq']
                 kmers[uid] = seq
                 klen = len(seq)
@@ -128,10 +148,13 @@ def constructSchemeLookups(scheme):
                 if not seq in profiles['kseq_to_uids']:
                     profiles['kseq_to_uids'][seq] = []
                 profiles['uid_to_state'][uid] = state
+                profiles['uid_to_dna_name'][uid] = scheme[mutation_key][state][uid]['dna_name']
+                profiles['uid_to_aa_name'][uid] = scheme[mutation_key][state][uid]['aa_name']
                 profiles['kseq_to_uids'][seq].append(uid)
                 profiles['uid_to_mutation'][uid] = mutation_key
                 profiles['mutation_to_uid'][mutation_key].append(uid)
                 genotypes = scheme[mutation_key][state][uid]['positive_genotypes'] + scheme[mutation_key][state][uid]['partial_genotypes']
+                profiles['kmer_to_genotypes'][uid] = genotypes
                 for g in genotypes:
                     kmer_profiles[g] = []
                     mutation_profiles[g] = []
@@ -142,6 +165,7 @@ def constructSchemeLookups(scheme):
     for g in kmer_profiles:
         kmer_profiles[g] = [0] * len(kmers)
         mutation_profiles[g] = [0] * len(mutations)
+        profiles['genotype_rule_sets'][g] = {'positive_uids':[],'positive_ref':[],'positive_alt':[]}
 
 
     #populate the profiles
@@ -151,11 +175,13 @@ def constructSchemeLookups(scheme):
             for uid in scheme[mutation_key][state]:
                 pos = scheme[mutation_key][state][uid]['positive_genotypes']
                 par = scheme[mutation_key][state][uid]['partial_genotypes']
-
                 for g in pos:
+                    profiles['genotype_rule_sets'][g]['positive_uids'].append(uid)
                     if state == 'ref':
                         mutation_profiles[g][i] = 0
+                        profiles['genotype_rule_sets'][g]['positive_ref'].append(uid)
                     else:
+                        profiles['genotype_rule_sets'][g]['positive_alt'].append(uid)
                         mutation_profiles[g][i] = 1
                     kmer_profiles[g][uid] = 1
                 for g in par:
@@ -166,7 +192,6 @@ def constructSchemeLookups(scheme):
     profiles['uid_to_kseq'] = kmers
     profiles['kmer_profiles'] = kmer_profiles
     profiles['mutation_profiles'] = mutation_profiles
-
     return profiles
 
 def detectAmbigGenotypes(scheme_info):
@@ -199,7 +224,6 @@ def detectAmbigGenotypes(scheme_info):
                 if not geno_1 in conflict_genotype_profiles['mutations']:
                     conflict_genotype_profiles['mutations'][geno_1] = []
                 conflict_genotype_profiles['mutations'][geno_1].append(geno_2)
-        print(time.time() - stime)
     return conflict_genotype_profiles
 
 

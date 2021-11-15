@@ -166,9 +166,8 @@ def find_in_fastqs(automaton: Automaton, fastqs):
             kmer_freq[kmername] = 0
         kmer_freq[kmername]+= freq
         res.append((kmername, kmer_seq, freq))
-    for kmername,freq in kmer_freq:
-        res.append([kmername,freq])
-    return pd.DataFrame(res, columns=['kmername','freq'])
+
+    return pd.DataFrame(res, columns=['kmername','kmer_seq','freq'])
 
 def perform_kmerSearch_fastq(uid_to_kseq_map,kseq_to_uids,aho,sequence_files):
     kmer_df = find_in_fastqs(aho, sequence_files)
@@ -194,7 +193,7 @@ def perform_kmerSearch_fasta(uid_to_kseq_map,kseq_to_uids,aho,sequence_dict,min_
         kseq = uid_to_kseq_map[uid]
         uids = kseq_to_uids[kseq]
         for i in uids:
-            kmer_results[i] = min_freq
+            kmer_results[i] += min_freq
     return kmer_results
 
 def process_kmer_results(scheme_info,kmer_results,min_freq,min_cov_frac):
@@ -210,42 +209,91 @@ def process_kmer_results(scheme_info,kmer_results,min_freq,min_cov_frac):
             'missing_sites':[],
             'num_missing_sites':0,
             'mixed_sites':[],
+            'num_detected_kmers':0,
             'num_mixed_sites': 0,
             'positive_kmers':[],
+            'detected_scheme_kmers':[],
+            'valid_uids':[],
             'num_positive_kmers': 0,
             'average_kmer_freq':0
         }
+        for uid in kmer_results[sample_id]:
+            if kmer_results[sample_id][uid] < min_freq:
+                kmer_results[sample_id][uid] = 0
+    for sample_id in kmer_results:
         kmer_freqs = []
         for mutation_key in mutation_to_uid:
             sample_kmer_results[sample_id]['total_mutation_key_freq'][mutation_key] = 0
             sample_kmer_results[sample_id]['positive_mutation_key_freq'][mutation_key] = 0
             sample_kmer_results[sample_id]['mutation_frac'][mutation_key] = 0
             kmer_uids = mutation_to_uid[mutation_key]
+
+            #multiple ref kmers can map to the same event so take the max value one
+            ref_kmer_freq = []
+            alt_kmer_freq = []
+            ref_kmers_uids = []
+            alt_kmers_uids = []
             for uid in kmer_uids:
                 freq = kmer_results[sample_id][uid]
                 state = uid_to_state[uid]
-                sample_kmer_results[sample_id]['total_mutation_key_freq'][mutation_key]+=freq
-                if state == 'alt':
-                    sample_kmer_results[sample_id]['positive_mutation_key_freq'][mutation_key]+= freq
-                if freq >= min_freq:
-                    kmer_freqs.append(freq)
-            total = sample_kmer_results[sample_id]['total_mutation_key_freq'][mutation_key]
-            pos = sample_kmer_results[sample_id]['positive_mutation_key_freq'][mutation_key]
-            if total > 0:
-                sample_kmer_results[sample_id]['mutation_frac'][mutation_key] = pos / total
+                if freq < min_freq:
+                    kmer_results[sample_id][uid] = 0
+                    continue
+                if state == 'ref':
+                    ref_kmer_freq.append(freq)
+                    ref_kmers_uids.append(uid)
+                else:
+                    alt_kmer_freq.append(freq)
+                    alt_kmers_uids.append(uid)
+                kmer_freqs.append(freq)
 
-        if  sample_kmer_results[sample_id]['total_mutation_key_freq'][mutation_key] > 0:
-            sample_kmer_results[sample_id]['average_kmer_freq'] = sum(kmer_freqs) / len(kmer_freqs)
 
-        for mutation_key in sample_kmer_results[sample_id]['total_mutation_key_freq']:
+
+            ref_mutation_freq = 0
+            alt_mutation_freq = 0
+
+            if len(set(ref_kmer_freq)) == 1:
+                ref_mutation_freq = ref_kmer_freq[0]
+            elif len(ref_kmer_freq) > 1:
+                ref_mutation_freq = sum(ref_kmer_freq) / len(ref_kmer_freq)
+
+            if len(set(alt_kmer_freq)) == 1:
+                alt_mutation_freq = alt_kmer_freq[0]
+            elif len(alt_kmer_freq) > 1:
+                alt_mutation_freq = sum(alt_kmer_freq) / len(alt_kmer_freq)
+
+            sample_kmer_results[sample_id]['total_mutation_key_freq'][mutation_key] = ref_mutation_freq + alt_mutation_freq
+            sample_kmer_results[sample_id]['positive_mutation_key_freq'][mutation_key] = alt_mutation_freq
+
+            if sample_kmer_results[sample_id]['total_mutation_key_freq'][mutation_key] > 0:
+                sample_kmer_results[sample_id]['mutation_frac'][mutation_key] = alt_mutation_freq / (ref_mutation_freq + alt_mutation_freq)
+
+
+            if  sample_kmer_results[sample_id]['total_mutation_key_freq'][mutation_key] > 0:
+                sample_kmer_results[sample_id]['average_kmer_freq'] = sum(kmer_freqs) / len(kmer_freqs)
+
             freq = sample_kmer_results[sample_id]['total_mutation_key_freq'][mutation_key]
             if freq < min_freq:
                 sample_kmer_results[sample_id]['missing_sites'].append(mutation_key)
+
             frac = sample_kmer_results[sample_id]['mutation_frac'][mutation_key]
-            if frac > min_cov_frac and frac < 1 - min_cov_frac:
+
+            if freq >= min_freq and frac >= min_cov_frac and frac <= 1 - min_cov_frac:
                 sample_kmer_results[sample_id]['mixed_sites'].append(mutation_key)
+                sample_kmer_results[sample_id]['detected_scheme_kmers'].extend(kmer_uids)
+            elif freq >= min_freq:
+                if frac >= min_cov_frac:
+                    sample_kmer_results[sample_id]['detected_scheme_kmers'].extend(alt_kmers_uids)
+                    for uid in ref_kmers_uids:
+                        kmer_results[sample_id][uid] = 0
+
+                else:
+                    sample_kmer_results[sample_id]['detected_scheme_kmers'].extend(ref_kmers_uids)
+                    for uid in alt_kmers_uids:
+                        kmer_results[sample_id][uid] = 0
+
             pos_freq = sample_kmer_results[sample_id]['positive_mutation_key_freq'][mutation_key]
-            if pos_freq > min_freq and frac >= min_cov_frac :
+            if pos_freq > min_freq and frac >= min_cov_frac:
                 kmer_uids = mutation_to_uid[mutation_key]
                 for uid in kmer_uids:
                     f = kmer_results[sample_id][uid]
@@ -257,5 +305,6 @@ def process_kmer_results(scheme_info,kmer_results,min_freq,min_cov_frac):
         sample_kmer_results[sample_id]['num_positive_kmers'] = len(sample_kmer_results[sample_id]['positive_kmers'])
         sample_kmer_results[sample_id]['num_missing_sites'] = len(sample_kmer_results[sample_id]['missing_sites'])
         sample_kmer_results[sample_id]['num_mixed_sites'] = len(sample_kmer_results[sample_id]['mixed_sites'])
-
+        sample_kmer_results[sample_id]['num_detected_kmers'] = len(kmer_freqs)
+        sample_kmer_results[sample_id]['detected_scheme_kmers'] = list(set(sample_kmer_results[sample_id]['detected_scheme_kmers']))
     return sample_kmer_results

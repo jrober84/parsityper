@@ -5,7 +5,7 @@ import os
 import pandas as pd
 from parsityper.helpers import init_console_logger, read_tsv, process_biohansel_kmer, \
     init_kmer_targets,get_kmer_groups, get_kmer_group_mapping, summarize_kmer_targets
-from parsityper.kmerSearch.kmerSearch import init_automaton_dict,parallel_query_fasta_files, parallel_fastq_query
+from parsityper.kmerSearch.kmerSearch import init_automaton_dict
 from parsityper.typer import calc_kmer_ratio, identify_compatible_types, calc_type_coverage, type_occamization
 from parsityper.helpers import  get_expanded_kmer_number
 import multiprocessing as mp
@@ -127,22 +127,6 @@ def identify_collisions(profiles,file):
 
 
 
-def read_samples(file):
-    df = pd.read_csv(file,header=0,sep="\t")
-    samples = {
-        'fasta':[],
-        'fastq':[]
-    }
-    for row in df.itertuples():
-        sample_id = row.sample_id
-        genotype = row.genotype
-        file_1 = row.file_1
-        file_2 = row.file_2
-        mode = 'fasta'
-        if 'fastq' in file_1 or 'fq' in file_1:
-            mode = 'fastq'
-        samples[mode].append({'sample_id':sample_id,'genotype':genotype,'file_1':file_1,'file_2':file_2})
-    return samples
 
 
 def run():

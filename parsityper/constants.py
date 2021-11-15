@@ -103,8 +103,11 @@ KMER_DF_HEADERS = [
 
 TYPER_SAMPLE_SUMMARY_HEADER_BASE = [
     'sample_id',
+    'scheme',
+    'analysis_date',
     'sequencing_technology',
-    'seq_type',
+    'file_type',
+    'reported_sample_type',
     'num_reads',
     'est_genome_size',
     'num_unique_kmers',
@@ -116,11 +119,24 @@ TYPER_SAMPLE_SUMMARY_HEADER_BASE = [
     'total_bases_post',
     'read_mean_len_pre',
     'read_mean_len_post',
-    'gc_pre',
-    'gc_post',
-    'insert_size_peak',
-    'duplication_rate',
-
+    'read_gc_pre',
+    'read_gc_post',
+    'read_insert_size_peak',
+    'read_duplication_rate',
+    'estimated_genome_cov',
+    'total_scheme_kmers',
+    'num_detected_scheme_kmers',
+    'ave_scheme_kmers_freq',
+    'total_scheme_mutations',
+    'detected_scheme_mutations',
+    'detected_scheme_mixed_mutations',
+    'detected_sample_type',
+    'compatible_genotypes',
+    'detected_sample_type',
+    'primary_genotype',
+    'primary_genotype_frac',
+    'md5',
+    'md5_phrase',
+    'qc_messages'
 
 ]
-

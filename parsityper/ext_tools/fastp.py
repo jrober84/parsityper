@@ -8,12 +8,12 @@ def run_fastp(read_set,out_dir,out_prefix,min_read_len=0,max_read_len=0,trim_fro
     out1 = os.path.join(out_dir, "{}_1.fastq".format(out_prefix))
     out2 = os.path.join(out_dir, "{}_2.fastq".format(out_prefix))
     merged_out = os.path.join(out_dir, "{}.merged.fastq".format(out_prefix))
-    cmd_args = {'-j':json, '-h':html, '-w':n_threads}
+    cmd_args = {'-j ':json, '-h ':html, '-w ':n_threads}
     cmd_args['-i '] = read_set[0]
     cmd_args['-f '] = trim_front_bp
     cmd_args['-t '] = trim_tail_bp
     cmd_args['-l '] = min_read_len
-    cmd_args['--length_limit '] = max_read_len
+    #cmd_args['--length_limit '] = max_read_len
     if dedup:
         cmd_args['-D '] = ''
     if not report_only:

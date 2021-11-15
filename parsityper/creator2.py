@@ -71,15 +71,15 @@ def runKmerCounting(input_seqs,out_dir,kLen,n_threads=1):
         fh = open(seq_file, 'w')
         fh.write(">{}\n{}\n".format(seq_id, input_seqs[seq_id]))
         fh.close()
-    if n_threads > 1:
-        pool = Pool(processes=n_threads)
-        res = []
-        for i in range(0,len(seqFiles)):
-           res.append(pool.apply_async(run_jellyfish_count,(seqFiles[i],kCount_files[i],kLen,n_threads)))
-        pool.close()
-        pool.join()
-        for i in range(0, len(res)):
-            res[i].get()
+    #if n_threads > 1:
+    #    pool = Pool(processes=n_threads)
+    #    res = []
+    #    for i in range(0,len(seqFiles)):
+    #       res.append(pool.apply_async(run_jellyfish_count,(seqFiles[i],kCount_files[i],kLen,n_threads)))
+    #    pool.close()
+    #    pool.join()
+    #    for i in range(0, len(res)):
+    #        res[i].get()
     #else:
     #   for i in range(0,len(seqFiles)):
     #       run_jellyfish_count(seqFiles[i],kCount_files[i],kLen,n_threads)

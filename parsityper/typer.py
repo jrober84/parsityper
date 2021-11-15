@@ -1106,7 +1106,6 @@ def bin_scheme_targets(scheme_df,max_length,window_size=500):
         target = str(row.key)
         position = int(row.kmer_start)
 
-
         for i in range(0,len(bins)):
             bin = bins[i]
             if position <= bin:
