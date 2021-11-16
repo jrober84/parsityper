@@ -1,7 +1,7 @@
 #!/usr/bin/python
 import time
 from argparse import (ArgumentParser)
-import logging, os, sys, operator
+import logging, os, sys, operator, copy
 from collections import Counter
 import pandas as pd
 from parsityper.helpers import init_console_logger, read_tsv, parse_reference_sequence, calc_consensus, generate_consensus_seq,\
@@ -516,7 +516,7 @@ def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,
         if n_threads == 1:
             kmer_scheme.update(process_variant(ovKmers,mutation_type,vStart,vEnd,unalign_vstart, unalign_vend,ref_non_gap_lookup,ref_variant_seq,variant_events[mutation_key],seq_ids,ovKmers,min_kmer_len, max_kmer_len))
         else:
-            res.append(pool.apply_async(process_variant, (ovKmers,mutation_type,vStart,vEnd,unalign_vstart, unalign_vend,ref_non_gap_lookup,ref_variant_seq,variant_events[mutation_key],seq_ids,ovKmers,min_kmer_len, max_kmer_len)))
+            res.append(pool.apply_async(process_variant, (ovKmers,mutation_type,vStart,vEnd,unalign_vstart, unalign_vend,copy.deepcopy(ref_non_gap_lookup),ref_variant_seq,copy.deepcopy(variant_events[mutation_key]),copy.deepcopy(seq_ids),ovKmers,min_kmer_len, max_kmer_len)))
 
     if n_threads > 1:
         pool.close()
