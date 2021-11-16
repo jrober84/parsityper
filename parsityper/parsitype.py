@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import sys
+from multiprocessing import freeze_support
 sys.setrecursionlimit(3500)
 import multiprocessing as mp
 
@@ -56,4 +57,5 @@ def main():
 
 # call main function
 if __name__ == '__main__':
+    freeze_support()
     main()

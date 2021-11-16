@@ -504,7 +504,7 @@ def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,
         mutation_type = mutations[mutation_key]['mutation_type']
         vStart = mutations[mutation_key]['vStart']
         vEnd = mutations[mutation_key]['vEnd']
-        ovKmers = select_overlapping_kmers(seq_kmers, vStart, vEnd)
+        ovKmers = copy.deepcopy(select_overlapping_kmers(seq_kmers, vStart, vEnd))
         if len(ovKmers) == 0:
             continue
 
@@ -1239,8 +1239,5 @@ def run():
     logger.info("Writting genotype report")
     pd.DataFrame.from_dict(genotype_report_mutation,orient='index').to_csv(genotypes_mut_file,sep='\t',index=False)
     pd.DataFrame.from_dict(genotype_report_kmer, orient='index').to_csv(genotypes_kmers_file, sep='\t', index=False)
-
-
-run()
 
 
