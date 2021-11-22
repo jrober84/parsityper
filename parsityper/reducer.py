@@ -5,8 +5,8 @@ import pandas as pd
 import hashlib, copy
 from subprocess import Popen, PIPE
 from Bio import GenBank
-import tempfile
 from parsityper.helpers import read_fasta
+from parsityper.version import __version__
 
 def parse_args():
     "Parse the input arguments, use '-h' for help"
@@ -37,6 +37,8 @@ def parse_args():
                         help='Num threads to use', default=0.8)
     parser.add_argument('--select_best_seqs', required=False,
                         help='Flag to toggle selecting highest quality seqs for scheme development',action='store_true')
+    parser.add_argument('-V', '--version', action='version', version='%(prog)s {}'.format(__version__))
+
     return parser.parse_args()
 
 
@@ -52,12 +54,10 @@ def read_sample_mapping(df, sample_col, genotype_col):
         metadata[sample_id] = genotype
     return metadata
 
-
 def summarize_genotypes(sample_info):
     genotype_counts = sample_info['genotype'].value_counts().reset_index(name="count")
     genotype_counts.columns = ['genotype', 'count']
     return genotype_counts
-
 
 def create_fasta_folder_structure(outdir, genotypes):
     if not os.path.isdir(outdir):
@@ -67,7 +67,6 @@ def create_fasta_folder_structure(outdir, genotypes):
         path = os.path.join(outdir, str(genotype))
         if not os.path.isdir(path):
             os.mkdir(path, 0o755)
-
 
 def calc_md5(seq):
     seq = str(seq).encode()
@@ -266,7 +265,7 @@ def run():
     seq_report_fh.write("sample_id\tgenotype\tmd5\tnum_seq_bases\tambig_count\tgap_count\tstatus\n")
     global_consensus = []
     unalign_file = os.path.join(outdir, 'unaligned.fasta')
-    unalign_fh = open(os.path.join(outdir, unalign_file), 'w')
+    unalign_fh = open(unalign_file, 'w')
     for seq_record in SeqIO.parse(fasta_file, format='fasta'):
         seq = str(seq_record.seq).upper()
         length = len(seq)
@@ -373,7 +372,6 @@ def run():
     aligned_seq = parse_mafft(stdout)
     ref_lookup = map_positions(global_consensus_seq, list(aligned_seq['consensus'].upper()))
     valid_positions = get_valid_positions(global_consensus,min_freq)
-
 
     training_sets = create_training_sets(seq_info_df, train_proportion, max_samples, seed)
     training_samples = []
