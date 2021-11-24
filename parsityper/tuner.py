@@ -8,7 +8,7 @@ import multiprocessing as mp
 from multiprocessing import Pool
 from parsityper.scheme import parseScheme, constructSchemeLookups, SCHEME_HEADER
 from parsityper.kmerSearch.kmerSearch import init_automaton_dict,perform_kmerSearch_fasta,perform_kmerSearch_fastq,process_kmer_results
-
+from parsityper.version import __version__
 
 if mp.get_start_method(allow_none=True) != 'spawn':
         mp.set_start_method('spawn', force=True)
@@ -44,6 +44,8 @@ def parse_args():
                         help='Maximum percentage of genotype samples before droping as a requirement range 0 - 1.0 (default=0.05)', default=0.05)
     parser.add_argument('--n_threads', type=int, required=False,
                         help='output directory',default=1)
+    parser.add_argument('-V', '--version', action='version', version='%(prog)s {}'.format(__version__))
+
     return parser.parse_args()
 
 def summarize_samples(kmer_results,scheme_info,min_freq):
@@ -491,6 +493,10 @@ def run():
     scheme_df = scheme_df.reset_index(drop=True)
     scheme_df['key'] = list(scheme_df.index.values)
     scheme_df.to_csv(scheme_outfile,header=True,index=False,sep="\t")
+
+    del(scheme)
+    del(scheme_info)
+    del(kmer_results)
 
     logger.info("Re-initializing scheme")
     scheme = parseScheme(scheme_outfile)
