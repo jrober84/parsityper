@@ -525,7 +525,7 @@ def run():
         if genotype in scheme_info['genotype_rule_sets']:
             genotype_rules = scheme_info['genotype_rule_sets'][genotype]
         else:
-            genotype_rules{'positive_uids':[],'positive_ref':[],'positive_alt':[]}
+            genotype_rules = {'positive_uids':[],'positive_ref':[],'positive_alt':[]}
         overlap_uids = set(genotype_rules['positive_uids']) & set(conflict_uids)
         uids_to_filter = []
         for uid in overlap_uids:

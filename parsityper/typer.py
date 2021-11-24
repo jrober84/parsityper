@@ -1046,10 +1046,9 @@ def run():
             print(fastp_results)
             sampleManifest[sampleID]['read_mean_len_pre'] = (fastp_results['summary']["before_filtering"]["read1_mean_length"] )
             sampleManifest[sampleID]['read_mean_len_post'] = (fastp_results['summary']["after_filtering"]["read1_mean_length"] )
-
             pR1 = os.path.join(fastp_dir,"{}_1.fastq".format(sampleID))
             pR2 = os.path.join(fastp_dir, "{}_2.fastq".format(sampleID))
-            pM = os.path.join(fastp_dir,"{}.merge.fastq".format(sampleID))
+            pM = os.path.join(fastp_dir,"{}.merged.fastq".format(sampleID))
             sampleManifest[sampleID]['processed_reads'] = [pR1,pR2,pM]
 
     #identify contamination from no template control
