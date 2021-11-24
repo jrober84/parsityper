@@ -1043,10 +1043,10 @@ def run():
             sampleManifest[sampleID]['estimated_genome_cov'] = sampleManifest[sampleID]['total_bases_pre'] / genomeSize
 
         if len(read_set) == 2:
-            sampleManifest[sampleID]['read_mean_len_pre'] = (fastp_results[sampleID]['read_mean_len_pre'] +
+            sampleManifest[sampleID]['read_mean_len_pre'] = (fastp_results['read_mean_len_pre'] +
                                                             fastp_results['summary']["before_filtering"][
                                                                 "read2_mean_length"]) / 2
-            sampleManifest[sampleID]['read_mean_len_post'] = (fastp_results[sampleID]['read_mean_len_post'] +
+            sampleManifest[sampleID]['read_mean_len_post'] = (fastp_results['read_mean_len_post'] +
                                                             fastp_results['summary']["after_filtering"][
                                                                 "read2_mean_length"]) / 2
 

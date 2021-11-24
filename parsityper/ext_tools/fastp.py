@@ -13,7 +13,7 @@ def run_fastp(read_set,out_dir,out_prefix,min_read_len=0,max_read_len=0,trim_fro
     cmd_args['-f '] = trim_front_bp
     cmd_args['-t '] = trim_tail_bp
     cmd_args['-l '] = min_read_len
-    #cmd_args['--length_limit '] = max_read_len
+    cmd_args['--length_limit '] = max_read_len
     if dedup:
         cmd_args['-D '] = ''
     if not report_only:
