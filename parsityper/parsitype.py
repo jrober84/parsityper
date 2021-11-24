@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import sys
+from parsityper.version import __version__
 from multiprocessing import freeze_support
 sys.setrecursionlimit(3500)
 import multiprocessing as mp
@@ -11,7 +12,7 @@ if mp.get_start_method(allow_none=True) != 'spawn':
 tasks = {
     'typer': 'Reconstruct sample genotype(s) from isolate or metagenomic sample',
     'reducer': 'Compress a large MSA into a minimum set of sequences to represent diversity',
-    'creator2': 'Create a kmer scheme based on labeled data',
+    'creator': 'Create a kmer scheme based on labeled data',
     'tuner': 'Train a kmer scheme on labeled genotype data to derive kmer patterns for genotypes',
     'validator': 'Train a kmer scheme on labeled genotype data to derive kmer patterns for genotypes',
     'benchmark': 'Simulate mixed samples and benchmark typing performance',
@@ -22,7 +23,7 @@ tasks = {
 ordered_tasks = [
     'typer',
     'reducer',
-    'creator2',
+    'creator',
     'tuner',
     'benchmark',
     'validator',

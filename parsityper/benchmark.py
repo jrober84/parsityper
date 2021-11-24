@@ -4,10 +4,9 @@ from itertools import permutations
 from parsityper.kmerSearch.kmerSearch import init_automaton_dict,find_in_fasta_dict
 from parsityper.helpers import read_tsv, read_fasta, init_kmer_targets, get_kmer_groups, \
     get_kmer_group_mapping, process_biohansel_kmer
-from parsityper.typer import calc_kmer_ratio, calc_mixed_sites, identify_compatible_types, \
-calc_type_coverage, type_occamization, get_detected_target_summary
 import statistics
 import time
+from parsityper.version import __version__
 
 from multiprocessing import Pool
 
@@ -24,6 +23,8 @@ def parse_args():
                         help='TSV formated kmer scheme', default='')
     parser.add_argument('--n_threads', type=int, required=False,
                         help='Number of threads to use',default=1)
+    parser.add_argument('-V', '--version', action='version', version='%(prog)s {}'.format(__version__))
+
 
     return parser.parse_args()
 

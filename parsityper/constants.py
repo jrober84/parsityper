@@ -3,6 +3,7 @@ import os
 LOG_FORMAT = '%(asctime)s %(name)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
 
 default_database_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data')
+BATCH_HTML_REPORT = os.path.join(default_database_dir, 'batch.report.template.html')
 
 RUN_INFO = {
     'Program Parameters': '',
@@ -140,3 +141,15 @@ TYPER_SAMPLE_SUMMARY_HEADER_BASE = [
     'qc_messages'
 
 ]
+
+
+FIGURE_CAPTIONS = {
+    'coverage_plot_caption':'Figure: Heat map plot representing the average k-mer frequency within a sample for a given genomic location',
+    'mixed_target_plot_caption':'Figure: Bar plot of the target mutations which were found to have both states sorted by the number of samples where a target is mixed',
+    'missing_features_plot_caption':'Figure: Bar plot of the target mutations where no kmers were found sorted by the number of samples where a target is missing',
+    'genotype_abundance_plot_caption':'Figure: Bar plot of the abundance of each genotype which was found to be compatible',
+    'sample_mds_caption':'Figure: MDS plot of sample similarity using k-mer based jaccard distances',
+    'sample_dendro_caption':'Figure: Dendrogram of sample similarity using k-mer based jaccard distances and corresponding distance matrix shown as a heatmap',
+    'feature_dendro_caption':'Figure: Dendrogram of sample similarity using k-mer based jaccard distances. Heatmap represents alt mutation kmers and their abundances'
+}
+

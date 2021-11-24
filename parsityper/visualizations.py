@@ -153,7 +153,10 @@ class dendrogram_visualization:
                 x=feature_labels_order,
                 y=sample_labels,
                 z=heat_data,
-                colorscale='Blues'
+                colorscale='Blues',
+                colorbar= {'x': -0.125, 'len': 0.5}
+
+
             )
         ]
 
@@ -213,7 +216,6 @@ class dendrogram_visualization:
                                   'zeroline': False,
                                   'showticklabels': False,
                                   'ticks': ""})
-
         fig.write_html(outfile)
         return fig
 
@@ -338,3 +340,6 @@ def plot_mds(dis_matrix,labels,outfile):
     )
     fig.write_html(outfile)
     return fig
+
+def plotHisto():
+    return

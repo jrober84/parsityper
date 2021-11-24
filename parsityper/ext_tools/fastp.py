@@ -25,6 +25,7 @@ def run_fastp(read_set,out_dir,out_prefix,min_read_len=0,max_read_len=0,trim_fro
         if not report_only:
             cmd_args['-O '] = out2
         if merge_reads:
+            cmd_args['-m'] = ''
             cmd_args['--merged_out '] = merged_out
 
 
