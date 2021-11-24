@@ -1044,12 +1044,10 @@ def run():
 
         if len(read_set) == 2:
             print(fastp_results)
-            sampleManifest[sampleID]['read_mean_len_pre'] = (fastp_results['summary']['read_mean_len_pre'] +
-                                                            fastp_results['summary']["before_filtering"][
-                                                                "read2_mean_length"]) / 2
-            sampleManifest[sampleID]['read_mean_len_post'] = (fastp_results['summary']['read_mean_len_post'] +
-                                                            fastp_results['summary']["after_filtering"][
-                                                                "read2_mean_length"]) / 2
+            sampleManifest[sampleID]['read_mean_len_pre'] = (fastp_results['summary']["before_filtering"]["read1_mean_length"] +
+                                                            fastp_results['summary']["before_filtering"]["read2_mean_length"]) / 2
+            sampleManifest[sampleID]['read_mean_len_post'] = (fastp_results['summary']["after_filtering"]["read1_mean_length"] +
+                                                            fastp_results['summary']["after_filtering"]["read2_mean_length"]) / 2
 
             pR1 = os.path.join(fastp_dir,"{}_1.fastq".format(sampleID))
             pR2 = os.path.join(fastp_dir, "{}_2.fastq".format(sampleID))
