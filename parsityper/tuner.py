@@ -311,6 +311,7 @@ def updateScheme(scheme_file,scheme_info,outfile):
     fh = open(outfile,'w')
     fh.write("{}\n".format("\t".join(SCHEME_HEADER)))
     columns = df.columns.tolist()
+    print(columns)
     num_fields = len(SCHEME_HEADER)
     new_uid_key = 0
     for index,row in df.iterrows():
@@ -329,6 +330,7 @@ def updateScheme(scheme_file,scheme_info,outfile):
             if field in columns:
                 entry[field] = row[field]
             else:
+                print(field)
                 entry[field] = ''
         entry['key'] = new_uid_key
         positive_genotypes = []
@@ -554,8 +556,3 @@ def run():
     logger.info("Writting updated scheme to {}".format(scheme_outfile))
     updateScheme(scheme_file, scheme_info, scheme_outfile)
 
-
-
-if __name__ == '__main__':
-    mp.freeze_support()
-    run()
