@@ -381,6 +381,8 @@ def run():
         logger.info("Results directory {} already exits, will overwrite any results files here".format(outdir))
 
     scheme = parseScheme(scheme_file)
+    print(scheme)
+    sys.exit()
     logger.info("Initializing scheme data structure from {}".format(scheme_file))
     scheme_info = constructSchemeLookups(scheme)
 
@@ -503,7 +505,7 @@ def run():
     scheme_df = scheme_df.reset_index(drop=True)
     scheme_df['key'] = list(scheme_df.index.values)
     scheme_df.to_csv(scheme_outfile,header=True,index=False,sep="\t")
-    print(scheme)
+
     del(scheme)
     del(scheme_info)
     del(kmer_results)
