@@ -381,8 +381,7 @@ def run():
         logger.info("Results directory {} already exits, will overwrite any results files here".format(outdir))
 
     scheme = parseScheme(scheme_file)
-    print(scheme)
-    sys.exit()
+
     logger.info("Initializing scheme data structure from {}".format(scheme_file))
     scheme_info = constructSchemeLookups(scheme)
 

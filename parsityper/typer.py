@@ -1043,7 +1043,6 @@ def run():
             sampleManifest[sampleID]['estimated_genome_cov'] = sampleManifest[sampleID]['total_bases_pre'] / genomeSize
 
         if len(read_set) == 2:
-            print(fastp_results)
             sampleManifest[sampleID]['read_mean_len_pre'] = (fastp_results['summary']["before_filtering"]["read1_mean_length"] )
             sampleManifest[sampleID]['read_mean_len_post'] = (fastp_results['summary']["after_filtering"]["read1_mean_length"] )
             pR1 = os.path.join(fastp_dir,"{}_1.fastq".format(sampleID))
