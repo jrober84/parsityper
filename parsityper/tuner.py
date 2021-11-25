@@ -113,7 +113,11 @@ def summarizeConflicts(sampleManifest,kmer_results,scheme_info,nthreads=1):
             continue
         if not genotype in genotype_conflicts:
             genotype_conflicts[genotype] = {}
-        genotype_rules = scheme_info['genotype_rule_sets'][genotype]
+        if genotype in scheme_info['genotype_rule_sets']:
+            genotype_rules = scheme_info['genotype_rule_sets'][genotype]
+        else:
+            genotype_rules = {'positive_uids':[],'positive_ref':[],'positive_alt':[]}
+            scheme_info['genotype_rule_sets'][genotype] = genotype_rules
         detected_scheme_kmers = kmer_results[sampleID]['detected_scheme_kmers']
         sampleManifest[sampleID]['detected_scheme_kmers'] = detected_scheme_kmers
         sampleManifest[sampleID]['num_detected_scheme_kmers'] = len(detected_scheme_kmers)
