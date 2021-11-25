@@ -312,6 +312,7 @@ def updateScheme(scheme_file,scheme_info,outfile):
     fh.write("{}\n".format("\t".join(SCHEME_HEADER)))
     columns = df.columns.tolist()
     print(columns)
+    print(SCHEME_HEADER)
     num_fields = len(SCHEME_HEADER)
     new_uid_key = 0
     for index,row in df.iterrows():
@@ -502,7 +503,7 @@ def run():
     scheme_df = scheme_df.reset_index(drop=True)
     scheme_df['key'] = list(scheme_df.index.values)
     scheme_df.to_csv(scheme_outfile,header=True,index=False,sep="\t")
-
+    print(scheme)
     del(scheme)
     del(scheme_info)
     del(kmer_results)
