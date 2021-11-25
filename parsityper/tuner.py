@@ -307,6 +307,7 @@ def updateSchemeInfo(scheme_info,valid_mutations,valid_uids,valid_genotypes):
 
 def updateScheme(scheme_file,scheme_info,outfile):
     df = pd.read_csv(scheme_file, sep="\t", header=0)
+    print(len(df))
     fh = open(outfile,'w')
     fh.write("{}\n".format("\t".join(SCHEME_HEADER)))
     columns = df.columns.tolist()
@@ -315,9 +316,11 @@ def updateScheme(scheme_file,scheme_info,outfile):
     for index,row in df.iterrows():
         mutation_key = row['mutation_key']
         if not mutation_key in scheme_info['mutation_to_uid']:
+            print("{} skip".format(mutation_key))
             continue
         seq = row['unalign_kseq']
         if not seq in scheme_info['kseq_to_uids']:
+            print("{} skip".format(seq))
             continue
         uids = scheme_info['kseq_to_uids'][seq]
 
@@ -504,6 +507,7 @@ def run():
 
     logger.info("Re-initializing scheme")
     scheme = parseScheme(scheme_outfile)
+    print(scheme)
     logger.info("Initializing scheme data structure from {}".format(scheme_outfile))
     scheme_info = constructSchemeLookups(scheme)
 
