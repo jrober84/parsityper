@@ -3,75 +3,160 @@
             <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.1/css/bootstrap.min.css">
             <style>body{ margin:0 100; background:whitesmoke; }</style>
         </head>
+        <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
         <body>
-            <h1>SARS-COV-2 Analysis Report</h1>
+            <h1>Parsityper Analysis Report</h1>
                 <table>
                 <style>body{ margin:0 100; background:whitesmoke; } table{  width: 100%; margin: 20px auto;table-layout: auto;}</style>
+                    <tr>
+                    <th>Strain Typing Scheme:</th>
+                    <th> {{ strain_scheme_name }}</th>
+                </tr>
                 <tr>
                     <th>Analysis Date:</th>
-                    <th>:::analysis_date:::</th>
+                    <th>{{ analysis_date }}</th>
                 </tr>
                 <tr>
-                    <th>Sample ID:</th>
-                    <th>:::sample_id:::</th>
+                    <th>Reported Sample Type:</th>
+                    <th>{{ sample_type }}</th>
+                </tr>
+                  <tr>
+                    <th>Number samples:</th>
+                    <th>{{ total_samples }}</th>
                 </tr>
                 <tr>
-                    <th>Sample Type:</th>
-                    <th>:::sample_type:::</th>
-                </tr>            
+                    <th>Number sample type mismatches:</th>
+                    <th>{{ sample_type_mismatch }}</th>
+                </tr>
+                  <tr>
+                    <th>Positive control:</th>
+                    <th>{{ positive_control_id }}</th>
+                      <th>Positive control targets found:</th>
+                    <th>{{ positive_control_found_targets }}</th>
+                      <th>Positive control targets missing:</th>
+                    <th>{{ positive_control_missing_targets }}</th>
+                      <th>Positive control mixed targets:</th>
+                    <th>{{ positive_control_mixed_targets }}</th>
+                </tr>
+
+                    <tr>
+                    <th>Negative control:</th>
+                    <th>{{ negative_control_id }}</th>
+                      <th>Negative control targets found:</th>
+                    <th>{{ negative_control_found_targets }}</th>
+                      <th>Negative control targets missing:</th>
+                    <th>{{ negative_control_missing_targets }}</th>
+                      <th>Negative control mixed targets:</th>
+                    <th>{{ negative_control_mixed_targets }}</th>
+                </tr>
+
+
+
             </table>
 
-            <h2>Section 1: Lineage composition report</h2>
+            <h2>Section 1: Sequence coverage metrics summary</h2>
             <table style="width:100%">
-                <tr>
-                    <th>Strain Typing Scheme:</th>
-                    <th>:::strain_scheme_name:::</th>
-                </tr>
+
                 <tr>
                     <th>Strain Typing targets detected:</th>
-                    <th>:::num_strain_detected:::</th>
+                    <th>{{ num_targets_detected }}</th>
                 </tr>
                 <tr>
                     <th>Average Strain Typing k-mer frequency:</th>
-                    <th>:::ave_strain_kmer_freq:::</th>
-                </tr>           
-            </table>
-            
-            <br>
-            <h3>Detected strains:</h3>
-            :::strain_table:::
-            <br>
-            
-             <br>
-            <h3>No evidence strains:</h3>
-            :::missing_strains:::
-            <br>
+                    <th>{{ ave_kmer_freq }} </th>
+                </tr>
+                <tr>
+                    <th>Strain Typing k-mer stdev:</th>
+                    <th>{{ stdev_kmer_freq }} </th>
+                </tr>
 
-            <h2>Section 2: Mutation composition report</h2>
+                <tr>
+                	<th>Total Samples:</th>
+                	<th>{{ total_samples}}</th>
+                </tr>
+                <tr>
+                	<th>Number of Failed Samples:</th>
+                	<th>{{ count_failed_samples}}</th>
+                </tr>
+
+
+                <tr>
+                	<th>Failed Sample ID's:</th>
+                	<th>{{ failed_sample_ids}}</th>
+                </tr>
+            </table>
+            <table style="width:100%">
+                <tr></tr>
+                <tr>
+                	<th>{{ coverage_plot }}</th><tr></tr>
+                </tr>
+                <p>
+                 <tr>
+                	<th>{{ coverage_plot_caption }}</th>
+                </tr>
+                <tr>
+                	<th>{{mixed_target_plot}}</th>
+                </tr>
+                <tr>
+                </tr>
+                <tr>
+                	<th>{{ mixed_target_plot_caption }}</th>
+                </tr>
+                                <tr><p>
+                </tr>
+                <tr>
+                	<th>{{missing_target_plot}}</th>
+                </tr>
+                                <tr>
+                </tr>
+                <tr>
+                	<th>{{ missing_target_plot_caption}}</th>
+                </tr>
+            </table>
+
+            <p>
+            <h2>Section 2: Genotypes</h2>
             <table style="width:100%">
                 <tr>
-                    <th>Mutation Typing Scheme:</th>
-                    <th>:::mutation_scheme_name:::</th>
+                    <th>Compatible genotypes:</th>
+                    <th>{{genotypes_found}}</th>
+                    <br>
                 </tr>
+
                 <tr>
-                    <th>Mutation Typing targets detected:</th>
-                    <th>:::num_mutation_detected:::</th>
+                    <th>{{genotype_abundance_plot}}</th>
                 </tr>
-                <tr>
-                    <th>Average Mutation Typing k-mer frequency:</th>
-                    <th>:::ave_mutation_kmer_freq:::</th>
-                </tr>           
             </table>
-            
-            <br>
-            <h3>Detected Mutations:</h3>
-            :::mutation_table:::
-            <br>
-            
-             <br>
-            <h3>No evidence mutations:</h3>
-            :::missing_mutation:::
-            <br>            
-            
+			 <br></br>
+
+            <H4>Section 3: Sample Comparisons</H4>
+            <table style="width:100%">
+                <tr>
+                    <th> {{sample_mds}}</th>
+                </tr>
+                <tr>
+                    <th> {{sample_mds_caption}}</th>
+                </tr>
+                <tr>
+                    <th> {{sample_dendro}}</th>
+                </tr>
+                <tr>
+                    <th> {{sample_dendro_caption}}</th>
+                </tr>
+                <tr>
+                    <th> {{feature_dendro}}</th>
+                </tr>
+                <tr>
+                    <th> {{feature_dendro_caption}}</th>
+                </tr>
+            </table>
+            <H5>Analysis Parameters:</H5>
+                    <table style="width:100%">
+                <tr>
+                    <th> {{analysis_parameters}}</th>
+                </tr>
+
+            </table>
+
         </body>
     </html>

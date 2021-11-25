@@ -535,7 +535,10 @@ def get_aa_delta(start, end, variant, mutation_type,ref_info,ref_name,trans_tabl
                 ref_target = list(dnaSeq[cds_start:cds_end + variant_len])
                 alt_target = list(dnaSeq[cds_start:cds_end + variant_len])
                 for i in range(0, len(variant)):
-                    del(alt_target[i + spacer])
+                    index_pos = i + spacer
+                    alt_target[index_pos] = ''
+                    #print("{}\t{}\t{}\t{}\t{}\t{}".format(start, end, variant, mutation_type,i,spacer))
+                    #del(alt_target[i + spacer])
             else:
                 bases_to_subtract = (3 - variant_len % 3)
                 ref_target = list(dnaSeq[cds_start:cds_end + variant_len])

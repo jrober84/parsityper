@@ -1073,7 +1073,8 @@ def run():
 
     #Identify variable positions within the alignment
     logger.info("Scanning alignment for SNPs")
-    snp_positions = find_snp_positions(consensus_seq)
+    #snp_positions = find_snp_positions(consensus_seq)
+    snp_positions = []
     logger.info("Found {} variable sites".format(len(snp_positions)))
     sequence_deletions = {}
     logger.info("Scanning alignment for indels")
@@ -1085,7 +1086,12 @@ def run():
     unique_indels = {}
     for sid in sequence_deletions:
         for i in sequence_deletions[sid]:
-            unique_indels[i] = ''
+            if not i in unique_indels:
+                unique_indels[i] = []
+            unique_indels[i].append(sid)
+    for i in unique_indels:
+        unique_indels[i].sort()
+
     logger.info("Found {} potential indels".format(len(unique_indels)))
     for indel in unique_indels:
         (start,end) = indel.split(':')
@@ -1193,8 +1199,11 @@ def run():
     for uid in kmer_geno_assoc:
         shared = kmer_geno_assoc[uid]['shared']
         partial = kmer_geno_assoc[uid]['partial']
-        if len(shared) == 1 or len(partial) == 1:
+        if len(shared) == 1 :
             genotype = shared[0]
+            kmer_geno_assoc[uid]['diagnostic'].append(genotype)
+        elif len(partial) == 1:
+            genotype = partial[0]
             kmer_geno_assoc[uid]['diagnostic'].append(genotype)
 
     # identify genotype diagnostic mutations
@@ -1202,9 +1211,13 @@ def run():
     for mkey in mutation_geno_association:
         shared = mutation_geno_association[mkey]['shared']
         partial = mutation_geno_association[mkey]['partial']
-        if len(shared) == 1 or len(partial) == 1:
+        if len(shared) == 1 :
             genotype = shared[0]
             mutation_geno_association[mkey]['diagnostic'].append(genotype)
+        elif len(partial) == 1:
+            genotype = partial[0]
+            mutation_geno_association[mkey]['diagnostic'].append(genotype)
+
 
     #Analyse the genotypes for conflicts
     logger.info("Performing genotype kmer quality control analysis")
