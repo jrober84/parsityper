@@ -1074,7 +1074,7 @@ def run():
     #Identify variable positions within the alignment
     logger.info("Scanning alignment for SNPs")
     snp_positions = find_snp_positions(consensus_seq)
-    snp_positions = []
+
     logger.info("Found {} variable sites".format(len(snp_positions)))
     sequence_deletions = {}
     logger.info("Scanning alignment for indels")
