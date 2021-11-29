@@ -406,11 +406,11 @@ def run():
     fasta_fh = open(input_msa_path, 'w')
     for id in pseudo_seqs:
         if isinstance(pseudo_seqs[id],list):
-            pseudo_seqs[id] = ','.join(pseudo_seqs[id])
+            pseudo_seqs[id] = ''.join(pseudo_seqs[id])
         fasta_fh.write(">{}\n{}\n".format(id, pseudo_seqs[id]))
     fasta_fh.close()
     fasta_fh = open(ref_seq_path, 'w')
-    fasta_fh.write(">{}\n{}\n".format(gb_accession, genome_seq))
+    fasta_fh.write(">{}\n{}\n".format(gb_accession, ''.join(genome_seq)))
     output_msa = os.path.join(consensus_outdir, "allgenotype_consensus.fasta")
     mafft_add_seq(ref_seq_path, input_msa_path, output_msa, n_threads)
 

@@ -14,7 +14,7 @@ def kmc_command(fastq_read,out_file, tmp_file,mode='fastq',freq=10,kmer_length=2
         cmd_args['-fq'] = ''
         cmd_args['-ci'] = freq
     else:
-        cmd_args['-fa']= ''
+        cmd_args['-fm']= ''
         cmd_args['-ci'] = 1
 
     cmd = "kmc {} {} {} {}".format((" ".join(f'{k}{v}' for k,v in cmd_args.items())),fastq_read,out_file,tmp_file)

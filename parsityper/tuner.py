@@ -511,7 +511,6 @@ def run():
 
     logger.info("Re-initializing scheme")
     scheme = parseScheme(scheme_outfile)
-    print(scheme)
     logger.info("Initializing scheme data structure from {}".format(scheme_outfile))
     scheme_info = constructSchemeLookups(scheme)
 

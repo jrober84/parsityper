@@ -192,6 +192,9 @@ def constructSchemeLookups(scheme):
     profiles['uid_to_kseq'] = kmers
     profiles['kmer_profiles'] = kmer_profiles
     profiles['mutation_profiles'] = mutation_profiles
+
+    #print(profiles['genotype_rule_sets']['B.1.1.529']['positive_uids'])
+
     return profiles
 
 def detectAmbigGenotypes(scheme_info):

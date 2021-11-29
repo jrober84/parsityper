@@ -106,7 +106,7 @@ def parse_args():
 
 def batch_sample_html_report(htmlStr,data,outfile):
     t = Template(htmlStr)
-    print(data)
+   # print(data)
     html = t.render(data)
     # to save the results
     with open(outfile, "w") as fh:
@@ -144,6 +144,8 @@ def find_seq_files(input_dir):
     fasta_file_extensions = ['.fasta','.fas','.fa','.fna','.fasta.gz','.fas.gz','.fa.gz','.fna.gz']
     fastq_file_extensions = ['.fastq','.fq','.fastq.gz','.fq.gz']
     paired_end_notations = ['_R1','_R2','_1','_2',]
+    if input_dir[-1] != '/':
+        input_dir = "{}/".format(input_dir)
     file_list = glob.glob("{}**".format(input_dir), recursive=True)
 
     for file in file_list:
@@ -233,19 +235,61 @@ def create_seq_manifest(input_dir):
     return seq_manifest
 
 def compare_sample_to_genotypes(data,genotype_results,scheme_info,outfile):
-    mixed_sites = data['mixed_sites']
-    missing_sites = set(data['missing_sites'])
-    exclude_sites = missing_sites.union(mixed_sites)
+    uids = set(list(scheme_info['uid_to_mutation'].keys()))
+    valid_uids = set(data['valid_uids'])
+    mixed_sites = list(data['mixed_sites'])
+    missing_sites = list(uids - valid_uids )
+    exclude_sites = set(missing_sites + mixed_sites)
+    mixed_sites = set(mixed_sites)
+    missing_sites = set(missing_sites)
+
     detected_scheme_kmers = set(data['detected_scheme_kmers'])
     geno_rules = scheme_info['genotype_rule_sets']
     genotypes = list(genotype_results.keys())
+
     valid_genotypes = {}
+
+    for mutation_key in scheme_info['mutation_to_uid']:
+        if mutation_key in mixed_sites:
+            continue
+        detected_mut_kmers = scheme_info['mutation_to_uid'][mutation_key] & detected_scheme_kmers
+        if len(detected_mut_kmers) == 0:
+            continue
+        uids = scheme_info['mutation_to_uid'][mutation_key]
+        missing_mut_kmer = list(uids - detected_mut_kmers)
+        detected_mut_kmers = list(detected_mut_kmers)
+        state = scheme_info['uid_to_state'][detected_mut_kmers[0]]
+        uids_to_add = []
+        for uid in missing_mut_kmer:
+            if state != scheme_info['uid_to_state'][uid]:
+                continue
+            uids_to_add.append(uid)
+        exclude_sites = exclude_sites.union(set(uids_to_add))
+
+
+
+
+
     for genotype in genotypes:
         dist = 0
-        uids = set(geno_rules[genotype]['positive_uids'])
-        mismatches = detected_scheme_kmers - uids
-        mismatches.union(uids - detected_scheme_kmers)
-        mismatches = mismatches - exclude_sites
+        uids = valid_uids & set(geno_rules[genotype]['positive_uids']) - exclude_sites
+        mismatches = uids - detected_scheme_kmers
+
+        #due to the potential for multiple kmers to map to a single site
+        #missing kmers can result in incorrectly rejecting a genotype
+        #filtered = []
+        #for uid in mismatches:
+         #   state =  scheme_info['uid_to_state'][uid]
+          #  mutation_key = scheme_info['uid_to_mutation'][uid]
+           # detected_mutation_uids = list(detected_scheme_kmers & valid_uids & scheme_info['mutation_to_uid'][mutation_key])
+            #for found_uids in detected_mutation_uids:
+             #   if genotype == 'B.1.1.529':
+              #      print("{}\t{}\t{}\t{}".format(uid,found_uids,state,scheme_info['uid_to_state'][found_uids ]))
+               # if state != scheme_info['uid_to_state'][found_uids ]:
+                #    filtered.append(uid)
+                 #   break
+        #mismatches = set(filtered)
+
         matched = list(detected_scheme_kmers & (uids - mismatches))
         positive_alt_match = list(set(geno_rules[genotype]['positive_alt']) & set(matched ))
         positive_alt_mismatch = list(set(geno_rules[genotype]['positive_alt']) & set(mismatches))
@@ -281,8 +325,11 @@ def compare_sample_to_genotypes(data,genotype_results,scheme_info,outfile):
 
         if genotype_results[genotype]['is_compatible']:
             valid_genotypes[genotype] = genotype_results[genotype]
-
+        #if genotype == 'B.1.1.529':
+        #    print(set(valid_uids) & set(genotype_results[genotype]['mismatched_kmers']))
+        #    print(genotype_results[genotype])
     pd.DataFrame.from_dict(genotype_results, orient='index').to_csv(outfile, header=True, sep="\t")
+
     return valid_genotypes
 
 def summarize_genotype_kmers(scheme_info,kmer_results,outdir,n_threads=1):
@@ -314,11 +361,14 @@ def summarize_genotype_kmers(scheme_info,kmer_results,outdir,n_threads=1):
     uid_to_mutation = scheme_info['uid_to_mutation']
     uid_to_state =  scheme_info['uid_to_state']
     num_kmers = len(uid_to_mutation)
-
-
+    mutation_to_uid = {}
+    for mutation_key in scheme_info['mutation_to_uid']:
+        mutation_to_uid[mutation_key] = set(scheme_info['mutation_to_uid'][mutation_key])
     scheme_params = {
         'genotype_rule_sets':scheme_info['genotype_rule_sets'],
         'uid_to_mutation':scheme_info['uid_to_mutation'],
+        'mutation_to_uid': mutation_to_uid,
+        'uid_to_state':scheme_info['uid_to_state'],
 
     }
 
@@ -936,8 +986,12 @@ def run():
         logger.info(
             "Results directory {} already exits, will overwrite any results files here".format(fastp_dir))
 
+    if len(seqManifest) == 0:
+        logger.error("Error no fasta/fastq files to process")
+        sys.exit()
 
     for sampleID in seqManifest:
+        logger.info("Processing sample: {}".format(sampleID))
         sampleManifest[sampleID] = {
             'sample_id': sampleID,
             'scheme':scheme_name,
@@ -1053,6 +1107,7 @@ def run():
     #identify contamination from no template control
     contaminants = {}
     if no_template_control is not None and no_template_control in seqManifest:
+        logger.info("Processing negative control: {}".format(no_template_control))
         fileType = seqManifest[no_template_control]['seq_type']
         read_set = seqManifest[no_template_control]['seq_files']
         if fileType == 'fastq':
@@ -1256,9 +1311,11 @@ def run():
 
     kmer_freq_ave = 0
     kmer_freq_stdev = 0
-    if len(ave_kmer_freq_list) > 0:
+    if len(ave_kmer_freq_list) >= 1:
         kmer_freq_ave= sum(ave_kmer_freq_list) / len(ave_kmer_freq_list)
-        kmer_freq_stdev = statistics.stdev(ave_kmer_freq_list)
+        if len(ave_kmer_freq_list) > 1:
+            kmer_freq_stdev = statistics.stdev(ave_kmer_freq_list)
+
 
     #create genotype plot
     logger.info("Creating genotype abundance chart")

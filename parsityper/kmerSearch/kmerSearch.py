@@ -301,7 +301,11 @@ def process_kmer_results(scheme_info,kmer_results,min_freq,min_cov_frac):
                     if state == 'alt':
                         if f >= min_freq:
                             sample_kmer_results[sample_id]['positive_kmers'].append(uid)
-
+        for mutation_key in mutation_to_uid:
+            if mutation_key in sample_kmer_results[sample_id]['missing_sites']:
+                continue
+            sample_kmer_results[sample_id]['valid_uids'].extend(mutation_to_uid[mutation_key])
+        sample_kmer_results[sample_id]['valid_uids'] = list(set(sample_kmer_results[sample_id]['valid_uids']))
         sample_kmer_results[sample_id]['num_positive_kmers'] = len(sample_kmer_results[sample_id]['positive_kmers'])
         sample_kmer_results[sample_id]['num_missing_sites'] = len(sample_kmer_results[sample_id]['missing_sites'])
         sample_kmer_results[sample_id]['num_mixed_sites'] = len(sample_kmer_results[sample_id]['mixed_sites'])
