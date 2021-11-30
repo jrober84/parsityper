@@ -1357,6 +1357,8 @@ def run():
                        })
     plots['coverage_mixed'] = fig
 
+    write_sample_summary_results(sampleManifest, scheme_info, report_sample_composition_summary, max_features)
+
     #create sample table
 
 
@@ -1420,6 +1422,5 @@ def run():
 
     }
 
-    write_sample_summary_results(sampleManifest, scheme_info, report_sample_composition_summary, max_features)
     batch_sample_html_report(template_html, {'data':html_report_data}, report_summary)
 
