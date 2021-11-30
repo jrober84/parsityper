@@ -566,6 +566,8 @@ def write_sample_summary_results(sampleManifest,scheme_info,out_file,max_feature
             if field in sample_data:
                 value = sample_data[field]
             if isinstance(value,list):
+                value = list(set(value))
+                value.sort()
                 value = ", ".join([str(x) for x in value])
             row.append(str(value))
         fh.write("{}\n".format("\t".join(row)))

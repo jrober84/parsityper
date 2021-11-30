@@ -307,14 +307,19 @@ def updateSchemeInfo(scheme_info,valid_mutations,valid_uids,valid_genotypes):
 
 def updateScheme(scheme_file,scheme_info,outfile):
     df = pd.read_csv(scheme_file, sep="\t", header=0)
-    print(len(df))
     fh = open(outfile,'w')
     fh.write("{}\n".format("\t".join(SCHEME_HEADER)))
     columns = df.columns.tolist()
-    print(columns)
-    print(SCHEME_HEADER)
     num_fields = len(SCHEME_HEADER)
     new_uid_key = 0
+    rules = {}
+    for genotype in scheme_info['genotype_rule_sets']:
+        uids = scheme_info['genotype_rule_sets'][genotype]['positive_uids']
+        for uid in uids:
+            if not uid in rules:
+                rules[uid] = []
+            rules[uid].append(genotype)
+
     for index,row in df.iterrows():
         mutation_key = row['mutation_key']
         if not mutation_key in scheme_info['mutation_to_uid']:
@@ -335,10 +340,8 @@ def updateScheme(scheme_file,scheme_info,outfile):
                 entry[field] = ''
         entry['key'] = new_uid_key
         positive_genotypes = []
-        for genotype in scheme_info['genotype_rule_sets']:
-            overlap = set(uids) & set(scheme_info['genotype_rule_sets'][genotype]['positive_uids'])
-            if len(overlap) > 0:
-                positive_genotypes.append(genotype)
+        if uid in rules:
+            positive_genotypes = rules[uid]
         entry['positive_genotypes'] = ','.join([str(x) for x in positive_genotypes])
         record = []
         for i in range(0,num_fields):
