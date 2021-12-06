@@ -26,6 +26,8 @@ def parse_args():
                         help='output directory')
     parser.add_argument('--prefix', type=str, required=False,
                         help='output file prefix',default='parsityper')
+    parser.add_argument('--update', type=str, required=False,
+                        help='Do not blank existing rules, only update rules based on supplied samples')
     parser.add_argument('--min_members', type=int, required=False,
                         help='minimum number of representitives per genotype to be included',default=0)
     parser.add_argument('--min_cov', type=int, required=False,
@@ -35,7 +37,7 @@ def parse_args():
     parser.add_argument('--min_partial_frac', type=float, required=False,
                         help='Minimum fraction of isolates positive for mutation for it to be partial 0 - 1.0 (default=0.1)', default=0.1)
     parser.add_argument('--min_positive_frac', type=float, required=False,
-                        help='Minimum fraction of isolates positive for mutation for it to be positive 0 - 1.0 (default=0.1)', default=0.9)
+                        help='Minimum fraction of isolates positive for mutation for it to be positive 0 - 1.0 (default=0.1)', default=0.99)
     parser.add_argument('--min_positive_freq', type=int, required=False,
                         help='Minimum number of isolates positive for mutation for it to be valid for the scheme (default=1)', default=0)
     parser.add_argument('--max_frac_missing', type=float, required=False,
@@ -74,9 +76,9 @@ def summarize_samples(kmer_results,scheme_info,min_freq):
 
         kmer_freq = kmer_results[sampleID]['raw_kmer_freq']
         for uid in kmer_freq:
-            if not mutation_key in scheme_global_tracker['kmer_freqs']:
+            if not uid in scheme_global_tracker['kmer_freqs']:
                 scheme_global_tracker['kmer_freqs'][uid] = 0
-            scheme_global_tracker['kmer_freqs'][uid] += kmer_freq[uid]
+
             freq = kmer_freq[uid]
             state = scheme_info['uid_to_state'][uid]
             mutation_key = scheme_info['uid_to_mutation'][uid]
@@ -85,6 +87,7 @@ def summarize_samples(kmer_results,scheme_info,min_freq):
                     scheme_global_tracker['kmer_missing'][uid] = []
                 scheme_global_tracker['kmer_missing'][uid].append(sampleID)
             else:
+                scheme_global_tracker['kmer_freqs'][uid] += 1
                 if state == 'alt':
                     scheme_global_tracker['mutation_alt_count'][mutation_key] += 1
 
@@ -95,7 +98,6 @@ def summarize_samples(kmer_results,scheme_info,min_freq):
         if total_samples > 0:
             ave_cov = total_freq / total_samples
         scheme_global_tracker['mutation_ave_cov'] = ave_cov
-
 
     return scheme_global_tracker
 
@@ -127,7 +129,6 @@ def summarizeConflicts(sampleManifest,kmer_results,scheme_info,nthreads=1):
             if not uid in genotype_conflicts[genotype]:
                 genotype_conflicts[genotype][uid] = 0
             genotype_conflicts[genotype][uid]+=1
-
     return genotype_conflicts
 
 def process_rawSamples(sampleManifest,scheme_info,nthreads,min_cov,report_sample_kmer_profiles):
@@ -313,6 +314,7 @@ def updateScheme(scheme_file,scheme_info,outfile):
     num_fields = len(SCHEME_HEADER)
     new_uid_key = 0
     rules = {}
+
     for genotype in scheme_info['genotype_rule_sets']:
         uids = scheme_info['genotype_rule_sets'][genotype]['positive_uids']
         for uid in uids:
@@ -321,34 +323,97 @@ def updateScheme(scheme_file,scheme_info,outfile):
             rules[uid].append(genotype)
 
     for index,row in df.iterrows():
+        uid = row['key']
         mutation_key = row['mutation_key']
         if not mutation_key in scheme_info['mutation_to_uid']:
-            print("{} skip".format(mutation_key))
             continue
         seq = row['unalign_kseq']
         if not seq in scheme_info['kseq_to_uids']:
-            print("{} skip".format(seq))
             continue
-        uids = scheme_info['kseq_to_uids'][seq]
-
         entry = {}
         for field in SCHEME_HEADER:
             if field in columns:
-                entry[field] = row[field]
+                value = str(row[field])
+                if value == 'nan':
+                    value = ''
+                entry[field] = value
             else:
-                print(field)
                 entry[field] = ''
         entry['key'] = new_uid_key
         positive_genotypes = []
         if uid in rules:
             positive_genotypes = rules[uid]
+
+
         entry['positive_genotypes'] = ','.join([str(x) for x in positive_genotypes])
+        entry['seq_ids'] = ''
+
         record = []
         for i in range(0,num_fields):
             record.append(entry[SCHEME_HEADER[i]])
         fh.write("{}\n".format("\t".join([str(x) for x in record])))
         new_uid_key+=1
     fh.close()
+
+def compare_sample_to_genotype(data,genotype,genotype_results,scheme_info):
+    uids = set(list(scheme_info['uid_to_mutation'].keys()))
+    valid_uids = set(data['valid_uids'])
+    mixed_sites = list(data['mixed_sites'])
+    missing_sites = list(uids - valid_uids )
+    exclude_sites = set(missing_sites + mixed_sites)
+    mixed_sites = set(mixed_sites)
+    missing_sites = set(missing_sites)
+    detected_scheme_kmers = set(data['detected_scheme_kmers'])
+    geno_rules = scheme_info['genotype_rule_sets']
+
+    for mutation_key in scheme_info['mutation_to_uid']:
+        if mutation_key in mixed_sites:
+            continue
+        detected_mut_kmers = scheme_info['mutation_to_uid'][mutation_key] & detected_scheme_kmers
+        if len(detected_mut_kmers) == 0:
+            continue
+        uids = scheme_info['mutation_to_uid'][mutation_key]
+        missing_mut_kmer = list(uids - detected_mut_kmers)
+        detected_mut_kmers = list(detected_mut_kmers)
+        state = scheme_info['uid_to_state'][detected_mut_kmers[0]]
+        uids_to_add = []
+        for uid in missing_mut_kmer:
+            if state != scheme_info['uid_to_state'][uid]:
+                continue
+            uids_to_add.append(uid)
+        exclude_sites = exclude_sites.union(set(uids_to_add))
+
+    results = {
+        'dist':0,
+        'missing_sites':missing_sites,
+        'matched_kmers': [],
+        'matched_alt_kmers': [],
+        'mismatch_kmers':[],
+        'mismatch_alt_kmers':[],
+        'is_compatible':True
+    }
+
+    dist = 0
+    uids = valid_uids & set(geno_rules[genotype]['positive_uids']) - exclude_sites
+    mismatches = uids - detected_scheme_kmers
+    results['mismatch_kmers'] = mismatches
+    matched = list(detected_scheme_kmers & (uids - mismatches))
+    results['matched_kmers'] = matched
+    positive_alt_match = list(set(geno_rules[genotype]['positive_alt']) & set(matched ))
+    results['matched_alt_kmers'] = positive_alt_match
+    positive_alt_mismatch = list(set(geno_rules[genotype]['positive_alt']) & set(mismatches))
+    results['mismatch_alt_kmers'] = positive_alt_mismatch
+
+    genotype_results[genotype]['matched_pos_kmers'] = matched
+    if len(uids) > 0:
+        dist =  len(mismatches) / len(uids)
+    results['dist'] = dist
+
+    if len(mismatches) > 0:
+        results['is_compatible'] = False
+
+    return results
+
 
 def run():
     cmd_args = parse_args()
@@ -359,6 +424,7 @@ def run():
     min_cov = int(cmd_args.min_cov)
     min_cov_frac = float(cmd_args.min_cov_frac)
     min_members = int(cmd_args.min_members)
+    only_update = cmd_args.update
     input = cmd_args.input
     profile = cmd_args.profile
     min_positive_frac = cmd_args.min_positive_frac
@@ -388,7 +454,6 @@ def run():
     logger.info("Initializing scheme data structure from {}".format(scheme_file))
     scheme_info = constructSchemeLookups(scheme)
 
-
     scheme_name = os.path.basename(scheme_file)
     analysis_date = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
@@ -396,6 +461,7 @@ def run():
     samples = read_samples(input)
 
     sampleManifest = init_sampleManifest(samples,scheme_name,scheme_info,analysis_date)
+
     num_samples = len(sampleManifest )
     if profile == None:
         kmer_results = process_rawSamples(sampleManifest,scheme_info,nthreads,min_cov,report_sample_kmer_profiles)
@@ -407,155 +473,135 @@ def run():
     #process kmer results
     logger.info("Processing kmer results")
     kmer_results = process_kmer_results(scheme_info, kmer_results, min_cov, min_cov_frac)
-    logger.info("Summarizing kmer results")
-    scheme_kmer_result_summary = summarize_samples(kmer_results,scheme_info,min_cov)
+    logger.info("Summarizing kmer results by genotype")
+    scheme_kmer_result_summary = {'dataset':summarize_samples(kmer_results,scheme_info,min_cov),'genotypes':{}}
+
 
     invalid_mutation_keys = []
 
-    for mutation_key in scheme_kmer_result_summary['mutation_sites_missing']:
-        frac_missing = len(scheme_kmer_result_summary['mutation_sites_missing'][mutation_key]) / num_samples
+    for mutation_key in scheme_kmer_result_summary['dataset']['mutation_sites_missing']:
+        frac_missing = len(scheme_kmer_result_summary['dataset']['mutation_sites_missing'][mutation_key]) / num_samples
         if frac_missing > max_frac_missing:
             invalid_mutation_keys.append(mutation_key)
     logger.info("Found {} mutations where it is present in less than {}% samples".format(len(invalid_mutation_keys),max_frac_missing))
 
     #get counts of genotypes
     genotypeCounts = {}
+    genotypeMap = {}
     for sampleID in sampleManifest:
         genotype = sampleManifest[sampleID]['reported_genotype']
         if not genotype in genotypeCounts:
             genotypeCounts[genotype] = 0
+            genotypeMap[genotype] = []
         genotypeCounts[genotype] += 1
+        genotypeMap[genotype].append(sampleID)
+
+    #get summary of each genotype
+    for genotype in genotypeMap:
+        subset = {}
+        for sample_id in genotypeMap[genotype]:
+            subset[sample_id] = kmer_results[sample_id]
+        scheme_kmer_result_summary['genotypes'][genotype] = summarize_samples(subset,scheme_info,min_cov)
+
+    genotype_conflicts_pre = summarizeConflicts(sampleManifest, kmer_results, scheme_info, nthreads)
+    new_rules = {}
+    for genotype in genotypeCounts:
+        kmer_counts = scheme_kmer_result_summary['genotypes'][genotype]['kmer_freqs']
+        new_rules[genotype] = {'positive_uids':[],'positive_ref':[],'positive_alt':[]}
+        gCount  = genotypeCounts[genotype]
+        for uid in kmer_counts:
+            state = scheme_info['uid_to_state']
+            freq = kmer_counts[uid]
+
+            perc_present = 0
+            if gCount > 0:
+                perc_present = freq /  gCount
+
+            if perc_present>= min_positive_frac :
+                new_rules[genotype]['positive_uids'].append(uid)
+                if state == 'ref':
+                    new_rules[genotype]['positive_ref'].append(uid)
+                else:
+                    new_rules[genotype]['positive_alt'].append(uid)
+        scheme_info['genotype_rule_sets'][genotype] = new_rules[genotype]
+
+    genotype_conflicts_post = summarizeConflicts(sampleManifest, kmer_results, scheme_info, nthreads)
+
 
     #get valid genotypes
     valid_genotypes = []
-    for genotype in genotypeCounts:
-        count = genotypeCounts[genotype]
-        if count < min_members:
-            continue
-        valid_genotypes.append(genotype)
-    valid_genotypes.sort()
+    invalid_mutation_keys = []
+    if not only_update:
+        for genotype in genotypeCounts:
+            count = genotypeCounts[genotype]
+            if count < min_members:
+                continue
+            valid_genotypes.append(genotype)
+        valid_genotypes.sort()
 
-   # invalid_genotypes = list(set(scheme_info['genotypes']) - set(valid_genotypes))
-   # logger.info("Found {} genotypes with too few members, these will be removed from the scheme".format(len(invalid_genotypes)))
-    #filter out invalid genotypes from scheme
-   # scheme_info['genotypes'] = valid_genotypes
-   # for genotype in invalid_genotypes:
-   #     if genotype in scheme_info['genotype_rule_sets']:
-   #         del(scheme_info['genotype_rule_sets'][genotype])
+        invalid_genotypes = list(set(scheme_info['genotypes']) - set(valid_genotypes))
+        logger.info("Found {} genotypes with too few members, these will be removed from the scheme".format(len(invalid_genotypes)))
 
-    #identify genotype kmer conflicts
-    logger.info("Identifying individual sample kmer conflicts")
-
-
-    logger.info("Removing kmers which are present in too few samples")
-    #Get invalid kmers
-    invalid_kmers = []
-    for uid in scheme_kmer_result_summary['kmer_missing']:
-        count_missing = len(scheme_kmer_result_summary['kmer_missing'][uid])
-        count_present = num_samples - count_missing
-        if count_present < min_members:
-            invalid_kmers.append(uid)
-
-    logger.info("Flagged {} kmers for removal due to presence in too few samples".format(len(invalid_kmers)))
-    logger.info("Identifying mutations which no longer have both alt/ref states due to filtering")
-
-    # flag mutations which are now only one state due to kmer filtering
-    for mutation_key in scheme_info['mutation_to_uid']:
-        uids = scheme_info['mutation_to_uid'][mutation_key]
-        is_ref_present = False
-        is_alt_present = False
-        for uid in uids:
-            state = scheme_info['uid_to_state'][uid]
-            if state == 'ref':
-                is_ref_present = True
-            else:
-                is_alt_present = True
-            if is_ref_present and is_alt_present:
-                break
-        if not is_ref_present or not is_alt_present:
-            invalid_mutation_keys.append(mutation_key)
-
-    logger.info("Flagged {} mutations for removal where both alt/ref states are not present".format(len(invalid_mutation_keys)))
-    invalid_mutation_keys = list(set(invalid_mutation_keys))
-
-    #filter out invalid mutations from scheme
-    for mutation_key in invalid_mutation_keys:
-        if not mutation_key in scheme_info['mutation_to_uid']:
-            continue
-        uids = scheme_info['mutation_to_uid'][mutation_key]
-        invalid_kmers.extend(uids)
-        for uid in uids:
-            fields = list(scheme_info.keys())
-            for field in fields:
-                if 'uid' in field:
-                    if uid in scheme_info[field]:
-                        del(scheme_info[field][uid])
-        del(scheme_info['mutation_to_uid'][mutation_key])
-
-    #update the scheme info
-    valid_mutations = list(set(list(scheme_info['mutation_to_uid'].keys())) - set(invalid_mutation_keys))
-    logger.info("found {} valid mutations after filtering".format(len(valid_mutations)))
-    valid_uids = []
-    for mutation_key in valid_mutations:
-        valid_uids.extend(scheme_info['mutation_to_uid'][mutation_key])
-    valid_uids = list(set(valid_uids) - set(invalid_kmers))
-    logger.info("found {} valid kmers after filtering".format(len(valid_uids)))
-
-    logger.info("Writting interim scheme filtered of problematic kmers")
-    scheme_df = pd.read_csv(scheme_file, sep="\t", header=0)
-    scheme_df = scheme_df[scheme_df['key'].isin(valid_uids)]
-    scheme_df = scheme_df.reset_index(drop=True)
-    scheme_df['key'] = list(scheme_df.index.values)
-    scheme_df.to_csv(scheme_outfile,header=True,index=False,sep="\t")
-
-    del(scheme)
-    del(scheme_info)
-    del(kmer_results)
-
-    logger.info("Re-initializing scheme")
-    scheme = parseScheme(scheme_outfile)
-    logger.info("Initializing scheme data structure from {}".format(scheme_outfile))
-    scheme_info = constructSchemeLookups(scheme)
-
-    logger.info("Performing kmer searching on updated scheme")
-    if profile == None:
-        kmer_results = process_rawSamples(sampleManifest,scheme_info,nthreads,min_cov,report_sample_kmer_profiles)
-    else:
-        kmer_results_df = pd.read_csv(profile,sep="\t",header=True)
-        sample_list = kmer_results_df.columns.tolist()
-        #TODO implement profile check
-
-    #process kmer results
-    logger.info("Processing kmer results")
-    kmer_results = process_kmer_results(scheme_info, kmer_results, min_cov, min_cov_frac)
-    genotype_conflicts = summarizeConflicts(sampleManifest, kmer_results, scheme_info, nthreads)
+        #filter out invalid genotypes from scheme
+        scheme_info['genotypes'] = valid_genotypes
+        for genotype in invalid_genotypes:
+            if genotype in scheme_info['genotype_rule_sets']:
+                del(scheme_info['genotype_rule_sets'][genotype])
 
 
-    logger.info("Removing conflicting genotype rules from the scheme")
+        logger.info("Removing kmers which are present in too few samples")
+        #Get invalid kmers
+        invalid_kmers = []
+        for uid in scheme_kmer_result_summary['dataset']['kmer_missing']:
+            count_missing = len(scheme_kmer_result_summary['dataset']['kmer_missing'][uid])
+            count_present = num_samples - count_missing
+            if count_present < min_members:
+                invalid_kmers.append(uid)
 
-    #remove rules associated with conflicting kmers
-    for genotype in genotype_conflicts:
-        conflict_uids = genotype_conflicts[genotype]
-        if genotype in scheme_info['genotype_rule_sets']:
-            genotype_rules = scheme_info['genotype_rule_sets'][genotype]
-        else:
-            genotype_rules = {'positive_uids':[],'positive_ref':[],'positive_alt':[]}
-        overlap_uids = set(genotype_rules['positive_uids']) & set(conflict_uids)
-        uids_to_filter = []
-        for uid in overlap_uids:
-            num_conflicting_samples = conflict_uids[uid]
-            percentage_conflict = num_conflicting_samples / genotypeCounts[genotype]
-            if percentage_conflict > max_conflict:
-                uids_to_filter.append(uid)
-        uids_to_filter = set(uids_to_filter)
-        genotype_rules['positive_uids'] = list(set(genotype_rules['positive_uids']) - uids_to_filter)
-        genotype_rules['positive_ref'] = list(set(genotype_rules['positive_ref']) - uids_to_filter)
-        genotype_rules['positive_alt'] = list(set(genotype_rules['positive_alt']) - uids_to_filter)
+        logger.info("Flagged {} kmers for removal due to presence in too few samples".format(len(invalid_kmers)))
+        logger.info("Identifying mutations which do not have both alt/ref states")
 
+        # flag mutations which are now only one state due to kmer filtering
+        for mutation_key in scheme_info['mutation_to_uid']:
+            uids = scheme_info['mutation_to_uid'][mutation_key]
+            is_ref_present = False
+            is_alt_present = False
+            for uid in uids:
+                state = scheme_info['uid_to_state'][uid]
+                if state == 'ref':
+                    is_ref_present = True
+                else:
+                    is_alt_present = True
+                if is_ref_present and is_alt_present:
+                    break
+            if not is_ref_present or not is_alt_present:
+                invalid_mutation_keys.append(mutation_key)
 
-#    for genotype in invalid_genotypes:
-#        if genotype in scheme_info['genotype_rule_sets']:
-#            del(scheme_info['genotype_rule_sets'][genotype])
+        logger.info("Flagged {} mutations for removal where both alt/ref states are not present".format(len(invalid_mutation_keys)))
+        invalid_mutation_keys = list(set(invalid_mutation_keys))
+
+        #filter out invalid mutations from scheme
+        for mutation_key in invalid_mutation_keys:
+            if not mutation_key in scheme_info['mutation_to_uid']:
+                continue
+            uids = scheme_info['mutation_to_uid'][mutation_key]
+            invalid_kmers.extend(uids)
+            for uid in uids:
+                fields = list(scheme_info.keys())
+                for field in fields:
+                    if 'uid' in field:
+                        if uid in scheme_info[field]:
+                            del(scheme_info[field][uid])
+            del(scheme_info['mutation_to_uid'][mutation_key])
+
+        #update the scheme info
+        valid_mutations = list(set(list(scheme_info['mutation_to_uid'].keys())) - set(invalid_mutation_keys))
+        logger.info("found {} valid mutations after filtering".format(len(valid_mutations)))
+        valid_uids = []
+        for mutation_key in valid_mutations:
+            valid_uids.extend(scheme_info['mutation_to_uid'][mutation_key])
+        valid_uids = list(set(valid_uids) - set(invalid_kmers))
+        logger.info("found {} valid kmers after filtering".format(len(valid_uids)))
 
     logger.info("Writting updated scheme to {}".format(scheme_outfile))
     updateScheme(scheme_file, scheme_info, scheme_outfile)

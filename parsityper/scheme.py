@@ -94,6 +94,14 @@ def parseScheme(scheme_file):
             'seq':seq
         }
 
+    #clear nan values
+    for mutation_key in scheme:
+        for state in scheme[mutation_key]:
+            for uid in scheme[mutation_key][state]:
+                for field in scheme[mutation_key][state][uid]:
+                    value = str(scheme[mutation_key][state][uid][field])
+                    if value == 'nan':
+                        scheme[mutation_key][state][uid][field] = ''
     return scheme
 
 def constructSchemeLookups(scheme):

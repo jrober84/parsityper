@@ -1231,6 +1231,11 @@ def run():
     for mutation_key in scheme:
         for state in scheme[mutation_key]:
             for row in scheme[mutation_key][state]:
+                #blank genotype rules for ref state because it results in too many failed calls
+                #Potentially change this to have different rules for ref and alt positivity
+                if state == 'ref':
+                    row['positive_genotypes'] = ''
+                    row['partial_genotypes'] = ''
                 row['mutation_key'] = mutation_key
                 row['positive_genotypes'].sort()
                 row['partial_genotypes'].sort()
@@ -1240,8 +1245,6 @@ def run():
                 #deprecated negative TODO delete from templates
                 row['negative_genotypes'] = ''
                 row['seq_ids'] = ','.join([str(x) for x in row['seq_ids']])
-
-
 
     #write the final scheme to a file
     logger.info("Writting completed scheme")

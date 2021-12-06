@@ -98,6 +98,8 @@ def parse_args():
                         help='Try plotting for datasets > 1000',action='store_true')
     parser.add_argument('--delete_processed_reads', required=False,
                         help='Delete processed reads after completion',action='store_true')
+    parser.add_argument('--typer_only', required=False,
+                        help='Skip read preprocessing and stat calcuations', action='store_true')
     parser.add_argument('--max_features', type=str, required=False,
                         help='max gene features to report', default=15)
     parser.add_argument('-V', '--version', action='version', version='%(prog)s {}'.format(__version__))
@@ -266,33 +268,18 @@ def compare_sample_to_genotypes(data,genotype_results,scheme_info,outfile):
             uids_to_add.append(uid)
         exclude_sites = exclude_sites.union(set(uids_to_add))
 
-
-
-
-
     for genotype in genotypes:
+
         dist = 0
-        uids = valid_uids & set(geno_rules[genotype]['positive_uids']) - exclude_sites
+        uids = (valid_uids & set(geno_rules[genotype]['positive_uids'])) - exclude_sites
         mismatches = uids - detected_scheme_kmers
 
-        #due to the potential for multiple kmers to map to a single site
-        #missing kmers can result in incorrectly rejecting a genotype
-        #filtered = []
-        #for uid in mismatches:
-         #   state =  scheme_info['uid_to_state'][uid]
-          #  mutation_key = scheme_info['uid_to_mutation'][uid]
-           # detected_mutation_uids = list(detected_scheme_kmers & valid_uids & scheme_info['mutation_to_uid'][mutation_key])
-            #for found_uids in detected_mutation_uids:
-             #   if genotype == 'B.1.1.529':
-              #      print("{}\t{}\t{}\t{}".format(uid,found_uids,state,scheme_info['uid_to_state'][found_uids ]))
-               # if state != scheme_info['uid_to_state'][found_uids ]:
-                #    filtered.append(uid)
-                 #   break
-        #mismatches = set(filtered)
+
 
         matched = list(detected_scheme_kmers & (uids - mismatches))
         positive_alt_match = list(set(geno_rules[genotype]['positive_alt']) & set(matched ))
         positive_alt_mismatch = list(set(geno_rules[genotype]['positive_alt']) & set(mismatches))
+
         genotype_results[genotype]['matched_pos_kmers'] = matched
         if len(uids) > 0:
             dist =  len(mismatches) / len(uids)
@@ -325,9 +312,7 @@ def compare_sample_to_genotypes(data,genotype_results,scheme_info,outfile):
 
         if genotype_results[genotype]['is_compatible']:
             valid_genotypes[genotype] = genotype_results[genotype]
-        #if genotype == 'B.1.1.529':
-        #    print(set(valid_uids) & set(genotype_results[genotype]['mismatched_kmers']))
-        #    print(genotype_results[genotype])
+
     pd.DataFrame.from_dict(genotype_results, orient='index').to_csv(outfile, header=True, sep="\t")
 
     return valid_genotypes
@@ -773,6 +758,193 @@ def QA_results(sampleManifest,min_coverage_depth,max_missing_sites,min_genome_si
 
     return sampleManifest
 
+def init_sample_manifest(seqManifest,scheme_info,scheme_name,analysis_date,sample_type,seqTech):
+    sampleManifest = {}
+    for sampleID in seqManifest:
+        logging.info("Processing sample: {}".format(sampleID))
+        sampleManifest[sampleID] = {
+            'sample_id': sampleID,
+            'scheme':scheme_name,
+            'analysis_date':analysis_date,
+            'reported_sample_type':sample_type,
+            'sequencing_technology': seqTech,
+            'file_type': seqManifest[sampleID]['seq_type'],
+            'data_type':seqManifest[sampleID]['data_type'],
+            'est_genome_size':0,
+            'num_unique_kmers':0,
+            'num_counted_unique_kmers':0,
+            'num_seq_files': len(seqManifest[sampleID]['seq_files']),
+            'raw_seq_files': seqManifest[sampleID]['seq_files'],
+            'total_reads_pre':0,
+            'total_reads_post': 0,
+            'total_bases_pre': 0,
+            'total_bases_post': 0,
+            'read_mean_len_pre':0,
+            'read_mean_len_post': 0,
+            'read_gc_pre': 0,
+            'read_gc_post': 0,
+            'read_insert_size_peak': 0,
+            'read_duplication_rate': 0,
+            'estimated_genome_cov':0,
+            'processed_reads':[],
+            'detected_sample_type': 'single',
+            'qc_messages':[],
+            'compatible_genotypes':[],
+            'total_scheme_kmers': len(scheme_info['uid_to_kseq']),
+            'detected_scheme_kmers':[],
+            'num_detected_scheme_kmers':0,
+            'ave_scheme_kmers_freq': 0,
+            'total_scheme_mutations': len(scheme_info['mutation_to_uid']),
+            'detected_scheme_mutations': 0,
+            'detected_scheme_mixed_mutations': 0,
+            'primary_genotype':'',
+            'primary_genotype_frac':'',
+        }
+
+    return sampleManifest
+
+def calc_genome_size(sampleManifest,outdir,min_cov,kLen=21,n_threads=1):
+    results = {}
+    if n_threads > 1:
+        pool = Pool(processes=n_threads)
+
+    for sample_id in sampleManifest:
+        fileType = sampleManifest[sample_id]['file_type']
+        tmpFile = os.path.join(outdir, "{}.kmc.tmp1".format(sample_id))
+        tmpDir = os.path.join(outdir, "{}.kmc.tmp2".format(sample_id))
+    # get GenomeSize using KMC based on fwd read or fasta
+        if n_threads == 1:
+            results[sample_id] = kmc_summary(sampleManifest[sample_id]['raw_seq_files'][0], tmpFile,
+                               tmpDir, fileType,
+                               min_cov, kLen, n_threads)
+        else:
+            results[sample_id] = pool.apply_async(kmc_summary,
+                                                           (sampleManifest[sample_id]['raw_seq_files'][0], tmpFile,
+                               tmpDir, fileType,
+                               min_cov, kLen, n_threads))
+
+    if n_threads > 1:
+        pool.close()
+        pool.join()
+
+        for sample_id in results:
+            results[sample_id] = results[sample_id].get()
+
+    for sample_id in results:
+        for field in results[sample_id]:
+            sampleManifest[sample_id][field] = results[sample_id][field]
+
+    return sampleManifest
+
+def process_reads(sampleManifest,perform_read_correction,read_dir,seqTech,fastp_dir,min_read_len,trim_front_bp,trim_tail_bp,perform_read_dedup,n_threads=1):
+    for sampleID in sampleManifest:
+
+        genomeSize = sampleManifest[sampleID]['est_genome_size']
+        fileType = sampleManifest[sampleID]['file_type']
+        seqFiles = sampleManifest[sampleID]['raw_seq_files']
+        if fileType == 'fasta':
+            continue
+
+        # Perform read correction if requested
+        if perform_read_correction:
+            # initialize read directory
+            sample_read_dir = os.path.join(read_dir, "{}".format(sampleID))
+            if seqTech == 'illumina':
+                run_lighter(seqFiles, sample_read_dir, 17, genomeSize, n_threads=n_threads)
+                sampleManifest[sampleID]['processed_reads'] = glob.glob("{}/*.cor.*".format(sample_read_dir))
+
+        # Perform read preprocessing using fastp
+        if len(sampleManifest[sampleID]['processed_reads']) > 0:
+            read_set = sampleManifest[sampleID]['processed_reads']
+        else:
+            read_set = sampleManifest[sampleID]['raw_seq_files']
+
+        merge = False
+        if len(read_set) == 2:
+            merge = True
+
+        fastp_results = run_fastp(read_set, fastp_dir, sampleID, min_read_len=min_read_len, trim_front_bp=trim_front_bp,
+                                  trim_tail_bp=trim_tail_bp, report_only=False,
+                                  dedup=perform_read_dedup, merge_reads=merge, n_threads=n_threads)
+
+        sampleManifest[sampleID]['total_reads_pre'] = fastp_results['summary']["before_filtering"]["total_reads"]
+        sampleManifest[sampleID]['total_bases_pre'] = fastp_results['summary']["before_filtering"]["total_bases"]
+        sampleManifest[sampleID]['gc_pre'] = fastp_results['summary']["before_filtering"]["gc_content"]
+        sampleManifest[sampleID]['total_reads_post'] = fastp_results['summary']["after_filtering"]["total_reads"]
+        sampleManifest[sampleID]['total_bases_post'] = fastp_results['summary']["after_filtering"]["total_bases"]
+        sampleManifest[sampleID]['gc_post'] = fastp_results['summary']["after_filtering"]["gc_content"]
+        if "read1_mean_length" in fastp_results['summary']["before_filtering"]:
+            sampleManifest[sampleID]['read_mean_len_pre'] = fastp_results['summary']["before_filtering"][
+                "read1_mean_length"]
+            sampleManifest[sampleID]['read_mean_len_post'] = fastp_results['summary']["after_filtering"][
+                "read1_mean_length"]
+        else:
+            ave_len = fastp_results['summary']["before_filtering"]['total_bases'] / \
+                      fastp_results['summary']["before_filtering"]["total_reads"]
+            sampleManifest[sampleID]['read_mean_len_pre'] = ave_len
+            ave_len = fastp_results['summary']["after_filtering"]['total_bases'] / \
+                      fastp_results['summary']["after_filtering"]["total_reads"]
+            sampleManifest[sampleID]['read_mean_len_post'] = ave_len
+        if 'duplication' in fastp_results:
+            sampleManifest[sampleID]['duplication_rate'] = fastp_results["duplication"]
+
+        if genomeSize > 0:
+            sampleManifest[sampleID]['estimated_genome_cov'] = sampleManifest[sampleID]['total_bases_pre'] / genomeSize
+
+        if len(read_set) == 2:
+            sampleManifest[sampleID]['read_mean_len_pre'] = (
+            fastp_results['summary']["before_filtering"]["read1_mean_length"])
+            sampleManifest[sampleID]['read_mean_len_post'] = (
+            fastp_results['summary']["after_filtering"]["read1_mean_length"])
+            pR1 = os.path.join(fastp_dir, "{}_1.fastq".format(sampleID))
+            pR2 = os.path.join(fastp_dir, "{}_2.fastq".format(sampleID))
+            pM = os.path.join(fastp_dir, "{}.merged.fastq".format(sampleID))
+            sampleManifest[sampleID]['processed_reads'] = [pR1, pR2, pM]
+    return sampleManifest
+
+def perform_kmerSearch(sampleManifest,scheme_info,min_cov,aho,nthreads=1):
+    kmer_results = {}
+    # Identify kmers in each sample
+    if nthreads > 1:
+        pool = Pool(processes=nthreads)
+    logging.info("Performing kmer searching on {} samples with {} threads".format(len(sampleManifest), nthreads))
+
+    for sampleID in sampleManifest:
+        if len(sampleManifest[sampleID]['processed_reads']) > 0:
+            read_set = sampleManifest[sampleID]['processed_reads']
+        else:
+            read_set = sampleManifest[sampleID]['raw_seq_files']
+
+        # Canu correct creates fasta files so need to flip this when nanopore correction has happend
+        fileType = sampleManifest[sampleID]['file_type']
+
+        if nthreads == 1:
+            if fileType == 'fastq':
+                kmer_results[sampleID] = perform_kmerSearch_fastq(scheme_info['uid_to_kseq'],
+                                                                  scheme_info['kseq_to_uids'], aho['scheme'], read_set)
+            else:
+                kmer_results[sampleID] = perform_kmerSearch_fasta(scheme_info['uid_to_kseq'],
+                                                                  scheme_info['kseq_to_uids'], aho['scheme'],
+                                                                  read_fasta(read_set[0]), min_cov)
+        else:
+            if fileType == 'fastq':
+                kmer_results[sampleID] = pool.apply_async(perform_kmerSearch_fastq, (
+                scheme_info['uid_to_kseq'], scheme_info['kseq_to_uids'], aho['scheme'], read_set))
+            else:
+                kmer_results[sampleID] = pool.apply_async(perform_kmerSearch_fasta,
+                                                          (scheme_info['uid_to_kseq'], scheme_info['kseq_to_uids'],
+                                                           aho['scheme'], read_fasta(read_set[0]), min_cov))
+
+    # Extract results in multithreaded mode
+    if nthreads > 1:
+        pool.close()
+        pool.join()
+        for sampleID in sampleManifest:
+            kmer_results[sampleID] = kmer_results[sampleID].get()
+
+    return kmer_results
+
+
 def run():
     cmd_args = parse_args()
 
@@ -792,7 +964,7 @@ def run():
     max_missing_sites = cmd_args.max_missing_sites
     max_mixed_sites = cmd_args.max_mixed_sites
     scheme_file = cmd_args.scheme
-    type = cmd_args.type
+    sample_type = cmd_args.type
     trim_seqs = cmd_args.trim
     R1 = cmd_args.R1
     R2 = cmd_args.R2
@@ -815,6 +987,7 @@ def run():
     max_genome_size = cmd_args.max_genome_size
     min_genome_cov_depth = cmd_args.min_genome_cov_depth
     max_features = cmd_args.max_features
+    type_only = cmd_args.typer_only
 
     #Initialize scheme
     if scheme_file in TYPING_SCHEMES:
@@ -927,13 +1100,13 @@ def run():
 
     # Perform read correction if requested
     # initialize read directory
-    if perform_read_correction:
-        read_dir = os.path.join(outdir, "processed_reads")
-        if not os.path.isdir(read_dir):
-            logger.info("Creating processed read directory {}".format(read_dir))
-            os.mkdir(read_dir, 0o755)
-        else:
-            logger.info("Results directory {} already exits, will overwrite any results files here".format(read_dir))
+
+    read_dir = os.path.join(outdir, "processed_reads")
+    if not os.path.isdir(read_dir):
+        logger.info("Creating processed read directory {}".format(read_dir))
+        os.mkdir(read_dir, 0o755)
+    else:
+        logger.info("Results directory {} already exits, will overwrite any results files here".format(read_dir))
 
     #Gather sequence files in directory if specified
     seqManifest = {}
@@ -981,7 +1154,7 @@ def run():
     logger.info("Determine read stats for {} samples".format(len(seqManifest)))
 
     fastp_dir = os.path.join(outdir, "fastp")
-    if not os.path.isdir(fastp_dir):
+    if not os.path.isdir(fastp_dir) and not type_only:
         logger.info("Creating processed read directory {}".format(fastp_dir))
         os.mkdir(fastp_dir, 0o755)
     else:
@@ -992,119 +1165,14 @@ def run():
         logger.error("Error no fasta/fastq files to process")
         sys.exit()
 
-    for sampleID in seqManifest:
-        logger.info("Processing sample: {}".format(sampleID))
-        sampleManifest[sampleID] = {
-            'sample_id': sampleID,
-            'scheme':scheme_name,
-            'analysis_date':analysis_date,
-            'reported_sample_type':type,
-            'sequencing_technology': seqTech,
-            'file_type': seqManifest[sampleID]['seq_type'],
-            'data_type':seqManifest[sampleID]['data_type'],
-            'est_genome_size':0,
-            'num_unique_kmers':0,
-            'num_counted_unique_kmers':0,
-            'num_seq_files': len(seqManifest[sampleID]['seq_files']),
-            'raw_seq_files': seqManifest[sampleID]['seq_files'],
-            'total_reads_pre':0,
-            'total_reads_post': 0,
-            'total_bases_pre': 0,
-            'total_bases_post': 0,
-            'read_mean_len_pre':0,
-            'read_mean_len_post': 0,
-            'read_gc_pre': 0,
-            'read_gc_post': 0,
-            'read_insert_size_peak': 0,
-            'read_duplication_rate': 0,
-            'estimated_genome_cov':0,
-            'processed_reads':[],
-            'detected_sample_type': 'single',
-            'qc_messages':[],
-            'compatible_genotypes':[],
-            'total_scheme_kmers': len(scheme_info['uid_to_kseq']),
-            'detected_scheme_kmers':[],
-            'num_detected_scheme_kmers':0,
-            'ave_scheme_kmers_freq': 0,
-            'total_scheme_mutations': len(scheme_info['mutation_to_uid']),
-            'detected_scheme_mutations': 0,
-            'detected_scheme_mixed_mutations': 0,
-            'primary_genotype':'',
-            'primary_genotype_frac':'',
-        }
+    sampleManifest = init_sample_manifest(seqManifest, scheme_info, scheme_name, analysis_date, sample_type, seqTech)
 
+    #process reads
+    if not type_only:
+        sampleManifest = calc_genome_size(sampleManifest, outdir, min_cov, kLen=21, n_threads=nthreads)
+        sampleManifest = process_reads(sampleManifest,perform_read_correction,read_dir,seqTech,fastp_dir,min_read_len,trim_front_bp,trim_tail_bp,perform_read_dedup,n_threads=nthreads)
 
-        # get GenomeSize using KMC based on fwd read or fasta
-
-        data = kmc_summary(seqManifest[sampleID]['seq_files'][0], os.path.join(outdir,"kmc.tmp1"),
-                           os.path.join(outdir,"kmc.tmp2"), sampleManifest[sampleID]['file_type'],
-                           min_cov, 21, nthreads)
-
-        genomeSize = data['est_genome_size']
-
-        for field in data:
-            sampleManifest[sampleID][field] = data[field]
-
-        if sampleManifest[sampleID]['file_type'] == 'fasta':
-            continue
-
-        # Perform read correction if requested
-        if perform_read_correction:
-            # initialize read directory
-            sample_read_dir = os.path.join(read_dir,"{}".format(sampleID))
-
-            if seqTech == 'illumina':
-                run_lighter(seqManifest[sampleID]['seq_files'],sample_read_dir,17,genomeSize,n_threads=nthreads)
-                sampleManifest[sampleID]['processed_reads'] = glob.glob("{}/*.cor.*".format(sample_read_dir))
-
-            else:
-                result_obj = run_canu_correct(seqManifest[sampleID]['seq_files'][0], sampleID, sample_read_dir, genomeSize, min_length=min_read_len, minOverlapLength=int(min_read_len/2),
-                                 corOutCoverage=1000,
-                                 n_threads=nthreads)
-                #TODO add the canu specific corrected reads
-                sampleManifest[sampleID]['processed_reads'] = []
-
-        #Perform read preprocessing using fastp
-        if len(sampleManifest[sampleID]['processed_reads'])> 0:
-            read_set = sampleManifest[sampleID]['processed_reads']
-        else:
-            read_set = sampleManifest[sampleID]['raw_seq_files']
-
-
-        merge = False
-        if len(read_set) == 2:
-            merge = True
-
-        fastp_results = run_fastp(read_set,  fastp_dir, sampleID, min_read_len=min_read_len, trim_front_bp=trim_front_bp, trim_tail_bp=trim_tail_bp, report_only=False,
-                  dedup=perform_read_dedup, merge_reads=merge, n_threads=nthreads)
-
-        sampleManifest[sampleID]['total_reads_pre'] = fastp_results['summary']["before_filtering"]["total_reads"]
-        sampleManifest[sampleID]['total_bases_pre'] = fastp_results['summary']["before_filtering"]["total_bases"]
-        sampleManifest[sampleID]['gc_pre'] = fastp_results['summary']["before_filtering"]["gc_content"]
-        sampleManifest[sampleID]['total_reads_post'] = fastp_results['summary']["after_filtering"]["total_reads"]
-        sampleManifest[sampleID]['total_bases_post'] = fastp_results['summary']["after_filtering"]["total_bases"]
-        sampleManifest[sampleID]['gc_post'] = fastp_results['summary']["after_filtering"]["gc_content"]
-        if "read1_mean_length" in fastp_results['summary']["before_filtering"]:
-            sampleManifest[sampleID]['read_mean_len_pre'] = fastp_results['summary']["before_filtering"]["read1_mean_length"]
-            sampleManifest[sampleID]['read_mean_len_post'] = fastp_results['summary']["after_filtering"]["read1_mean_length"]
-        else:
-            ave_len = fastp_results['summary']["before_filtering"]['total_bases'] / fastp_results['summary']["before_filtering"]["total_reads"]
-            sampleManifest[sampleID]['read_mean_len_pre'] = ave_len
-            ave_len = fastp_results['summary']["after_filtering"]['total_bases'] / fastp_results['summary']["after_filtering"]["total_reads"]
-            sampleManifest[sampleID]['read_mean_len_post'] = ave_len
-        if 'duplication' in fastp_results:
-            sampleManifest[sampleID]['duplication_rate'] = fastp_results["duplication"]
-
-        if genomeSize >0:
-            sampleManifest[sampleID]['estimated_genome_cov'] = sampleManifest[sampleID]['total_bases_pre'] / genomeSize
-
-        if len(read_set) == 2:
-            sampleManifest[sampleID]['read_mean_len_pre'] = (fastp_results['summary']["before_filtering"]["read1_mean_length"] )
-            sampleManifest[sampleID]['read_mean_len_post'] = (fastp_results['summary']["after_filtering"]["read1_mean_length"] )
-            pR1 = os.path.join(fastp_dir,"{}_1.fastq".format(sampleID))
-            pR2 = os.path.join(fastp_dir, "{}_2.fastq".format(sampleID))
-            pM = os.path.join(fastp_dir,"{}.merged.fastq".format(sampleID))
-            sampleManifest[sampleID]['processed_reads'] = [pR1,pR2,pM]
+    kmer_results = perform_kmerSearch(sampleManifest,scheme_info,min_cov,aho,nthreads)
 
     #identify contamination from no template control
     contaminants = {}
@@ -1118,47 +1186,6 @@ def run():
         else:
             contaminants = perform_kmerSearch_fasta(scheme_info['uid_to_kseq'], scheme_info['kseq_to_uids'],
                                                               aho['scheme'], read_fasta(read_set[0]), min_cov)
-
-    kmer_results = {}
-    #Identify kmers in each sample
-    if nthreads > 1:
-        pool = Pool(processes=nthreads)
-    logger.info("Performing kmer searching on {} samples with {} threads".format(len(sampleManifest),nthreads))
-
-    for sampleID in sampleManifest:
-        if sampleID == no_template_control:
-            kmer_results[sampleID] = contaminants
-            continue
-        if len(sampleManifest[sampleID]['processed_reads'])> 0:
-            read_set = sampleManifest[sampleID]['processed_reads']
-        else:
-            read_set = sampleManifest[sampleID]['raw_seq_files']
-
-        #Canu correct creates fasta files so need to flip this when nanopore correction has happend
-        fileType = sampleManifest[sampleID]['file_type']
-        if perform_read_correction and seqTech == 'nanopore' and fileType == 'fastq':
-            fileType = 'fasta'
-
-        if nthreads == 1:
-            if fileType == 'fastq':
-                kmer_results[sampleID] = perform_kmerSearch_fastq(scheme_info['uid_to_kseq'], scheme_info['kseq_to_uids'],aho['scheme'], read_set)
-            else:
-                kmer_results[sampleID] = perform_kmerSearch_fasta(scheme_info['uid_to_kseq'], scheme_info['kseq_to_uids'],aho['scheme'], read_fasta(read_set[0]), min_cov)
-        else:
-            if fileType == 'fastq':
-                kmer_results[sampleID] = pool.apply_async(perform_kmerSearch_fastq, (scheme_info['uid_to_kseq'], scheme_info['kseq_to_uids'],aho['scheme'], read_set))
-            else:
-                kmer_results[sampleID] = pool.apply_async(perform_kmerSearch_fasta,
-                                                          (scheme_info['uid_to_kseq'], scheme_info['kseq_to_uids'],aho['scheme'], read_fasta(read_set[0]), min_cov))
-
-
-    #Extract results in multithreaded mode
-    if nthreads > 1:
-        pool.close()
-        pool.join()
-        for sampleID in sampleManifest:
-            kmer_results[sampleID] = kmer_results[sampleID].get()
-
     found_no_template_kmers = {}
     for uid in contaminants:
         freq = contaminants[uid]

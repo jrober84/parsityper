@@ -247,8 +247,6 @@ def process_kmer_results(scheme_info,kmer_results,min_freq,min_cov_frac):
                     alt_kmers_uids.append(uid)
                 kmer_freqs.append(freq)
 
-
-
             ref_mutation_freq = 0
             alt_mutation_freq = 0
 
