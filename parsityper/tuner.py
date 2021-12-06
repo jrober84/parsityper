@@ -320,7 +320,9 @@ def updateScheme(scheme_file,scheme_info,outfile):
         for uid in uids:
             if not uid in rules:
                 rules[uid] = []
-            rules[uid].append(genotype)
+            state = scheme_info['uid_to_state']
+            if state == 'alt':
+                rules[uid].append(genotype)
 
     for index,row in df.iterrows():
         uid = row['key']
@@ -512,16 +514,16 @@ def run():
         for uid in kmer_counts:
             state = scheme_info['uid_to_state']
             freq = kmer_counts[uid]
-            if state == 'ref':
-                continue
+
             perc_present = 0
             if gCount > 0:
                 perc_present = freq /  gCount
 
             if perc_present>= min_positive_frac :
-
-                if state == 'alt':
-                    new_rules[genotype]['positive_uids'].append(uid)
+                new_rules[genotype]['positive_uids'].append(uid)
+                if state == 'ref':
+                    new_rules[genotype]['positive_ref'].append(uid)
+                else:
                     new_rules[genotype]['positive_alt'].append(uid)
         scheme_info['genotype_rule_sets'][genotype] = new_rules[genotype]
 
