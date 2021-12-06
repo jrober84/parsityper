@@ -36,8 +36,10 @@ def parse_args():
                         help='Minimum percentage of total pool required for k-mer detection range 0 - 1.0 (default=0.05)', default=0.05)
     parser.add_argument('--min_partial_frac', type=float, required=False,
                         help='Minimum fraction of isolates positive for mutation for it to be partial 0 - 1.0 (default=0.1)', default=0.1)
-    parser.add_argument('--min_positive_frac', type=float, required=False,
-                        help='Minimum fraction of isolates positive for mutation for it to be positive 0 - 1.0 (default=0.1)', default=0.99)
+    parser.add_argument('--min_alt_frac', type=float, required=False,
+                        help='Minimum fraction of isolates positive for mutation for it to be positive 0 - 1.0 (default=0.1)', default=0.95)
+    parser.add_argument('--min_ref_frac', type=float, required=False,
+                        help='Minimum fraction of isolates positive for mutation for it to be positive 0 - 1.0 (default=0.1)', default=0.95)
     parser.add_argument('--min_positive_freq', type=int, required=False,
                         help='Minimum number of isolates positive for mutation for it to be valid for the scheme (default=1)', default=0)
     parser.add_argument('--max_frac_missing', type=float, required=False,
@@ -320,7 +322,7 @@ def updateScheme(scheme_file,scheme_info,outfile):
         for uid in uids:
             if not uid in rules:
                 rules[uid] = []
-            state = scheme_info['uid_to_state']
+            state = scheme_info['uid_to_state'][uid]
             if state == 'alt':
                 rules[uid].append(genotype)
 
@@ -345,10 +347,12 @@ def updateScheme(scheme_file,scheme_info,outfile):
         positive_genotypes = []
         if uid in rules:
             positive_genotypes = rules[uid]
+            #print("{}\t{}".format(uid,rules[uid]))
 
 
         entry['positive_genotypes'] = ','.join([str(x) for x in positive_genotypes])
         entry['seq_ids'] = ''
+        entry['partial_genotypes'] = ''
 
         record = []
         for i in range(0,num_fields):
@@ -429,7 +433,8 @@ def run():
     only_update = cmd_args.update
     input = cmd_args.input
     profile = cmd_args.profile
-    min_positive_frac = cmd_args.min_positive_frac
+    min_alt_frac = cmd_args.min_alt_frac
+    min_ref_frac = cmd_args.min_ref_frac
     min_partial_frac = cmd_args.min_partial_frac
     min_pos_freq = cmd_args.min_positive_freq
     max_conflict = cmd_args.max_conflict
@@ -512,21 +517,25 @@ def run():
         new_rules[genotype] = {'positive_uids':[],'positive_ref':[],'positive_alt':[]}
         gCount  = genotypeCounts[genotype]
         for uid in kmer_counts:
-            state = scheme_info['uid_to_state']
+            state = scheme_info['uid_to_state'][uid]
+
             freq = kmer_counts[uid]
 
             perc_present = 0
             if gCount > 0:
                 perc_present = freq /  gCount
 
-            if perc_present>= min_positive_frac :
-                new_rules[genotype]['positive_uids'].append(uid)
+            if perc_present >= min_alt_frac :
+
                 if state == 'ref':
                     new_rules[genotype]['positive_ref'].append(uid)
                 else:
+                    new_rules[genotype]['positive_uids'].append(uid)
                     new_rules[genotype]['positive_alt'].append(uid)
+                    print("{}\t{}\t{}".format(uid,state,perc_present))
         scheme_info['genotype_rule_sets'][genotype] = new_rules[genotype]
 
+    print(scheme_info['genotype_rule_sets']['A.1']['positive_alt'])
     genotype_conflicts_post = summarizeConflicts(sampleManifest, kmer_results, scheme_info, nthreads)
 
 
