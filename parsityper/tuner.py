@@ -512,7 +512,8 @@ def run():
         for uid in kmer_counts:
             state = scheme_info['uid_to_state']
             freq = kmer_counts[uid]
-
+            if state == 'ref':
+                continue
             perc_present = 0
             if gCount > 0:
                 perc_present = freq /  gCount
