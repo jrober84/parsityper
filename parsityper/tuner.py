@@ -519,10 +519,9 @@ def run():
                 perc_present = freq /  gCount
 
             if perc_present>= min_positive_frac :
-                new_rules[genotype]['positive_uids'].append(uid)
-                if state == 'ref':
-                    new_rules[genotype]['positive_ref'].append(uid)
-                else:
+
+                if state == 'alt':
+                    new_rules[genotype]['positive_uids'].append(uid)
                     new_rules[genotype]['positive_alt'].append(uid)
         scheme_info['genotype_rule_sets'][genotype] = new_rules[genotype]
 
