@@ -1234,17 +1234,21 @@ def run():
                 #blank genotype rules for ref state because it results in too many failed calls
                 #Potentially change this to have different rules for ref and alt positivity
                 if state == 'ref':
-                    row['positive_genotypes'] = ''
-                    row['partial_genotypes'] = ''
+                    row['positive_genotypes'] = []
+                    row['partial_genotypes'] = []
                 row['mutation_key'] = mutation_key
-                row['positive_genotypes'].sort()
-                row['partial_genotypes'].sort()
-                row['seq_ids'].sort()
-                row['positive_genotypes'] = ','.join([str(x) for x in row['positive_genotypes']])
-                row['partial_genotypes'] = ','.join([str(x) for x in row['partial_genotypes']])
-                #deprecated negative TODO delete from templates
-                row['negative_genotypes'] = ''
-                row['seq_ids'] = ','.join([str(x) for x in row['seq_ids']])
+                if isinstance(row['positive_genotypes'],list):
+                    row['positive_genotypes'].sort()
+                    row['positive_genotypes'] = ','.join([str(x) for x in row['positive_genotypes']])
+                if isinstance(row['partial_genotypes'], list):
+                    row['partial_genotypes'].sort()
+                    row['partial_genotypes'] = ','.join([str(x) for x in row['partial_genotypes']])
+                if isinstance(row['seq_ids'], list):
+                    row['seq_ids'].sort()
+                    row['seq_ids'] = ','.join([str(x) for x in row['seq_ids']])
+
+
+
 
     #write the final scheme to a file
     logger.info("Writting completed scheme")

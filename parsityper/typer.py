@@ -108,7 +108,6 @@ def parse_args():
 
 def batch_sample_html_report(htmlStr,data,outfile):
     t = Template(htmlStr)
-   # print(data)
     html = t.render(data)
     # to save the results
     with open(outfile, "w") as fh:
@@ -738,7 +737,7 @@ def QA_results(sampleManifest,min_coverage_depth,max_missing_sites,min_genome_si
 
         cov = sampleManifest[sample_id]['estimated_genome_cov']
 
-        if cov < min_coverage_depth:
+        if cov < min_coverage_depth and sampleManifest[sample_id]['file_type'] == 'fastq':
             sampleManifest[sample_id]['qc_messages'].append(
                 'Fail: low sequencing coverage {}'.format(cov))
         missing = sampleManifest[sample_id]['total_scheme_mutations'] - sampleManifest[sample_id]['detected_scheme_mutations']
@@ -749,7 +748,7 @@ def QA_results(sampleManifest,min_coverage_depth,max_missing_sites,min_genome_si
 
         genomeSize = sampleManifest[sample_id]['est_genome_size']
         num_targets_found = sampleManifest[sample_id]['est_genome_size']
-        if genomeSize < min_genome_size:
+        if genomeSize < min_genome_size and genomeSize != 0:
             sampleManifest[sample_id]['qc_messages'].append(
                 'Fail: genome size {} too small'.format(num_targets_found))
         elif genomeSize > max_genome_size and max_genome_size >= min_genome_size:
@@ -1386,70 +1385,69 @@ def run():
                        })
     plots['coverage_mixed'] = fig
 
+    # create sample summary table
     write_sample_summary_results(sampleManifest, scheme_info, report_sample_composition_summary, max_features)
 
-    #create sample table
+    #create batch html report if more than one sample present
+    if len(sampleManifest) > 1:
+        template_html = Path(BATCH_HTML_REPORT).read_text()
+        html_report_data = {
+            'analysis_date': analysis_date,
+            'total_samples': len(sampleManifest),
+            'positive_control_id':positive_control,
+            'negative_control_id': no_template_control,
+            'sample_type': type,
+            'sample_type_mismatch':sample_type_mismatch,
+            'strain_scheme_name':scheme_name,
+            'num_targets_detected':len(scheme_info['mutation_to_uid']) - len(missing_mutations),
+            'ave_kmer_freq':  kmer_freq_ave,
+            'stdev_kmer_freq': kmer_freq_stdev,
+            'count_failed_samples': num_fail_samples,
+            'failed_sample_ids': ', '.join([str(x) for x in failed_sample_ids]),
 
+            'coverage_plot': plot(figure_or_data=plots['coverage'],include_plotlyjs=False,
+                 output_type='div'),
+            'coverage_plot_caption': FIGURE_CAPTIONS['coverage_plot_caption'],
 
-    template_html = Path(BATCH_HTML_REPORT).read_text()
+            'mixed_target_plot': plot(figure_or_data=plots['coverage_mixed'],include_plotlyjs=False,
+                 output_type='div'),
 
-    html_report_data = {
-        'analysis_date': analysis_date,
-        'total_samples': len(sampleManifest),
-        'positive_control_id':positive_control,
-        'negative_control_id': no_template_control,
-        'sample_type': type,
-        'sample_type_mismatch':sample_type_mismatch,
-        'strain_scheme_name':scheme_name,
-        'num_targets_detected':len(scheme_info['mutation_to_uid']) - len(missing_mutations),
-        'ave_kmer_freq':  kmer_freq_ave,
-        'stdev_kmer_freq': kmer_freq_stdev,
-        'count_failed_samples': num_fail_samples,
-        'failed_sample_ids': ', '.join([str(x) for x in failed_sample_ids]),
+            'mixed_target_plot_caption': FIGURE_CAPTIONS['mixed_target_plot_caption'],
 
-        'coverage_plot': plot(figure_or_data=plots['coverage'],include_plotlyjs=False,
-             output_type='div'),
-        'coverage_plot_caption': FIGURE_CAPTIONS['coverage_plot_caption'],
+            'missing_target_plot': plot(figure_or_data=plots['missing_features'],include_plotlyjs=False,
+                 output_type='div'),
 
-        'mixed_target_plot': plot(figure_or_data=plots['coverage_mixed'],include_plotlyjs=False,
-             output_type='div'),
+            'missing_target_plot_caption': FIGURE_CAPTIONS['missing_features_plot_caption'],
 
-        'mixed_target_plot_caption': FIGURE_CAPTIONS['mixed_target_plot_caption'],
+            'positive_control_found_targets': 0,
+            'positive_control_missing_targets':0,
+            'positive_control_mixed_targets': 0,
 
-        'missing_target_plot': plot(figure_or_data=plots['missing_features'],include_plotlyjs=False,
-             output_type='div'),
+            'negative_control_found_targets': len(found_no_template_uids),
+            'negative_control_missing_targets':0,
+            'negative_control_mixed_targets': 0,
 
-        'missing_target_plot_caption': FIGURE_CAPTIONS['missing_features_plot_caption'],
+            'num_genotypes_found': num_genotypes_found,
+            'genotypes_found': ', '.join([str(x) for x in genotypes_found]),
+            'genotype_abundance_plot': plot(figure_or_data=plots['genotype_abundance'],include_plotlyjs=False,
+                 output_type='div'),
+            'genotype_abundance_plot_caption': FIGURE_CAPTIONS['genotype_abundance_plot_caption'],
 
-        'positive_control_found_targets': 0,
-        'positive_control_missing_targets':0,
-        'positive_control_mixed_targets': 0,
+            'sample_mds':plot(figure_or_data=plots['mds'],include_plotlyjs=False,
+                 output_type='div'),
+            'sample_mds_caption':FIGURE_CAPTIONS['sample_mds_caption'],
 
-        'negative_control_found_targets': len(found_no_template_uids),
-        'negative_control_missing_targets':0,
-        'negative_control_mixed_targets': 0,
+            'sample_dendro':plot(figure_or_data=plots['sample_dendro'],include_plotlyjs=False,
+                 output_type='div'),
+            'sample_dendro_caption': FIGURE_CAPTIONS['sample_dendro_caption'],
 
-        'num_genotypes_found': num_genotypes_found,
-        'genotypes_found': ', '.join([str(x) for x in genotypes_found]),
-        'genotype_abundance_plot': plot(figure_or_data=plots['genotype_abundance'],include_plotlyjs=False,
-             output_type='div'),
-        'genotype_abundance_plot_caption': FIGURE_CAPTIONS['genotype_abundance_plot_caption'],
+            'feature_dendro':plot(figure_or_data=plots['feature_dendro'],include_plotlyjs=False,
+                 output_type='div'),
+            'feature_dendro_caption': FIGURE_CAPTIONS['feature_dendro_caption'],
 
-        'sample_mds':plot(figure_or_data=plots['mds'],include_plotlyjs=False,
-             output_type='div'),
-        'sample_mds_caption':FIGURE_CAPTIONS['sample_mds_caption'],
+            'analysis_parameters': analysis_parameters
 
-        'sample_dendro':plot(figure_or_data=plots['sample_dendro'],include_plotlyjs=False,
-             output_type='div'),
-        'sample_dendro_caption': FIGURE_CAPTIONS['sample_dendro_caption'],
+        }
 
-        'feature_dendro':plot(figure_or_data=plots['feature_dendro'],include_plotlyjs=False,
-             output_type='div'),
-        'feature_dendro_caption': FIGURE_CAPTIONS['feature_dendro_caption'],
-
-        'analysis_parameters': analysis_parameters
-
-    }
-
-    batch_sample_html_report(template_html, {'data':html_report_data}, report_summary)
+        batch_sample_html_report(template_html, {'data':html_report_data}, report_summary)
 

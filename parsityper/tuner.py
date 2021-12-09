@@ -323,8 +323,7 @@ def updateScheme(scheme_file,scheme_info,outfile):
             if not uid in rules:
                 rules[uid] = []
             state = scheme_info['uid_to_state'][uid]
-            if state == 'alt':
-                rules[uid].append(genotype)
+            rules[uid].append(genotype)
 
     for index,row in df.iterrows():
         uid = row['key']
@@ -347,8 +346,6 @@ def updateScheme(scheme_file,scheme_info,outfile):
         positive_genotypes = []
         if uid in rules:
             positive_genotypes = rules[uid]
-            #print("{}\t{}".format(uid,rules[uid]))
-
 
         entry['positive_genotypes'] = ','.join([str(x) for x in positive_genotypes])
         entry['seq_ids'] = ''
@@ -518,24 +515,22 @@ def run():
         gCount  = genotypeCounts[genotype]
         for uid in kmer_counts:
             state = scheme_info['uid_to_state'][uid]
-
             freq = kmer_counts[uid]
-
             perc_present = 0
             if gCount > 0:
                 perc_present = freq /  gCount
 
-            if perc_present >= min_alt_frac :
-
-                if state == 'ref':
-                    new_rules[genotype]['positive_ref'].append(uid)
-                else:
+            if perc_present >= min_alt_frac and state == 'alt':
                     new_rules[genotype]['positive_uids'].append(uid)
                     new_rules[genotype]['positive_alt'].append(uid)
-                    print("{}\t{}\t{}".format(uid,state,perc_present))
+
+            if perc_present >= min_ref_frac and state == 'ref':
+                new_rules[genotype]['positive_uids'].append(uid)
+                new_rules[genotype]['positive_ref'].append(uid)
+
         scheme_info['genotype_rule_sets'][genotype] = new_rules[genotype]
 
-    print(scheme_info['genotype_rule_sets']['A.1']['positive_alt'])
+
     genotype_conflicts_post = summarizeConflicts(sampleManifest, kmer_results, scheme_info, nthreads)
 
 
