@@ -612,7 +612,8 @@ def calc_genotype_frac(raw_kmer_counts,genotype_assigned_kmers,uid_to_mutation,m
     for genotype in genotype_assigned_kmers:
         mutations_involved = {}
         dna_names = []
-
+        if not isinstance(genotype_assigned_kmers[genotype],list):
+            continue
         for uid in genotype_assigned_kmers[genotype]:
             mutation_key = uid_to_mutation[uid]
             freq = raw_kmer_counts[uid]
