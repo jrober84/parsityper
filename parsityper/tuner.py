@@ -323,7 +323,8 @@ def updateScheme(scheme_file,scheme_info,outfile):
             if not uid in rules:
                 rules[uid] = []
             state = scheme_info['uid_to_state'][uid]
-            rules[uid].append(genotype)
+            if state == 'alt':
+                rules[uid].append(genotype)
 
     for index,row in df.iterrows():
         uid = row['key']
