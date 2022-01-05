@@ -39,7 +39,7 @@ def parse_args():
     parser.add_argument('--min_alt_frac', type=float, required=False,
                         help='Minimum fraction of isolates positive for mutation for it to be positive 0 - 1.0 (default=0.1)', default=0.95)
     parser.add_argument('--min_ref_frac', type=float, required=False,
-                        help='Minimum fraction of isolates positive for mutation for it to be positive 0 - 1.0 (default=0.1)', default=0.95)
+                        help='Minimum fraction of isolates positive for mutation for it to be positive 0 - 1.0 (default=0.1)', default=1)
     parser.add_argument('--min_positive_freq', type=int, required=False,
                         help='Minimum number of isolates positive for mutation for it to be valid for the scheme (default=1)', default=0)
     parser.add_argument('--max_frac_missing', type=float, required=False,
@@ -323,8 +323,7 @@ def updateScheme(scheme_file,scheme_info,outfile):
             if not uid in rules:
                 rules[uid] = []
             state = scheme_info['uid_to_state'][uid]
-            if state == 'alt':
-                rules[uid].append(genotype)
+            rules[uid].append(genotype)
 
     for index,row in df.iterrows():
         uid = row['key']
