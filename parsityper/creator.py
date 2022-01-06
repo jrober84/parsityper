@@ -8,9 +8,8 @@ from parsityper.helpers import init_console_logger, read_tsv, parse_reference_se
 find_snp_positions,  find_internal_gaps, count_kmers
 from parsityper.helpers import  read_fasta, get_aa_delta, generate_non_gap_position_lookup
 from parsityper.visualizations import dendrogram_visualization
-from parsityper.scheme import SCHEME_HEADER, parseScheme, constructSchemeLookups, detectAmbigGenotypes
-from parsityper.kmerSearch.kmerSearch import init_automaton_dict, perform_kmerSearch_fasta,process_kmer_results
-from parsityper.ext_tools.mash import mash_sample_comparisons
+from parsityper.scheme import SCHEME_HEADER
+from parsityper.kmerSearch.kmerSearch import init_automaton_dict, perform_kmerSearch_fasta
 from multiprocessing import Pool
 from parsityper.ext_tools.jellyfish import run_jellyfish_count,parse_jellyfish_counts
 from parsityper.kmerSearch.kmerSearch import  revcomp
@@ -31,6 +30,10 @@ def parse_args():
                         help='output directory')
     parser.add_argument('--prefix', type=str, required=False,
                         help='output file prefix',default='parsityper')
+    parser.add_argument('--min_ref_frac', type=float, required=False,
+                        help='Minimum fraction of isolates positive for reference base for it to be positive 0 - 1.0 (default=0.1)', default=1)
+    parser.add_argument('--min_alt_frac', type=float, required=False,
+                        help='Minimum fraction of isolates positive for mutation for it to be positive 0 - 1.0 (default=0.1)', default=1)
     parser.add_argument('--min_len', type=int, required=False,
                         help='Absolute minimum length of acceptable k-mer',default=18)
     parser.add_argument('--max_len', type=int, required=False,
@@ -49,10 +52,7 @@ def parse_args():
                         action='store_true')
     parser.add_argument('--iFrac', type=float, required=False,
                         help='fraction of bases needed for imputing ambiguous bases',default=0.9)
-    parser.add_argument('--min_ref_frac', type=float, required=False,
-                        help='Minimum fraction of isolates positive for reference base for it to be positive 0 - 1.0 (default=0.1)', default=1)
-    parser.add_argument('--min_alt_frac', type=float, required=False,
-                        help='Minimum fraction of isolates positive for mutation for it to be positive 0 - 1.0 (default=0.1)', default=1)
+
     return parser.parse_args()
 
 
@@ -91,9 +91,7 @@ def runKmerCounting(input_seqs,out_dir,kLen,n_threads=1):
     return kCount_files
 
 def getKmerCounts(input_seqs,out_dir,kLen,max_count=1,max_ambig=0,n_threads=1):
-    stime = time.time()
     kCount_files = runKmerCounting(input_seqs,out_dir,kLen,n_threads)
-    stime = time.time()
     kMers = {}
     for file in kCount_files:
         sample_id = os.path.basename(file).replace('.mers','')
