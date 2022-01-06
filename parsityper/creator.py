@@ -49,6 +49,10 @@ def parse_args():
                         action='store_true')
     parser.add_argument('--iFrac', type=float, required=False,
                         help='fraction of bases needed for imputing ambiguous bases',default=0.9)
+    parser.add_argument('--min_ref_frac', type=float, required=False,
+                        help='Minimum fraction of isolates positive for reference base for it to be positive 0 - 1.0 (default=0.1)', default=1)
+    parser.add_argument('--min_alt_frac', type=float, required=False,
+                        help='Minimum fraction of isolates positive for mutation for it to be positive 0 - 1.0 (default=0.1)', default=1)
     return parser.parse_args()
 
 
@@ -1010,6 +1014,8 @@ def run():
     min_len = cmd_args.min_len
     max_len = cmd_args.max_len
     max_ambig = cmd_args.max_ambig
+    min_ref_frac = cmd_args.min_ref_frac
+    min_alt_frac = cmd_args.min_alt_frac
     min_complexity = cmd_args.min_complexity
     max_missing = cmd_args.max_missing
     n_threads = cmd_args.n_threads
@@ -1141,31 +1147,46 @@ def run():
     #identify genotype shared kmers
     logger.info("Identifying shared kmers by genotype")
     shared_kmers = identify_shared_kmers(genotype_mapping,scheme,min_thresh=0.5,max_thresh=1)
-    positive_kmers = identify_shared_kmers(genotype_mapping,scheme,min_thresh=0.95,max_thresh=1)
-    partial_positive_kmers = identify_shared_kmers(genotype_mapping, scheme, min_thresh=0.01, max_thresh=0.94999)
-
+    positive_kmers_alt_thresh = identify_shared_kmers(genotype_mapping,scheme,min_thresh=min_alt_frac,max_thresh=1)
+    partial_positive_kmers_alt_thresh = identify_shared_kmers(genotype_mapping, scheme, min_thresh=1-min_alt_frac, max_thresh=min_alt_frac)
+    positive_kmers_ref_thresh = identify_shared_kmers(genotype_mapping, scheme, min_thresh=min_ref_frac, max_thresh=1)
+    partial_positive_kmers_ref_thresh = identify_shared_kmers(genotype_mapping, scheme, min_thresh=1 - min_ref_frac,
+                                                              max_thresh=min_ref_frac)
 
     #identify shared mutations
     shared_mutations = identify_shared_mutations(genotype_mapping, scheme, min_thresh=0.5, max_thresh=1)
-    positive_mutations = identify_shared_mutations(genotype_mapping, scheme, min_thresh=0.95,max_thresh=1)
-    partial_positive_mutations = identify_shared_mutations(genotype_mapping, scheme, min_thresh=0.01, max_thresh=0.94999)
+    positive_mutations = identify_shared_mutations(genotype_mapping, scheme, min_thresh=min_alt_frac,max_thresh=1)
+    partial_positive_mutations = identify_shared_mutations(genotype_mapping, scheme, min_thresh=1-min_alt_frac, max_thresh=min_alt_frac)
 
     #reorder datastructure to add diagnostic information to the scheme
     kmer_geno_assoc = {}
-
+    kmer_geno_assoc_ref = {}
     for genotype in shared_kmers:
         for uid in shared_kmers[genotype]:
             if not uid in kmer_geno_assoc:
                 kmer_geno_assoc[uid] = {'positive':[],'partial':[],'shared':[],'diagnostic':[]}
+                kmer_geno_assoc_ref[uid] = {'positive': [], 'partial': [], 'shared': [], 'diagnostic': []}
             kmer_geno_assoc[uid]['shared'].append(genotype)
-        for uid in positive_kmers[genotype]:
+            kmer_geno_assoc_ref[uid]['shared'].append(genotype)
+        for uid in positive_kmers_alt_thresh[genotype]:
             if not uid in kmer_geno_assoc:
                 kmer_geno_assoc[uid] = {'positive':[],'partial':[],'shared':[],'diagnostic':[]}
             kmer_geno_assoc[uid]['positive'].append(genotype)
-        for uid in partial_positive_kmers[genotype]:
+        for uid in partial_positive_kmers_alt_thresh[genotype]:
             if not uid in kmer_geno_assoc:
                 kmer_geno_assoc[uid] = {'positive':[],'partial':[],'shared':[],'diagnostic':[]}
-            kmer_geno_assoc[uid]['partial'].append(genotype)
+            if genotype not in kmer_geno_assoc[uid]['positive']:
+                kmer_geno_assoc[uid]['partial'].append(genotype)
+
+        for uid in positive_kmers_ref_thresh[genotype]:
+            if not uid in kmer_geno_assoc_ref:
+                kmer_geno_assoc_ref[uid] = {'positive':[],'partial':[],'shared':[],'diagnostic':[]}
+            kmer_geno_assoc_ref[uid]['positive'].append(genotype)
+        for uid in partial_positive_kmers_ref_thresh[genotype]:
+            if not uid in kmer_geno_assoc_ref:
+                kmer_geno_assoc_ref[uid] = {'positive':[],'partial':[],'shared':[],'diagnostic':[]}
+            if not genotype in kmer_geno_assoc_ref[uid]['positive']:
+                kmer_geno_assoc_ref[uid]['partial'].append(genotype)
 
     uid_index = {}
     #Add positive and partial groupings to scheme
@@ -1175,8 +1196,13 @@ def run():
                 uid = row['key']
                 uid_index[uid] = "{}.{}.{}".format(uid,row['dna_name'],row['state'])
                 if uid in kmer_geno_assoc:
-                    row['positive_genotypes'] = kmer_geno_assoc[uid]['positive']
-                    row['partial_genotypes'] = kmer_geno_assoc[uid]['partial']
+                    if state == 'alt':
+                        row['positive_genotypes'] = kmer_geno_assoc[uid]['positive']
+                        row['partial_genotypes'] = kmer_geno_assoc[uid]['partial']
+                    else:
+                        if uid in kmer_geno_assoc_ref:
+                            row['positive_genotypes'] = kmer_geno_assoc_ref[uid]['positive']
+                            row['partial_genotypes'] = kmer_geno_assoc_ref[uid]['partial']
 
     mutation_geno_association = {}
     for genotype in shared_mutations:
@@ -1231,11 +1257,10 @@ def run():
     for mutation_key in scheme:
         for state in scheme[mutation_key]:
             for row in scheme[mutation_key][state]:
+                row['seq_ids'] = []
                 #blank genotype rules for ref state because it results in too many failed calls
                 #Potentially change this to have different rules for ref and alt positivity
-                if state == 'ref':
-                    row['positive_genotypes'] = []
-                    row['partial_genotypes'] = []
+
                 row['mutation_key'] = mutation_key
                 if isinstance(row['positive_genotypes'],list):
                     row['positive_genotypes'].sort()
