@@ -607,7 +607,7 @@ def write_genotype_report(sample_genotype_results,scheme_info,outfile):
             fh.write("{}\n".format("\t".join([str(x) for x in row])))
     fh.close()
 
-def calc_genotype_frac(raw_kmer_counts,genotype_assigned_kmers,uid_to_mutation,mutation_to_uid,uid_to_dnaname,min_cov_frac):
+def calc_genotype_frac(raw_kmer_counts,genotype_assigned_kmers,uid_to_mutation,mutation_to_uid,uid_to_dnaname,uid_to_state,min_cov_frac):
     genotype_fracs = {}
     for genotype in genotype_assigned_kmers:
         mutations_involved = {}
@@ -617,18 +617,25 @@ def calc_genotype_frac(raw_kmer_counts,genotype_assigned_kmers,uid_to_mutation,m
         for uid in genotype_assigned_kmers[genotype]:
             mutation_key = uid_to_mutation[uid]
             freq = raw_kmer_counts[uid]
+            state = uid_to_state[uid]
             if not mutation_key in mutations_involved:
                 mutations_involved[mutation_key] = {'total':0,'pos': 0}
-            mutations_involved[mutation_key]['pos']+= freq
+            if state == 'alt':
+                mutations_involved[mutation_key]['pos']+= freq
             dna_names.append(uid_to_dnaname[uid])
+
         dna_names = list(set(dna_names))
         fracs = []
         for mutation_key in mutations_involved:
             for uid in mutation_to_uid[mutation_key]:
                 freq = raw_kmer_counts[uid]
                 mutations_involved[mutation_key]['total'] += freq
+
+            frac = 0
             if mutations_involved[mutation_key]['total'] > 0:
                 frac = mutations_involved[mutation_key]['pos']/mutations_involved[mutation_key]['total']
+                if frac == 0:
+                    frac = 1
                 if frac >= min_cov_frac and frac <= 1 - min_cov_frac:
                     fracs.append(frac)
 
@@ -636,6 +643,7 @@ def calc_genotype_frac(raw_kmer_counts,genotype_assigned_kmers,uid_to_mutation,m
         if len(fracs) > 0:
             ave_frac = sum(fracs) / len(fracs)
         genotype_fracs[genotype] = {'ave_frac':ave_frac,'mutations':dna_names}
+
     return genotype_fracs
 
 def create_sample_comparison_plots(scheme_info,kmer_results_df,labels,mds_outfile,dendro_outfile,feature_outfile):
@@ -1295,7 +1303,8 @@ def run():
             genotype_mutation_fracs = calc_genotype_frac(kmer_results[sample_id]['raw_kmer_freq'],sample_genotype_results[sample_id]['called_genotypes'],
                                                          scheme_info['uid_to_mutation'],
                                                          scheme_info['mutation_to_uid'],
-                                                         scheme_info['uid_to_dna_name'],min_cov_frac)
+                                                         scheme_info['uid_to_dna_name'],
+                                                         scheme_info['uid_to_state'],min_cov_frac)
             pGenotype = []
             pGenotype_frac = - 1
             for geno in genotype_mutation_fracs:
@@ -1419,11 +1428,9 @@ def run():
                  output_type='div'),
 
             'missing_target_plot_caption': FIGURE_CAPTIONS['missing_features_plot_caption'],
-
             'positive_control_found_targets': 0,
             'positive_control_missing_targets':0,
             'positive_control_mixed_targets': 0,
-
             'negative_control_found_targets': len(found_no_template_uids),
             'negative_control_missing_targets':0,
             'negative_control_mixed_targets': 0,
