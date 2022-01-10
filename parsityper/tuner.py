@@ -465,7 +465,7 @@ def batch_process_genotype_seqs(sampleManifest, genotypeMap, scheme_info, nthrea
         for sample_id in genotypeMap[genotype]:
             subset[sample_id] = sampleManifest[sample_id]
         report_sample_kmer_profiles = os.path.join(outdir,"{}.kmer.profile".format(genotype))
-        result = process_genotype_seqs(genotype, sampleManifest, scheme_info, nthreads, min_cov, report_sample_kmer_profiles,
+        result = process_genotype_seqs(genotype, subset, scheme_info, nthreads, min_cov, report_sample_kmer_profiles,
                               min_cov_frac, min_alt_frac, min_ref_frac, max_frac_missing)
         rules[genotype] = result['rules']
 
