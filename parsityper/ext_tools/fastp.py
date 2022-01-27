@@ -2,6 +2,8 @@ import os.path
 import json
 from parsityper.ext_tools import run_command
 
+
+
 def run_fastp(read_set,out_dir,out_prefix,min_read_len=0,max_read_len=0,trim_front_bp=0,trim_tail_bp=0,report_only=True,dedup=False,merge_reads=False,n_threads=1):
     json = os.path.join(out_dir,"{}.json".format(out_prefix))
     html = os.path.join(out_dir, "{}.html".format(out_prefix))

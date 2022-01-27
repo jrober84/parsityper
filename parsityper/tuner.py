@@ -133,44 +133,24 @@ def summarizeConflicts(sampleManifest,kmer_results,scheme_info,nthreads=1):
             genotype_conflicts[genotype][uid]+=1
     return genotype_conflicts
 
-def process_rawSamples(sampleManifest,scheme_info,nthreads,min_cov,report_sample_kmer_profiles):
-    #Identify kmers in each sample
-    if nthreads > 1:
-        pool = Pool(processes=nthreads)
+def process_rawSamples(sampleManifest,scheme_info,nthreads,min_cov,report_sample_kmer_profiles,aho,n_threads):
     logging.info("Performing kmer searching on {} samples with {} threads".format(len(sampleManifest) ,nthreads))
 
     # Init Ahocorasak automation objects
     logging.info("Initializing aho-corasick automation")
-    aho = {'scheme': init_automaton_dict(scheme_info['uid_to_kseq'])}
+
     kmer_results = {}
     for sampleID in sampleManifest:
         seq_files = sampleManifest[sampleID]['raw_seq_files']
         fileType = sampleManifest[sampleID]['file_type']
-
-        if nthreads == 1:
-            if fileType == 'fastq':
-                kmer_results[sampleID] = perform_kmerSearch_fastq(scheme_info['uid_to_kseq'],
-                                                                  scheme_info['kseq_to_uids'],
-                                                                  aho['scheme'], seq_files)
-            else:
-                kmer_results[sampleID] = perform_kmerSearch_fasta(scheme_info['uid_to_kseq'],
-                                                                  scheme_info['kseq_to_uids'],
-                                                                  aho['scheme'], read_fasta(seq_files[0]), min_cov)
+        if fileType == 'fastq':
+            kmer_results[sampleID] = perform_kmerSearch_fastq(scheme_info['uid_to_kseq'],
+                                                              scheme_info['kseq_to_uids'],
+                                                              aho['scheme'], seq_files)
         else:
-            if fileType == 'fastq':
-                kmer_results[sampleID] = pool.apply_async(perform_kmerSearch_fastq, (
-                    scheme_info['uid_to_kseq'], scheme_info['kseq_to_uids'], aho['scheme'], seq_files))
-            else:
-                kmer_results[sampleID] = pool.apply_async(perform_kmerSearch_fasta,
-                                                          (scheme_info['uid_to_kseq'], scheme_info['kseq_to_uids'],
-                                                           aho['scheme'], read_fasta(seq_files[0]), min_cov))
-
-    # Extract results in multithreaded mode
-    if nthreads > 1:
-        pool.close()
-        pool.join()
-        for sampleID in kmer_results:
-            kmer_results[sampleID] = kmer_results[sampleID].get()
+            kmer_results[sampleID] = perform_kmerSearch_fasta(scheme_info['uid_to_kseq'],
+                                                              scheme_info['kseq_to_uids'],
+                                                              aho['scheme'], read_fasta(seq_files[0]), min_cov)
 
     logging.info("Kmer searching complete")
     logging.info("Creating kmer profiles")
@@ -440,9 +420,8 @@ def identifyRuleSet(genotype,genotype_count,genotype_kmer_counts,kmer_results,sc
 
     return new_rules[genotype]
 
-def process_genotype_seqs(genotype, sampleManifest, scheme_info, nthreads, min_cov, report_sample_kmer_profiles,min_cov_frac,min_alt_frac,min_ref_frac,max_frac_missing):
-    kmer_results = process_rawSamples(sampleManifest, scheme_info, nthreads, min_cov, report_sample_kmer_profiles)
-    num_samples = len(sampleManifest)
+def process_genotype_seqs(genotype, sampleManifest, scheme_info, nthreads, min_cov, report_sample_kmer_profiles,min_cov_frac,min_alt_frac,min_ref_frac,max_frac_missing,aho,n_threads):
+    kmer_results = process_rawSamples(sampleManifest, scheme_info, nthreads, min_cov, report_sample_kmer_profiles,aho,n_threads)
 
     #process kmer results
     logging.info("Processing kmer results")
@@ -456,23 +435,70 @@ def process_genotype_seqs(genotype, sampleManifest, scheme_info, nthreads, min_c
                     kmer_results, scheme_info, min_cov, min_alt_frac,
                     min_ref_frac),'mutation_sites_missing':scheme_kmer_result_summary['dataset']['mutation_sites_missing']}
 
-def batch_process_genotype_seqs(sampleManifest, genotypeMap, scheme_info, nthreads, min_cov, outdir,min_cov_frac,min_alt_frac,min_ref_frac,max_frac_missing):
+
+def batch_process_genotype_seqs(sampleManifest, genotypeMap, scheme_info, nthreads, min_cov, outdir,min_cov_frac,min_alt_frac,min_ref_frac,max_frac_missing,n_threads=1):
     rules = {}
     mutation_sites_missing = {}
-    invalid_uids = []
+    num_samples = len(sampleManifest)
+    num_genotypes = len(genotypeMap)
+    aho = {'scheme': init_automaton_dict(scheme_info['uid_to_kseq'])}
+
+
+    if n_threads > 1:
+        pool = Pool(processes=nthreads)
+
+    results = []
+    genotypes = list(genotypeMap.keys())
+    occupied_threads = 0
     for genotype in genotypeMap:
         subset = {}
         for sample_id in genotypeMap[genotype]:
             subset[sample_id] = sampleManifest[sample_id]
-        report_sample_kmer_profiles = os.path.join(outdir,"{}.kmer.profile".format(genotype))
-        result = process_genotype_seqs(genotype, subset, scheme_info, nthreads, min_cov, report_sample_kmer_profiles,
-                              min_cov_frac, min_alt_frac, min_ref_frac, max_frac_missing)
-        rules[genotype] = result['rules']
+        num_geno = len(subset)
+        report_sample_kmer_profiles = os.path.join(outdir, "{}.kmer.profile".format(genotype))
+        if nthreads == 1:
+            result = process_genotype_seqs(genotype, subset, scheme_info, nthreads, min_cov, report_sample_kmer_profiles,
+                              min_cov_frac, min_alt_frac, min_ref_frac, max_frac_missing,aho,n_threads)
+            rules[genotype] = result['rules']
+            for mutation_key in result['mutation_sites_missing']:
+                if not mutation_key in mutation_sites_missing:
+                    mutation_sites_missing[mutation_key] = []
+                mutation_sites_missing[mutation_key] += result['mutation_sites_missing'][mutation_key]
+            del(result)
+        else:
+            if num_geno < 50 and num_genotypes > 1:
+                sub_n_threads = 1
+            elif num_genotypes == 1:
+                sub_n_threads = n_threads
+            else:
+                sub_n_threads = n_threads
 
-        for mutation_key in result['mutation_sites_missing']:
-            if not mutation_key in mutation_sites_missing:
-                mutation_sites_missing[mutation_key] = []
-            mutation_sites_missing[mutation_key]+=result['mutation_sites_missing'][mutation_key]
+            results.append( pool.apply_async(process_genotype_seqs,
+                                             (genotype, subset, scheme_info, nthreads, min_cov, report_sample_kmer_profiles,
+                                                min_cov_frac, min_alt_frac, min_ref_frac, max_frac_missing,aho,sub_n_threads)))
+            occupied_threads+=sub_n_threads
+            print("{}\t{}\t{}".format(occupied_threads, sub_n_threads,n_threads))
+            if occupied_threads >= n_threads:
+                pool.close()
+                pool.join()
+                pool = Pool(processes=nthreads)
+                occupied_threads=0
+
+
+    # Extract results in multithreaded mode
+    if nthreads > 1:
+        pool.close()
+        pool.join()
+
+    if len(results) > 0:
+        for i in range(0,len(genotypes)):
+            result = results[i].get()
+            genotype = genotypes[i]
+            rules[genotype] = result['rules']
+            for mutation_key in result['mutation_sites_missing']:
+                if not mutation_key in mutation_sites_missing:
+                    mutation_sites_missing[mutation_key] = []
+                mutation_sites_missing[mutation_key] += result['mutation_sites_missing'][mutation_key]
 
     return {'rules':rules,'mutation_sites_missing':mutation_sites_missing}
 
@@ -537,7 +563,7 @@ def run():
 
     if profile == None:
         result = batch_process_genotype_seqs(sampleManifest, genotypeMap, scheme_info, nthreads, min_cov, outdir, min_cov_frac,
-                                    min_alt_frac, min_ref_frac, max_frac_missing)
+                                    min_alt_frac, min_ref_frac, max_frac_missing,nthreads)
         for genotype in genotypeMap:
             scheme_info['genotype_rule_sets'][genotype] = result['rules'][genotype]
         missing_mutation_sites = result['mutation_sites_missing']
