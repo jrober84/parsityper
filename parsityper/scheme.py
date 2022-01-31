@@ -173,7 +173,7 @@ def constructSchemeLookups(scheme):
     for g in kmer_profiles:
         kmer_profiles[g] = [0] * len(kmers)
         mutation_profiles[g] = [0] * len(mutations)
-        profiles['genotype_rule_sets'][g] = {'positive_uids':[],'positive_ref':[],'positive_alt':[]}
+        profiles['genotype_rule_sets'][g] = {'positive_uids':[],'positive_ref':[],'positive_alt':[],'partial_uids':[],'partial_ref':[],'partial_alt':[]}
 
 
     #populate the profiles
@@ -193,6 +193,11 @@ def constructSchemeLookups(scheme):
                         mutation_profiles[g][i] = 1
                     kmer_profiles[g][uid] = 1
                 for g in par:
+                    if state == 'ref':
+                        profiles['genotype_rule_sets'][g]['partial_ref'].append(uid)
+                    else:
+                        profiles['genotype_rule_sets'][g]['partial_alt'].append(uid)
+
                     mutation_profiles[g][i] = 0.5
                     kmer_profiles[g][uid] = 0.5
 
@@ -200,8 +205,6 @@ def constructSchemeLookups(scheme):
     profiles['uid_to_kseq'] = kmers
     profiles['kmer_profiles'] = kmer_profiles
     profiles['mutation_profiles'] = mutation_profiles
-
-    #print(profiles['genotype_rule_sets']['B.1.1.529']['positive_uids'])
 
     return profiles
 

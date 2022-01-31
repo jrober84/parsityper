@@ -268,17 +268,25 @@ def compare_sample_to_genotypes(data,genotype_results,scheme_info,outfile):
         exclude_sites = exclude_sites.union(set(uids_to_add))
 
     for genotype in genotypes:
-
         dist = 0
-        uids = (valid_uids & set(geno_rules[genotype]['positive_uids'])) - exclude_sites
-        mismatches = uids - detected_scheme_kmers
+        informative_uids = set(geno_rules[genotype]['positive_uids']) | set(geno_rules[genotype]['partial_uids']) - exclude_sites
 
+        matched = list(detected_scheme_kmers & informative_uids & detected_scheme_kmers)
 
+        mismatches = list((valid_uids - set(matched)) & detected_scheme_kmers)
 
-        matched = list(detected_scheme_kmers & (uids - mismatches))
+        #if genotype == 'B.1.1.7':
+        #    print(sorted(informative_uids))
+        #    print(sorted(matched))
+        #    print(sorted(mismatches))
+        #    sys.exit()
+
+        #uids = (valid_uids & set(geno_rules[genotype]['positive_uids'])) - exclude_sites
+        #uids = uids - set(geno_rules[genotype]['partial_uids'])
+        #mismatches = uids - detected_scheme_kmers
+        #matched = list(detected_scheme_kmers & (uids - mismatches))
         positive_alt_match = list(set(geno_rules[genotype]['positive_alt']) & set(matched ))
         positive_alt_mismatch = list(set(geno_rules[genotype]['positive_alt']) & set(mismatches))
-
         genotype_results[genotype]['matched_pos_kmers'] = matched
         if len(uids) > 0:
             dist =  len(mismatches) / len(uids)
@@ -401,7 +409,6 @@ def call_compatible_genotypes(scheme_info, kmer_results, outdir, n_threads=1):
             if not genotype_results[sample_id][genotype] or not genotype_results[sample_id][genotype]['is_compatible']:
                 continue
             valid_genotypes[genotype] = genotype_results[sample_id][genotype]['kmer_genotype_dist']
-
         #order valid genotypes by lowest kmer distance
         valid_genotypes = {k: v for k, v in sorted(valid_genotypes.items(), key=lambda item: item[1])}
         genotypes_with_exclusive_kmers = {}

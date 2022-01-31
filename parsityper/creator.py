@@ -33,7 +33,7 @@ def parse_args():
     parser.add_argument('--min_ref_frac', type=float, required=False,
                         help='Minimum fraction of isolates positive for reference base for it to be positive 0 - 1.0 (default=0.1)', default=1)
     parser.add_argument('--min_alt_frac', type=float, required=False,
-                        help='Minimum fraction of isolates positive for mutation for it to be positive 0 - 1.0 (default=0.1)', default=1)
+                        help='Minimum fraction of isolates positive for mutation for it to be positive 0 - 1.0 (default=0.1)', default=0.95)
     parser.add_argument('--min_len', type=int, required=False,
                         help='Absolute minimum length of acceptable k-mer',default=18)
     parser.add_argument('--max_len', type=int, required=False,
@@ -1143,6 +1143,7 @@ def run():
         d.build_dendrogram(labels, kmer_content_profile_df,
                                       genotype_dendrogram)
     #identify genotype shared kmers
+    min_par_frac = max([1-min_alt_frac,1-min_ref_frac])
     logger.info("Identifying shared kmers by genotype")
     shared_kmers = identify_shared_kmers(genotype_mapping,scheme,min_thresh=0.5,max_thresh=1)
     positive_kmers_alt_thresh = identify_shared_kmers(genotype_mapping,scheme,min_thresh=min_alt_frac,max_thresh=1)
@@ -1175,7 +1176,6 @@ def run():
                 kmer_geno_assoc[uid] = {'positive':[],'partial':[],'shared':[],'diagnostic':[]}
             if genotype not in kmer_geno_assoc[uid]['positive']:
                 kmer_geno_assoc[uid]['partial'].append(genotype)
-
         for uid in positive_kmers_ref_thresh[genotype]:
             if not uid in kmer_geno_assoc_ref:
                 kmer_geno_assoc_ref[uid] = {'positive':[],'partial':[],'shared':[],'diagnostic':[]}

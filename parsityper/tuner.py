@@ -1,5 +1,5 @@
 #!/usr/bin/python
-
+import sys
 from argparse import (ArgumentParser)
 import logging, os, re, datetime, time
 import pandas as pd
@@ -35,7 +35,7 @@ def parse_args():
     parser.add_argument('--min_cov_frac', type=float, required=False,
                         help='Minimum percentage of total pool required for k-mer detection range 0 - 1.0 (default=0.05)', default=0.05)
     parser.add_argument('--min_partial_frac', type=float, required=False,
-                        help='Minimum fraction of isolates positive for mutation for it to be partial 0 - 1.0 (default=0.1)', default=0.1)
+                        help='Minimum fraction of isolates positive for mutation for it to be partial 0 - 1.0 (default=0.1)', default=0.05)
     parser.add_argument('--min_alt_frac', type=float, required=False,
                         help='Minimum fraction of isolates positive for mutation for it to be positive 0 - 1.0 (default=0.1)', default=0.95)
     parser.add_argument('--min_ref_frac', type=float, required=False,
@@ -296,14 +296,18 @@ def updateScheme(scheme_file,scheme_info,outfile):
     num_fields = len(SCHEME_HEADER)
     new_uid_key = 0
     rules = {}
+    partial_rules = {}
 
     for genotype in scheme_info['genotype_rule_sets']:
         uids = scheme_info['genotype_rule_sets'][genotype]['positive_uids']
         for uid in uids:
             if not uid in rules:
                 rules[uid] = []
-            state = scheme_info['uid_to_state'][uid]
             rules[uid].append(genotype)
+        for uid in scheme_info['genotype_rule_sets'][genotype]['partial_uids']:
+            if not uid in partial_rules:
+                partial_rules[uid] = []
+            partial_rules[uid].append(genotype)
 
     for index,row in df.iterrows():
         uid = row['key']
@@ -324,12 +328,18 @@ def updateScheme(scheme_file,scheme_info,outfile):
                 entry[field] = ''
         entry['key'] = new_uid_key
         positive_genotypes = []
+        partial_genotypes = []
         if uid in rules:
-            positive_genotypes = rules[uid]
+            positive_genotypes = [str(x) for x in rules[uid]]
+            positive_genotypes.sort()
 
-        entry['positive_genotypes'] = ','.join([str(x) for x in positive_genotypes])
+        if uid in partial_rules:
+            partial_genotypes = [str(x) for x in partial_rules[uid]]
+            partial_genotypes.sort()
+
+        entry['positive_genotypes'] = ','.join(positive_genotypes)
         entry['seq_ids'] = ''
-        entry['partial_genotypes'] = ''
+        entry['partial_genotypes'] = ','.join(partial_genotypes)
 
         record = []
         for i in range(0,num_fields):
@@ -397,11 +407,11 @@ def compare_sample_to_genotype(data,genotype,genotype_results,scheme_info):
 
     return results
 
-def identifyRuleSet(genotype,genotype_count,genotype_kmer_counts,kmer_results,scheme_info,min_cov,min_alt_frac,min_ref_frac):
+def identifyRuleSet(genotype,genotype_count,genotype_kmer_counts,kmer_results,scheme_info,min_cov,min_alt_frac,min_ref_frac,min_partial_frac):
     scheme_kmer_result_summary = {'genotypes' : {}}
     scheme_kmer_result_summary['genotypes'][genotype] = summarize_samples(kmer_results, scheme_info, min_cov)
     new_rules = {}
-    new_rules[genotype] = {'positive_uids': [], 'positive_ref': [], 'positive_alt': []}
+    new_rules[genotype] = {'positive_uids': [], 'positive_ref': [], 'positive_alt': [],'partial_uids': [], 'partial_ref': [], 'partial_alt': []}
 
     for uid in genotype_kmer_counts:
         state = scheme_info['uid_to_state'][uid]
@@ -413,14 +423,20 @@ def identifyRuleSet(genotype,genotype_count,genotype_kmer_counts,kmer_results,sc
         if perc_present >= min_alt_frac and state == 'alt':
             new_rules[genotype]['positive_uids'].append(uid)
             new_rules[genotype]['positive_alt'].append(uid)
+        elif perc_present >= min_partial_frac  and state == 'alt':
+            new_rules[genotype]['partial_uids'].append(uid)
+            new_rules[genotype]['partial_alt'].append(uid)
 
         if perc_present >= min_ref_frac and state == 'ref':
             new_rules[genotype]['positive_uids'].append(uid)
             new_rules[genotype]['positive_ref'].append(uid)
+        elif perc_present >= min_partial_frac  and state == 'ref':
+            new_rules[genotype]['partial_uids'].append(uid)
+            new_rules[genotype]['partial_ref'].append(uid)
 
     return new_rules[genotype]
 
-def process_genotype_seqs(genotype, sampleManifest, scheme_info, nthreads, min_cov, report_sample_kmer_profiles,min_cov_frac,min_alt_frac,min_ref_frac,max_frac_missing,aho,n_threads):
+def process_genotype_seqs(genotype, sampleManifest, scheme_info, nthreads, min_cov, report_sample_kmer_profiles,min_cov_frac,min_alt_frac,min_ref_frac,min_partial_frac,aho,n_threads):
     kmer_results = process_rawSamples(sampleManifest, scheme_info, nthreads, min_cov, report_sample_kmer_profiles,aho,n_threads)
 
     #process kmer results
@@ -433,10 +449,10 @@ def process_genotype_seqs(genotype, sampleManifest, scheme_info, nthreads, min_c
     return {'rules':identifyRuleSet(genotype, len(sampleManifest),
                     scheme_kmer_result_summary['genotypes'][genotype]['kmer_freqs'],
                     kmer_results, scheme_info, min_cov, min_alt_frac,
-                    min_ref_frac),'mutation_sites_missing':scheme_kmer_result_summary['dataset']['mutation_sites_missing']}
+                    min_ref_frac,min_partial_frac),'mutation_sites_missing':scheme_kmer_result_summary['dataset']['mutation_sites_missing']}
 
 
-def batch_process_genotype_seqs(sampleManifest, genotypeMap, scheme_info, nthreads, min_cov, outdir,min_cov_frac,min_alt_frac,min_ref_frac,max_frac_missing,n_threads=1):
+def batch_process_genotype_seqs(sampleManifest, genotypeMap, scheme_info, nthreads, min_cov, outdir,min_cov_frac,min_alt_frac,min_ref_frac,min_partial_frac,n_threads=1):
     rules = {}
     mutation_sites_missing = {}
     num_samples = len(sampleManifest)
@@ -458,7 +474,7 @@ def batch_process_genotype_seqs(sampleManifest, genotypeMap, scheme_info, nthrea
         report_sample_kmer_profiles = os.path.join(outdir, "{}.kmer.profile".format(genotype))
         if nthreads == 1:
             result = process_genotype_seqs(genotype, subset, scheme_info, nthreads, min_cov, report_sample_kmer_profiles,
-                              min_cov_frac, min_alt_frac, min_ref_frac, max_frac_missing,aho,n_threads)
+                              min_cov_frac, min_alt_frac, min_ref_frac, min_partial_frac,aho,n_threads)
             rules[genotype] = result['rules']
             for mutation_key in result['mutation_sites_missing']:
                 if not mutation_key in mutation_sites_missing:
@@ -475,9 +491,8 @@ def batch_process_genotype_seqs(sampleManifest, genotypeMap, scheme_info, nthrea
 
             results.append( pool.apply_async(process_genotype_seqs,
                                              (genotype, subset, scheme_info, nthreads, min_cov, report_sample_kmer_profiles,
-                                                min_cov_frac, min_alt_frac, min_ref_frac, max_frac_missing,aho,sub_n_threads)))
+                                                min_cov_frac, min_alt_frac, min_ref_frac, min_partial_frac,aho,sub_n_threads)))
             occupied_threads+=sub_n_threads
-            print("{}\t{}\t{}".format(occupied_threads, sub_n_threads,n_threads))
             if occupied_threads >= n_threads:
                 pool.close()
                 pool.join()
@@ -563,7 +578,8 @@ def run():
 
     if profile == None:
         result = batch_process_genotype_seqs(sampleManifest, genotypeMap, scheme_info, nthreads, min_cov, outdir, min_cov_frac,
-                                    min_alt_frac, min_ref_frac, max_frac_missing,nthreads)
+                                    min_alt_frac, min_ref_frac, min_partial_frac,nthreads)
+
         for genotype in genotypeMap:
             scheme_info['genotype_rule_sets'][genotype] = result['rules'][genotype]
         missing_mutation_sites = result['mutation_sites_missing']
@@ -573,7 +589,6 @@ def run():
         sample_list = kmer_results_df.columns.tolist()
         #TODO implement profile check
 
-    #print(missing_mutation_sites)
 
     if not only_update:
         #filter out mutation sites and kmers which are not missing in too many samples
