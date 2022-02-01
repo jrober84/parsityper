@@ -32,12 +32,12 @@ def merge_profile(files,outfile):
 
 def merge_scheme(files,outfile):
     rules = {}
+    partial_rules = {}
     files.sort()
     lengths = []
     for scheme_file in files:
         logging.info("processing file: {}".format(scheme_file))
         scheme_info = constructSchemeLookups(parseScheme(scheme_file))
-        print("{}\t{}".format(scheme_file,len(scheme_info['uid_to_kseq'])))
         lengths.append(len(scheme_info['uid_to_kseq']))
         for genotype in scheme_info['genotype_rule_sets']:
             uids = scheme_info['genotype_rule_sets'][genotype]['positive_uids']
@@ -46,6 +46,13 @@ def merge_scheme(files,outfile):
                 if not kmer in rules:
                     rules[kmer] = []
                 rules[kmer].append(genotype)
+
+            uids = scheme_info['genotype_rule_sets'][genotype]['partial_uids']
+            for uid in uids:
+                kmer = scheme_info['uid_to_kseq'][uid]
+                if not kmer in partial_rules:
+                    partial_rules[kmer] = []
+                partial_rules[kmer].append(genotype)
     fh = open(outfile,'w')
     fh.write("{}\n".format("\t".join(SCHEME_HEADER)))
     df = pd.read_csv(scheme_file, sep="\t", header=0)
@@ -55,7 +62,6 @@ def merge_scheme(files,outfile):
     new_uid_key = 0
     for index,row in df.iterrows():
         seq = row['unalign_kseq']
-
         entry = {}
         for field in SCHEME_HEADER:
             if field in columns:
@@ -72,15 +78,20 @@ def merge_scheme(files,outfile):
         positive_genotypes = list(set([str(x) for x in positive_genotypes]))
         positive_genotypes.sort()
         entry['positive_genotypes'] = ','.join(positive_genotypes)
+        partial_genotypes = []
+        if seq in partial_rules:
+            partial_genotypes = partial_rules[seq]
+        partial_genotypes = list(set([str(x) for x in partial_genotypes]))
+        partial_genotypes.sort()
+
         entry['seq_ids'] = ''
-        entry['partial_genotypes'] = ''
+        entry['partial_genotypes'] = ','.join(partial_genotypes)
 
         record = []
         for i in range(0,num_fields):
             record.append(entry[SCHEME_HEADER[i]])
         fh.write("{}\n".format("\t".join([str(x) for x in record])))
         new_uid_key+=1
-    print(set(lengths))
     fh.close()
     return
 

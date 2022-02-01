@@ -1271,8 +1271,6 @@ def run():
                     row['seq_ids'] = ','.join([str(x) for x in row['seq_ids']])
 
 
-
-
     #write the final scheme to a file
     logger.info("Writting completed scheme")
     print_scheme(scheme, scheme_file,SCHEME_HEADER)

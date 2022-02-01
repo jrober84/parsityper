@@ -1,3 +1,4 @@
+import logging
 import sys,time
 
 import pandas as pd
@@ -47,6 +48,7 @@ SCHEME_HEADER = [
 def parseScheme(scheme_file):
     scheme = {}
     df = pd.read_csv(scheme_file,sep="\t",header=0)
+    uid = -1
     for row in df.itertuples():
         mutation_key = row.mutation_key
         dna_name = row.dna_name
@@ -69,7 +71,11 @@ def parseScheme(scheme_file):
         variant_end = row.unalign_variant_end
         ref_state = row.ref_state
         alt_state = row.alt_state
-       # seq_ids = row.seq_ids
+
+        if uid !=-1:
+            if row.key - uid != 1:
+                logging.ERROR("The scheme unique id column is not sequential offending keys {}..{}".format(uid,row.key))
+                sys.exit()
         uid = row.key
         aa_name = row.aa_name
         is_cds = row.is_cds
@@ -88,7 +94,6 @@ def parseScheme(scheme_file):
             'variant_end':variant_end,
             'ref_state':ref_state,
             'alt_state':alt_state,
-           # 'seq_ids':seq_ids,
             'positive_genotypes':positive_genotypes,
             'partial_genotypes':partial_genotypes,
             'seq':seq
@@ -193,6 +198,7 @@ def constructSchemeLookups(scheme):
                         mutation_profiles[g][i] = 1
                     kmer_profiles[g][uid] = 1
                 for g in par:
+                    profiles['genotype_rule_sets'][g]['partial_uids'].append(uid)
                     if state == 'ref':
                         profiles['genotype_rule_sets'][g]['partial_ref'].append(uid)
                     else:

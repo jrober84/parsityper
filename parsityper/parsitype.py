@@ -16,7 +16,7 @@ tasks = {
     'tuner': 'Train a kmer scheme on labeled genotype data to derive kmer patterns for genotypes',
     'validator': 'Validate that scheme is properly formated and can theoretically identify each genotype unambiguously',
     'benchmark': 'Simulate mixed samples and benchmark typing performance',
-    'combiner': 'Combine scheme rule sets from multiple tuner runs or kmer profiles from multiple typing runs',
+    'combine': 'Combine scheme rule sets from multiple tuner runs or kmer profiles from multiple typing runs',
     'test': 'Test parsityper functionality on a small dataset',
     'version': 'Print version and exit',
 }
@@ -28,6 +28,7 @@ ordered_tasks = [
     'tuner',
     'benchmark',
     'validator',
+    'combine',
     'test',
     'version'
 ]
