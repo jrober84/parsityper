@@ -55,7 +55,7 @@ def compare_profiles(profile_1,profile_2):
 
 def validate_genotype_rules(profiles,n_threads=1):
     num_genotypes = len(profiles)
-    genotypes = list(profiles.keys())
+    genotypes = sorted(list(profiles.keys()))
     issues = {}
     for i in range(0,num_genotypes):
         sample_id_1 = genotypes[i]
@@ -69,6 +69,7 @@ def validate_genotype_rules(profiles,n_threads=1):
                 if not sample_id_1 in issues:
                     issues[sample_id_1] = []
                 issues[sample_id_1].append(sample_id_2)
+                print("{}\t{}\t{}".format(sample_id_1,sample_id_2,dist))
     return issues
 
 def validate_typer_dir(files):
@@ -129,16 +130,7 @@ def calc_genotype_metrics(ground_truth,sample_assignments):
         recall = metrics[genotype]['conservative_TP'] / (metrics[genotype]['conservative_TP'] + metrics[genotype]['conservative_FN'])
         metrics[genotype]['conservative_F1'] = 2 * (precision - recall ) / (precision + recall )
 
-
-
-
-
-
-
-
-
-
-    return
+    return metrics
 
 
 
@@ -158,9 +150,6 @@ def run():
     outdir = cmd_args.outdir
     detection_limit = min_cov
     logger = init_console_logger(2)
-    scheme_dict = {}
-    scheme_df = read_tsv(scheme_file)
-    genotypes = []
 
     # initialize analysis directory
     if not os.path.isdir(outdir):
@@ -185,7 +174,7 @@ def run():
     fh.write("\n".join(out_str))
     fh.close()
     del(collisions)
-
+    sys.exit()
     #validate typer files
     profile_file = os.path.join(input_dir, "{}_analysis.sample.kmer.profiles.txt".format(prefix))
     typer_file  = os.path.join(input_dir,"{}_analysis.sample_composition.report.summary.txt".format(prefix))
@@ -204,3 +193,5 @@ def run():
     ground_truth = dict(zip(meta_df.sample_id, meta_df.genotype))
     typer_df = pd.read_csv(profile_file,sep="\t",header=0)
     sample_assignments = dict(zip(typer_df.sample_id, typer_df.compatible_genotypes))
+    metrics = calc_genotype_metrics(ground_truth, sample_assignments)
+    print(metrics)

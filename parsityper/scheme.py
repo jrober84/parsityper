@@ -126,6 +126,7 @@ def constructSchemeLookups(scheme):
         'mutation_to_uid': {},
         'kmer_profiles':{},
         'mutation_profiles': {},
+        'mutation_positions':{},
         'min_kmer_len':100000,
         'max_kmer_len':0
     }
@@ -184,6 +185,7 @@ def constructSchemeLookups(scheme):
     #populate the profiles
     for i in range(0,len(mutations)):
         mutation_key = mutations[i]
+        profiles['mutation_positions'][mutation_key] = i
         for state in scheme[mutation_key]:
             for uid in scheme[mutation_key][state]:
                 pos = scheme[mutation_key][state][uid]['positive_genotypes']

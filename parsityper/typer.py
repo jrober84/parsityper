@@ -266,21 +266,37 @@ def compare_sample_to_genotypes(data,genotype_results,scheme_info,outfile):
                 continue
             uids_to_add.append(uid)
         exclude_sites = exclude_sites.union(set(uids_to_add))
-
+    detected_scheme_kmers = detected_scheme_kmers - exclude_sites
     for genotype in genotypes:
         dist = 0
         informative_uids = set(geno_rules[genotype]['positive_uids']) | set(geno_rules[genotype]['partial_uids']) - exclude_sites
+        matched = list(detected_scheme_kmers & informative_uids )
+       # atypical = list(detected_scheme_kmers - informative_uids)
+       # filt_atypical = []
+       # for uid in atypical:
+       #     mutation_key = scheme_info['uid_to_mutation'][uid]
+       #     uids = set(scheme_info['mutation_to_uid'][mutation_key])
+        #    ovl = set(geno_rules[genotype]['positive_uids'])
+        #    if len(ovl) == 0:
+        #        continue
+        #    g_state = scheme_info['mutation_positions'][mutation_key]
+        #    a_state = scheme_info['uid_to_state'][uid]
+        #    if g_state == 0.5:
+        #        continue
+        #    if g_state == 0.5 or (g_state == 1 and a_state == 'alt') or (g_state == 0 and a_state == 'ref'):
+        #        continue
+        #    filt_atypical.append(uid)
 
-        matched = list(detected_scheme_kmers & informative_uids & detected_scheme_kmers)
+       # atypical = filt_atypical
+        mismatches = list(set(geno_rules[genotype]['positive_uids']) - set(matched) - exclude_sites)
+        filtered_mismatches = []
+        for uid in mismatches:
+            state = scheme_info['uid_to_state'][uid]
+            if uid in geno_rules[genotype]['positive_uids'] :
+                filtered_mismatches.append(uid)
 
-        mismatches = list((valid_uids - set(matched)) & detected_scheme_kmers)
 
-        #if genotype == 'B.1.1.7':
-        #    print(sorted(informative_uids))
-        #    print(sorted(matched))
-        #    print(sorted(mismatches))
-        #    sys.exit()
-
+        mismatches = filtered_mismatches #+ filt_atypical
         #uids = (valid_uids & set(geno_rules[genotype]['positive_uids'])) - exclude_sites
         #uids = uids - set(geno_rules[genotype]['partial_uids'])
         #mismatches = uids - detected_scheme_kmers
@@ -289,7 +305,7 @@ def compare_sample_to_genotypes(data,genotype_results,scheme_info,outfile):
         positive_alt_mismatch = list(set(geno_rules[genotype]['positive_alt']) & set(mismatches))
         genotype_results[genotype]['matched_pos_kmers'] = matched
         if len(uids) > 0:
-            dist =  len(mismatches) / len(uids)
+            dist =  len(mismatches) / (len(mismatches + matched))
 
         mutations = []
         for uid in matched:
@@ -310,17 +326,19 @@ def compare_sample_to_genotypes(data,genotype_results,scheme_info,outfile):
         genotype_results[genotype]['kmer_genotype_dist'] = dist
         genotype_results[genotype]['ave_frac'] = ave_frac
         genotype_results[genotype]['num_pos_missing'] = missing_sites
-        genotype_results[genotype]['mismatched_kmers'] = mismatches
+        genotype_results[genotype]['mismatched_kmers'] = ','.join(sorted([scheme_info['uid_to_dna_name'][x] for x in mismatches]))
         genotype_results[genotype]['matched_pos_kmers_alt'] = positive_alt_match
         genotype_results[genotype]['mismatched_pos_kmers_alt'] = positive_alt_mismatch
+        #del(genotype_results[genotype]['matched_pos_kmers'])
 
         if len(mismatches) > 0:
             genotype_results[genotype]['is_compatible'] = False
 
         if genotype_results[genotype]['is_compatible']:
             valid_genotypes[genotype] = genotype_results[genotype]
-
-    pd.DataFrame.from_dict(genotype_results, orient='index').to_csv(outfile, header=True, sep="\t")
+    df = pd.DataFrame.from_dict(genotype_results, orient='index')
+    df = df.drop(columns=['matched_pos_kmers'])
+    df.to_csv(outfile, header=True, sep="\t")
 
     return valid_genotypes
 
@@ -361,6 +379,9 @@ def summarize_genotype_kmers(scheme_info,kmer_results,outdir,n_threads=1):
         'uid_to_mutation':scheme_info['uid_to_mutation'],
         'mutation_to_uid': mutation_to_uid,
         'uid_to_state':scheme_info['uid_to_state'],
+        'uid_to_dna_name': scheme_info['uid_to_dna_name'],
+        'mutation_profiles':scheme_info['mutation_profiles'],
+        'mutation_positions':scheme_info['mutation_positions'],
 
     }
 
@@ -1406,7 +1427,7 @@ def run():
     write_sample_summary_results(sampleManifest, scheme_info, report_sample_composition_summary, max_features)
 
     #create batch html report if more than one sample present
-    if len(sampleManifest) > 1:
+    if len(sampleManifest) > 1 and not no_plots:
         template_html = Path(BATCH_HTML_REPORT).read_text()
         html_report_data = {
             'analysis_date': analysis_date,
@@ -1463,6 +1484,48 @@ def run():
             'analysis_parameters': analysis_parameters
 
         }
-
         batch_sample_html_report(template_html, {'data':html_report_data}, report_summary)
+    elif len(sampleManifest) > 1 :
+        template_html = Path(BATCH_HTML_REPORT).read_text()
+        html_report_data = {
+            'analysis_date': analysis_date,
+            'total_samples': len(sampleManifest),
+            'positive_control_id': positive_control,
+            'negative_control_id': no_template_control,
+            'sample_type': type,
+            'sample_type_mismatch': sample_type_mismatch,
+            'strain_scheme_name': scheme_name,
+            'num_targets_detected': len(scheme_info['mutation_to_uid']) - len(missing_mutations),
+            'ave_kmer_freq': kmer_freq_ave,
+            'stdev_kmer_freq': kmer_freq_stdev,
+            'count_failed_samples': num_fail_samples,
+            'failed_sample_ids': ', '.join([str(x) for x in failed_sample_ids]),
+
+            'coverage_plot': plot(figure_or_data=plots['coverage'], include_plotlyjs=False,
+                                  output_type='div'),
+            'coverage_plot_caption': FIGURE_CAPTIONS['coverage_plot_caption'],
+
+            'mixed_target_plot': plot(figure_or_data=plots['coverage_mixed'], include_plotlyjs=False,
+                                      output_type='div'),
+
+            'mixed_target_plot_caption': FIGURE_CAPTIONS['mixed_target_plot_caption'],
+
+            'missing_target_plot': plot(figure_or_data=plots['missing_features'], include_plotlyjs=False,
+                                        output_type='div'),
+
+            'missing_target_plot_caption': FIGURE_CAPTIONS['missing_features_plot_caption'],
+            'positive_control_found_targets': 0,
+            'positive_control_missing_targets': 0,
+            'positive_control_mixed_targets': 0,
+            'negative_control_found_targets': len(found_no_template_uids),
+            'negative_control_missing_targets': 0,
+            'negative_control_mixed_targets': 0,
+
+            'num_genotypes_found': num_genotypes_found,
+            'genotypes_found': ', '.join([str(x) for x in genotypes_found]),
+
+            'analysis_parameters': analysis_parameters
+
+        }
+        batch_sample_html_report(template_html, {'data': html_report_data}, report_summary)
 

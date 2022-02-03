@@ -35,7 +35,7 @@ def parse_args():
     parser.add_argument('--min_cov_frac', type=float, required=False,
                         help='Minimum percentage of total pool required for k-mer detection range 0 - 1.0 (default=0.05)', default=0.05)
     parser.add_argument('--min_partial_frac', type=float, required=False,
-                        help='Minimum fraction of isolates positive for mutation for it to be partial 0 - 1.0 (default=0.1)', default=0.05)
+                        help='Minimum fraction of isolates positive for mutation for it to be partial 0 - 1.0 (default=0.1)', default=0.0)
     parser.add_argument('--min_alt_frac', type=float, required=False,
                         help='Minimum fraction of isolates positive for mutation for it to be positive 0 - 1.0 (default=0.1)', default=0.95)
     parser.add_argument('--min_ref_frac', type=float, required=False,
