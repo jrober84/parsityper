@@ -304,7 +304,7 @@ def compare_sample_to_genotypes(data,genotype_results,scheme_info,outfile):
         positive_alt_match = list(set(geno_rules[genotype]['positive_alt']) & set(matched ))
         positive_alt_mismatch = list(set(geno_rules[genotype]['positive_alt']) & set(mismatches))
         genotype_results[genotype]['matched_pos_kmers'] = matched
-        if len(uids) > 0:
+        if len(uids) > 0 and len(mismatches + matched) > 0:
             dist =  len(mismatches) / (len(mismatches + matched))
 
         mutations = []
