@@ -3,7 +3,7 @@
 import sys
 from parsityper.version import __version__
 from multiprocessing import freeze_support
-sys.setrecursionlimit(3500)
+sys.setrecursionlimit(35000)
 import multiprocessing as mp
 
 if mp.get_start_method(allow_none=True) != 'spawn':

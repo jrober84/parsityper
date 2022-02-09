@@ -84,9 +84,9 @@ def runKmerCounting(input_seqs,out_dir,kLen,n_threads=1):
         pool.join()
         for i in range(0, len(res)):
             res[i].get()
-    else:
-       for i in range(0,len(seqFiles)):
-           run_jellyfish_count(seqFiles[i],kCount_files[i],kLen,n_threads)
+    #else: ####TEMP to save rerunning jellyfish
+       #for i in range(0,len(seqFiles)):
+           #run_jellyfish_count(seqFiles[i],kCount_files[i],kLen,n_threads)
 
     return kCount_files
 
@@ -442,6 +442,7 @@ def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,
     align_len = len(input_alignment[ref_id])
     logging.info("Building mutation event lookup")
     mutations = build_mutation_lookup(variant_positions, ref_id, input_alignment, min_kmer_len)
+
     logging.info("Cataloguing variants")
     variant_events = get_alt_variants(input_alignment,mutations,align_len)
     positions = []
@@ -498,6 +499,7 @@ def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,
                 del (mutations[mutation_key])
 
     logging.info("Optimizing k-mer selection for {} variant positions using ranges {}-{}".format(len(positions),min_kmer_len,max_kmer_len))
+
     for mutation_key in mutations:
         count+=1
         if not mutation_key in variant_events:
@@ -1077,7 +1079,7 @@ def run():
 
     #Identify variable positions within the alignment
     logger.info("Scanning alignment for SNPs")
-    snp_positions = find_snp_positions(consensus_seq)
+    snp_positions = find_snp_positions(consensus_bases)
 
     logger.info("Found {} variable sites".format(len(snp_positions)))
     sequence_deletions = {}

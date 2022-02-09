@@ -254,49 +254,40 @@ def compare_sample_to_genotypes(data,genotype_results,scheme_info,outfile):
         if mutation_key in mixed_sites:
             continue
         detected_mut_kmers = scheme_info['mutation_to_uid'][mutation_key] & detected_scheme_kmers
-        if len(detected_mut_kmers) == 0:
-            continue
         uids = scheme_info['mutation_to_uid'][mutation_key]
-        missing_mut_kmer = list(uids - detected_mut_kmers)
-        detected_mut_kmers = list(detected_mut_kmers)
-        state = scheme_info['uid_to_state'][detected_mut_kmers[0]]
-        uids_to_add = []
-        for uid in missing_mut_kmer:
-            if state != scheme_info['uid_to_state'][uid]:
-                continue
-            uids_to_add.append(uid)
-        exclude_sites = exclude_sites.union(set(uids_to_add))
+        if len(detected_mut_kmers) == 0:
+            exclude_sites = exclude_sites.union(set(uids))
+            continue
+
     detected_scheme_kmers = detected_scheme_kmers - exclude_sites
+
     for genotype in genotypes:
         dist = 0
         informative_uids = set(geno_rules[genotype]['positive_uids']) | set(geno_rules[genotype]['partial_uids']) - exclude_sites
         matched = list(detected_scheme_kmers & informative_uids )
-       # atypical = list(detected_scheme_kmers - informative_uids)
-       # filt_atypical = []
-       # for uid in atypical:
-       #     mutation_key = scheme_info['uid_to_mutation'][uid]
-       #     uids = set(scheme_info['mutation_to_uid'][mutation_key])
-        #    ovl = set(geno_rules[genotype]['positive_uids'])
-        #    if len(ovl) == 0:
-        #        continue
-        #    g_state = scheme_info['mutation_positions'][mutation_key]
-        #    a_state = scheme_info['uid_to_state'][uid]
-        #    if g_state == 0.5:
-        #        continue
-        #    if g_state == 0.5 or (g_state == 1 and a_state == 'alt') or (g_state == 0 and a_state == 'ref'):
-        #        continue
-        #    filt_atypical.append(uid)
-
-       # atypical = filt_atypical
+        genotype_req_uids = (set(geno_rules[genotype]['positive_uids'])) - exclude_sites
+        atypical = list(detected_scheme_kmers - informative_uids - exclude_sites)
+        '''filt_atypical = []
+        for uid in atypical:
+            mutation_key = scheme_info['uid_to_mutation'][uid]
+            uids = set(scheme_info['mutation_to_uid'][mutation_key])
+            ovl = set(geno_rules[genotype]['positive_uids'])
+            if len(ovl) == 0:
+                continue
+            g_state = scheme_info['mutation_positions'][mutation_key]
+            a_state = scheme_info['uid_to_state'][uid]
+            if g_state == 0.5:
+                continue
+            if g_state == 0.5 or (g_state == 1 and a_state == 'alt') or (g_state == 0 and a_state == 'ref'):
+                continue
+            filt_atypical.append(uid)
+        
+        atypical = filt_atypical'''
         mismatches = list(set(geno_rules[genotype]['positive_uids']) - set(matched) - exclude_sites)
-        filtered_mismatches = []
-        for uid in mismatches:
-            state = scheme_info['uid_to_state'][uid]
-            if uid in geno_rules[genotype]['positive_uids'] :
-                filtered_mismatches.append(uid)
 
 
-        mismatches = filtered_mismatches #+ filt_atypical
+        #mismatches = filtered_mismatches #+ atypical
+
         #uids = (valid_uids & set(geno_rules[genotype]['positive_uids'])) - exclude_sites
         #uids = uids - set(geno_rules[genotype]['partial_uids'])
         #mismatches = uids - detected_scheme_kmers
@@ -706,11 +697,18 @@ def create_sample_comparison_plots(scheme_info,kmer_results_df,labels,mds_outfil
     alt_kmer_result_df = alt_kmer_result_df.drop(['sum'], axis=1)
 
     dna_names = []
-    for uid in alt_kmer_result_df.index.values.tolist():
-        dna_names.append("{}:{}".format(uid,uid_to_dna_name[uid]))
+
 
     # Create Dendrogram heatmap of features
-    plots['feature_dendro'] = d.build_dendrogram_heatmap_features(labels, dna_names, alt_kmer_result_df.T, feature_outfile)
+    if len(alt_kmer_result_df) > 0:
+        for uid in alt_kmer_result_df.index.values.tolist():
+            dna_names.append("{}:{}".format(uid, uid_to_dna_name[uid]))
+        plots['feature_dendro'] = d.build_dendrogram_heatmap_features(labels, dna_names, alt_kmer_result_df.T, feature_outfile)
+    else:
+        for uid in kmer_results_df.index.values.tolist():
+            dna_names.append("{}:{}".format(uid, uid_to_dna_name[uid]))
+        plots['feature_dendro'] = d.build_dendrogram_heatmap_features(labels, dna_names, kmer_results_df.T,
+                                                                      feature_outfile)
     return plots
 
 def create_sample_kmer_profile(kmer_results):
@@ -836,7 +834,7 @@ def init_sample_manifest(seqManifest,scheme_info,scheme_name,analysis_date,sampl
             'primary_genotype':'',
             'primary_genotype_frac':'',
         }
-
+    logging.info("Read {} samples into the manifest".format(len(sampleManifest)))
     return sampleManifest
 
 def calc_genome_size(sampleManifest,outdir,min_cov,kLen=21,n_threads=1):
@@ -1205,7 +1203,9 @@ def run():
 
     #process reads
     if not type_only:
+        logging.info("Calculating genome size for samples")
         sampleManifest = calc_genome_size(sampleManifest, outdir, min_cov, kLen=21, n_threads=nthreads)
+        logging.info("Analysing reads using fastp")
         sampleManifest = process_reads(sampleManifest,perform_read_correction,read_dir,seqTech,fastp_dir,min_read_len,trim_front_bp,trim_tail_bp,perform_read_dedup,n_threads=nthreads)
 
     kmer_results = perform_kmerSearch(sampleManifest,scheme_info,min_cov,aho,nthreads)
@@ -1397,7 +1397,7 @@ def run():
                        })
     plots['genotype_abundance'] = fig
 
-    # create mutation plot
+    # create missing target plot
     logger.info("Creating missing target chart")
     missing_mutations = {k: v for k, v in sorted(missing_mutations.items(), key=lambda item: item[1], reverse=True)}
     missing_mutations_df = pd.DataFrame.from_dict(missing_mutations, orient='index', columns=['count'])
@@ -1410,7 +1410,7 @@ def run():
                        })
     plots['missing_features'] = fig
 
-    # create mutation plot
+    # create mixed target plot
     logger.info("Creating mixed target summary chart")
     mixed_muations = {k: v for k, v in sorted(mixed_muations.items(), key=lambda item: item[1], reverse=True)}
     mixed_muations_df = pd.DataFrame.from_dict(mixed_muations, orient='index', columns=['count'])
@@ -1427,7 +1427,7 @@ def run():
     write_sample_summary_results(sampleManifest, scheme_info, report_sample_composition_summary, max_features)
 
     #create batch html report if more than one sample present
-    if len(sampleManifest) > 1 and not no_plots:
+    if len(sampleManifest) > 1 and not no_plots and (len(sampleManifest) < 1000 or force_plots):
         template_html = Path(BATCH_HTML_REPORT).read_text()
         html_report_data = {
             'analysis_date': analysis_date,
@@ -1520,10 +1520,8 @@ def run():
             'negative_control_found_targets': len(found_no_template_uids),
             'negative_control_missing_targets': 0,
             'negative_control_mixed_targets': 0,
-
             'num_genotypes_found': num_genotypes_found,
             'genotypes_found': ', '.join([str(x) for x in genotypes_found]),
-
             'analysis_parameters': analysis_parameters
 
         }

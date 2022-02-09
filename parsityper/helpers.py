@@ -533,12 +533,20 @@ def get_aa_delta(start, end, variant, mutation_type,ref_info,ref_name,trans_tabl
                     alt_target[i + spacer] = variant[i]
             elif mutation_type == 'del':
                 ref_target = list(dnaSeq[cds_start:cds_end + variant_len])
-                alt_target = list(dnaSeq[cds_start:cds_end + variant_len])
+                alt_target = list(dnaSeq[cds_start:cds_end + variant_len ])
+
                 for i in range(0, len(variant)):
                     index_pos = i + spacer
                     alt_target[index_pos] = ''
-                    #print("{}\t{}\t{}\t{}\t{}\t{}".format(start, end, variant, mutation_type,i,spacer))
-                    #del(alt_target[i + spacer])
+                filt_alt = []
+                for i in range(0, len(alt_target)):
+                    if alt_target[i] != '':
+                        filt_alt.append(alt_target[i])
+                rem =  len(filt_alt) % 3
+                if rem != 0:
+                    fS = cds_end + variant_len
+                    filt_alt += list(dnaSeq[fS:fS+rem ])
+                alt_target = filt_alt
             else:
                 bases_to_subtract = (3 - variant_len % 3)
                 ref_target = list(dnaSeq[cds_start:cds_end + variant_len])
@@ -554,6 +562,11 @@ def get_aa_delta(start, end, variant, mutation_type,ref_info,ref_name,trans_tabl
             rem = len(alt_target) % 3
             if rem % 3 > 0:
                 alt_target = alt_target[:-rem or None]
+
+
+            #print("{}".format("\t".join(str(x) for x in [gene_feature, gene, gene_start, gene_end, aa_start,aa_end,cds_start,cds_end,ref_seq,alt_seq])))
+            #print(ref_target)
+            #print(alt_target)
 
             ref_seq = "{}".format(Seq(''.join(ref_target).replace('-','N')).translate(table=trans_table))
             alt_seq = "{}".format(Seq(''.join(alt_target).replace('-','N')).translate(table=trans_table))
@@ -713,15 +726,20 @@ def find_internal_gaps(seq):
 
 def find_snp_positions(consensus):
     """
-    Acccepts IUPAC masked pseudo consensus sequence and identifies the positions which are not A,T,C,G
+    Acccepts consensus sequence base counts and identifies the positions which have multiple bases A,T,C,G
     :param consensus: str sequence
     :return: list of variable positions
     """
     positions = []
     for i in range(0,len(consensus)):
-        base = consensus[i]
-        if base not in ['A','T','C','G','N','-']:
+        bases = consensus[i]
+        count = 0
+        for b in ['A','T','C','G']:
+            if bases[b] > 0:
+                count+=1
+        if count > 1:
             positions.append(i)
+
     return positions
 
 def get_kmers(start,end,input_alignment):

@@ -6,11 +6,7 @@ from argparse import (ArgumentParser)
 import os
 import pandas as pd
 from parsityper.version import __version__
-from parsityper.helpers import init_console_logger, read_tsv, process_biohansel_kmer, \
-    init_kmer_targets,get_kmer_groups, get_kmer_group_mapping, summarize_kmer_targets, read_samples, read_fasta
-from parsityper.kmerSearch.kmerSearch import init_automaton_dict,perform_kmerSearch_fasta,perform_kmerSearch_fastq
-from parsityper.helpers import  get_expanded_kmer_number
-import multiprocessing as mp
+from parsityper.helpers import init_console_logger
 from multiprocessing import Pool
 from parsityper.scheme import parseScheme, constructSchemeLookups
 
@@ -53,23 +49,34 @@ def compare_profiles(profile_1,profile_2):
         dist+=1
     return dist
 
+def pariwise_cmp_genotype(sample_id_1,profiles,i,num_genotypes,genotypes):
+    issues = {}
+    for k in range(i + 1, num_genotypes):
+        sample_id_2 = genotypes[k]
+        dist = compare_profiles(profiles[sample_id_1], profiles[sample_id_2])
+        if dist == -1:
+            logging.ERROR("Profiles for {} and {} do not have the same length".format(sample_id_1, sample_id_2))
+        if dist == 0:
+            if not sample_id_1 in issues:
+                issues[sample_id_1] = []
+            issues[sample_id_1].append(sample_id_2)
+    return issues
+
 def validate_genotype_rules(profiles,n_threads=1):
     num_genotypes = len(profiles)
     genotypes = sorted(list(profiles.keys()))
     issues = {}
+    if n_threads > 1:
+        pool = Pool(processes=n_threads)
+    results = []
     for i in range(0,num_genotypes):
         sample_id_1 = genotypes[i]
-        for k in range(i+1,num_genotypes):
-            sample_id_2 = genotypes[k]
-            dist = compare_profiles(profiles[sample_id_1],profiles[sample_id_2])
-            if dist == -1:
-                logging.ERROR("Profiles for {} and {} do not have the same length".format(sample_id_1,sample_id_2))
-                sys.exit()
-            if dist == 0:
-                if not sample_id_1 in issues:
-                    issues[sample_id_1] = []
-                issues[sample_id_1].append(sample_id_2)
-                print("{}\t{}\t{}".format(sample_id_1,sample_id_2,dist))
+        if n_threads == 1:
+            issues.update(pariwise_cmp_genotype(sample_id_1, profiles, i, num_genotypes, genotypes))
+        else:
+            results.append(pool.apply_async(pariwise_cmp_genotype,(sample_id_1, profiles, i, num_genotypes, genotypes)))
+    for i in range(0,len(results)):
+        issues.update(results.get())
     return issues
 
 def validate_typer_dir(files):
