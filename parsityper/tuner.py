@@ -297,7 +297,7 @@ def updateScheme(scheme_file,scheme_info,outfile):
     new_uid_key = 0
     rules = {}
     partial_rules = {}
-
+    num_genotypes = len(scheme_info['genotype_rule_sets'])
     for genotype in scheme_info['genotype_rule_sets']:
         uids = scheme_info['genotype_rule_sets'][genotype]['positive_uids']
         for uid in uids:
@@ -308,6 +308,48 @@ def updateScheme(scheme_file,scheme_info,outfile):
             if not uid in partial_rules:
                 partial_rules[uid] = []
             partial_rules[uid].append(genotype)
+
+    # switch genotype rules if it is positive and partial for uid's from the same mutation
+    for mutation_key in scheme_info['mutation_to_uid']:
+        uids = scheme_info['mutation_to_uid'][mutation_key]
+        comp = {
+            'ref':{'pos':[],'par':[],'ids':[]},
+            'alt': {'pos': [], 'par': [],'ids':[]},
+        }
+        for uid in uids:
+            state = scheme_info['uid_to_state']
+            comp[state]['ids'].append(uid)
+            if uid in partial_rules:
+                comp[state]['par'].extend(partial_rules[uid])
+            if uid in rules:
+                comp[state]['pos'].extend(rules[uid])
+
+        for state in ['ref','alt']:
+            ovl = set(comp[state]['pos']) & set(comp[state]['par'])
+            if len(ovl) == 0:
+                continue
+            for uid in comp[state]['ids']:
+                rules[uid] = list(set(rules[uid]) - ovl)
+                partial_rules[uid].extend(list(ovl))
+                partial_rules[uid] = list(set(partial_rules[uid]))
+
+
+
+    #remove rules which the alt does not provide positive genoytpe information
+    for mutation_key in scheme_info['mutation_to_uid']:
+        uids = scheme_info['mutation_to_uid'][mutation_key]
+        count_ref = 0
+        count_alt = 0
+        for uid in uids:
+            if not uid in rules:
+                continue
+            state = scheme_info['uid_to_state']
+            if state == 'alt':
+                count_alt+=1
+            else:
+                count_ref+=1
+        if count_alt == 0:
+            rules[uid] = []
 
     for index,row in df.iterrows():
         uid = row['key']
@@ -336,7 +378,10 @@ def updateScheme(scheme_file,scheme_info,outfile):
         if uid in partial_rules:
             partial_genotypes = [str(x) for x in partial_rules[uid]]
             partial_genotypes.sort()
-
+        #Blank sites that no genotypes require that state or all do
+        if len(positive_genotypes) == 0 or len(positive_genotypes) == '':
+            positive_genotypes = []
+            partial_genotypes = []
         entry['positive_genotypes'] = ','.join(positive_genotypes)
         entry['seq_ids'] = ''
         entry['partial_genotypes'] = ','.join(partial_genotypes)
@@ -458,7 +503,6 @@ def batch_process_genotype_seqs(sampleManifest, genotypeMap, scheme_info, nthrea
     num_samples = len(sampleManifest)
     num_genotypes = len(genotypeMap)
     aho = {'scheme': init_automaton_dict(scheme_info['uid_to_kseq'])}
-
 
     if n_threads > 1:
         pool = Pool(processes=nthreads)

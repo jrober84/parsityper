@@ -1204,7 +1204,7 @@ def run():
     #process reads
     if not type_only:
         logging.info("Calculating genome size for samples")
-        sampleManifest = calc_genome_size(sampleManifest, outdir, min_cov, kLen=21, n_threads=nthreads)
+        sampleManifest = calc_genome_size(sampleManifest, outdir, min_genome_cov_depth, kLen=21, n_threads=nthreads)
         logging.info("Analysing reads using fastp")
         sampleManifest = process_reads(sampleManifest,perform_read_correction,read_dir,seqTech,fastp_dir,min_read_len,trim_front_bp,trim_tail_bp,perform_read_dedup,n_threads=nthreads)
 
@@ -1512,7 +1512,6 @@ def run():
 
             'missing_target_plot': plot(figure_or_data=plots['missing_features'], include_plotlyjs=False,
                                         output_type='div'),
-
             'missing_target_plot_caption': FIGURE_CAPTIONS['missing_features_plot_caption'],
             'positive_control_found_targets': 0,
             'positive_control_missing_targets': 0,

@@ -139,6 +139,15 @@ def calc_genotype_metrics(ground_truth,sample_assignments):
 
     return metrics
 
+def process_kmer_profile(df):
+    samples = df.columns.tolist()
+    uids = df.index.tolist()
+    num_uids = len(uids)
+    kmer_results = {}
+    for sample_id in samples:
+
+
+
 
 
 def run():
