@@ -350,12 +350,13 @@ def updateScheme(scheme_file,scheme_info,outfile):
             if not uid in rules:
                 continue
             state = scheme_info['uid_to_state']
-            if state == 'alt':
-                count_alt+=1
-            else:
+            if state == 'ref':
                 count_ref+=1
+            else:
+                count_alt+=1
         if count_alt == 0 and count_ref > 0:
-            rules[uid] = []
+            for uid in uids:
+                rules[uid] = []
     print(rules[4280])
 
     for index,row in df.iterrows():
