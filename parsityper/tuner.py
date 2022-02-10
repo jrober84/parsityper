@@ -299,7 +299,7 @@ def updateScheme(scheme_file,scheme_info,outfile):
     num_genotypes = len(scheme_info['genotype_rule_sets'])
     for genotype in scheme_info['genotype_rule_sets']:
         uids = scheme_info['genotype_rule_sets'][genotype]['positive_uids']
-        print("{}\t{}".format(genotype,4280 in uids))
+
         for uid in uids:
             if not uid in rules:
                 rules[uid] = []
@@ -308,7 +308,7 @@ def updateScheme(scheme_file,scheme_info,outfile):
             if not uid in partial_rules:
                 partial_rules[uid] = []
             partial_rules[uid].append(genotype)
-    print(rules[4280])
+
     # switch genotype rules if it is positive and partial for uid's from the same mutation
     for mutation_key in scheme_info['mutation_to_uid']:
         uids = scheme_info['mutation_to_uid'][mutation_key]
@@ -336,7 +336,7 @@ def updateScheme(scheme_file,scheme_info,outfile):
                     partial_rules[uid] = []
                 partial_rules[uid].extend(list(ovl))
                 partial_rules[uid] = list(set(partial_rules[uid]))
-    print(rules[4280])
+
 
 
     #remove rules which the alt does not provide positive genoytpe information
@@ -344,12 +344,11 @@ def updateScheme(scheme_file,scheme_info,outfile):
         uids = scheme_info['mutation_to_uid'][mutation_key]
         count_ref = 0
         count_alt = 0
-        if 4280 in uids:
-            print(uids)
+
         for uid in uids:
             if not uid in rules:
                 continue
-            state = scheme_info['uid_to_state']
+            state = scheme_info['uid_to_state'][uid]
             if state == 'ref':
                 count_ref+=1
             else:
@@ -357,7 +356,6 @@ def updateScheme(scheme_file,scheme_info,outfile):
         if count_alt == 0 and count_ref > 0:
             for uid in uids:
                 rules[uid] = []
-    print(rules[4280])
 
     for index,row in df.iterrows():
         uid = row['key']
@@ -486,7 +484,6 @@ def identifyRuleSet(genotype,genotype_count,genotype_kmer_counts,kmer_results,sc
         elif perc_present >= min_partial_frac  and state == 'ref':
             new_rules[genotype]['partial_uids'].append(uid)
             new_rules[genotype]['partial_ref'].append(uid)
-    print("{}\t{}".format(genotype, 4280 in new_rules[genotype]['positive_uids']))
     return new_rules[genotype]
 
 def process_genotype_seqs(genotype, sampleManifest, scheme_info, nthreads, min_cov, report_sample_kmer_profiles,min_cov_frac,min_alt_frac,min_ref_frac,min_partial_frac,aho,n_threads):
@@ -562,7 +559,6 @@ def batch_process_genotype_seqs(sampleManifest, genotypeMap, scheme_info, nthrea
             result = results[i].get()
             genotype = genotypes[i]
             rules[genotype] = result['rules']
-            print("{}\t{}".format(genotype, 4280 in result['rules']['positive_uids']))
 
             for mutation_key in result['mutation_sites_missing']:
                 if not mutation_key in mutation_sites_missing:
