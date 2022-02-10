@@ -84,9 +84,9 @@ def runKmerCounting(input_seqs,out_dir,kLen,n_threads=1):
         pool.join()
         for i in range(0, len(res)):
             res[i].get()
-    #else: ####TEMP to save rerunning jellyfish
-       #for i in range(0,len(seqFiles)):
-           #run_jellyfish_count(seqFiles[i],kCount_files[i],kLen,n_threads)
+    else:
+       for i in range(0,len(seqFiles)):
+           run_jellyfish_count(seqFiles[i],kCount_files[i],kLen,n_threads)
 
     return kCount_files
 
