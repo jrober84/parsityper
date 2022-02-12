@@ -631,7 +631,7 @@ def run():
 
         for genotype in genotypeMap:
             scheme_info['genotype_rule_sets'][genotype] = result['rules'][genotype]
-            print("{}\t{}".format(genotype,4280 in result['rules'][genotype]['positive_uids']))
+
         missing_mutation_sites = result['mutation_sites_missing']
         del(result)
     else:

@@ -779,7 +779,7 @@ def QA_results(sampleManifest,min_coverage_depth,max_missing_sites,min_genome_si
 
         if missing > max_missing_sites:
             sampleManifest[sample_id]['qc_messages'].append(
-                'Fail: low detected scheme targets {}'.format(missing))
+                'Fail: high number of missing scheme targets {}'.format(missing))
 
         genomeSize = sampleManifest[sample_id]['est_genome_size']
         num_targets_found = sampleManifest[sample_id]['est_genome_size']
