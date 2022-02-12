@@ -225,7 +225,8 @@ def get_alt_variants(input_alignment,mutations,align_len):
             mutation_type = mutations[mutation_key]['mutation_type']
             ref_variant = mutations[mutation_key]['ref_variant']
             variant = input_alignment[seq_id][vStart:vEnd + 1]
-
+            s = vStart
+            e = vEnd
             if mutation_type == 'snp':
                 if variant == 'N':
                     continue
