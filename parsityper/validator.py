@@ -145,7 +145,7 @@ def process_kmer_profile(df):
     num_uids = len(uids)
     kmer_results = {}
     for sample_id in samples:
-
+        return
 
 
 
