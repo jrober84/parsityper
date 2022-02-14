@@ -52,6 +52,8 @@ def parse_args():
                         action='store_true')
     parser.add_argument('--iFrac', type=float, required=False,
                         help='fraction of bases needed for imputing ambiguous bases',default=0.9)
+    parser.add_argument('--jf', type=float, required=False,
+                        help='jellyfish memory flage default=10M',default='10M')
 
     return parser.parse_args()
 
@@ -90,8 +92,8 @@ def runKmerCounting(input_seqs,out_dir,kLen,n_threads=1):
 
     return kCount_files
 
-def getKmerCounts(input_seqs,out_dir,kLen,max_count=1,max_ambig=0,n_threads=1):
-    kCount_files = runKmerCounting(input_seqs,out_dir,kLen,n_threads)
+def getKmerCounts(input_seqs,out_dir,kLen,jellyfish_mem,max_count=1,max_ambig=0,n_threads=1):
+    kCount_files = runKmerCounting(input_seqs,out_dir,kLen,jellyfish_mem,n_threads)
     kMers = {}
     for file in kCount_files:
         sample_id = os.path.basename(file).replace('.mers','')
@@ -127,8 +129,8 @@ def generate_gap_lookup(aln,seq):
         seq_lookup.append(p)
     return seq_lookup
 
-def getCandidateKmers(variant_positions,input_alignment,unaligned,unal_to_aln_coords,ref_id,path,kLen,max_count=1,max_ambig=0,n_threads=1):
-    raw_kmers = getKmerCounts(unaligned, path, kLen, max_count, max_ambig,
+def getCandidateKmers(variant_positions,input_alignment,unaligned,unal_to_aln_coords,ref_id,path,jellyfish_mem,kLen,max_count=1,max_ambig=0,n_threads=1):
+    raw_kmers = getKmerCounts(unaligned, path, kLen, jellyfish_mem,max_count, max_ambig,
                               n_threads)
     aln_len = len(input_alignment[ref_id])
     num_samples = len(input_alignment)
@@ -421,7 +423,7 @@ def calc_complexity_scheme(scheme):
                 entry['complexity'] = calc_kmer_complexity(kSeq)
     return scheme
 
-def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,min_kmer_len,max_kmer_len,n_threads=1):
+def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,jellyfish_mem,min_kmer_len,max_kmer_len,n_threads=1):
     # initialize analysis directory
     if not os.path.isdir(jellyfish_path):
         logging.info("Creating analysis results directory {}".format(jellyfish_path))
@@ -463,7 +465,7 @@ def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,
     logging.info("Begining k-mer extraction for {} variant positions".format(len(positions)))
     stime = time.time()
 
-    seq_kmers = getCandidateKmers(variant_positions,input_alignment,unaligned_seqs,unal_to_aln_coords,ref_id,jellyfish_path,max_kmer_len,max_count=1,max_ambig=0,n_threads=n_threads)
+    seq_kmers = getCandidateKmers(variant_positions,input_alignment,unaligned_seqs,unal_to_aln_coords,ref_id,jellyfish_path,jellyfish_mem,max_kmer_len,max_count=1,max_ambig=0,n_threads=n_threads)
     logging.info("time for kmer extraction {}".format(time.time() - stime))
 
     stime = time.time()
@@ -1021,6 +1023,7 @@ def run():
     max_missing = cmd_args.max_missing
     n_threads = cmd_args.n_threads
     impute_min_frac = cmd_args.iFrac
+    jellyfish_mem = cmd_args.jf
     jellyfish_path = os.path.join(outdir,"jellyfish")
 
 
@@ -1106,7 +1109,7 @@ def run():
 
     logger.info("Creating scheme based on identified SNPs and indels")
 
-    scheme = construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path, min_len, max_len,n_threads)
+    scheme = construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path, jellyfish_mem,min_len, max_len,n_threads)
 
     logger.info("Performing QA on selected k-mers")
     scheme = qa_scheme(scheme, input_alignment, ref_id, genotype_mapping,min_len=min_len, max_len=max_len,min_complexity=min_complexity)
