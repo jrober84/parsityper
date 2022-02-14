@@ -52,7 +52,7 @@ def parse_args():
                         action='store_true')
     parser.add_argument('--iFrac', type=float, required=False,
                         help='fraction of bases needed for imputing ambiguous bases',default=0.9)
-    parser.add_argument('--jf', type=float, required=False,
+    parser.add_argument('--jf', type=str, required=False,
                         help='jellyfish memory flage default=10M',default='10M')
 
     return parser.parse_args()
