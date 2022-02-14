@@ -53,7 +53,7 @@ def parse_args():
     parser.add_argument('--iFrac', type=float, required=False,
                         help='fraction of bases needed for imputing ambiguous bases',default=0.9)
     parser.add_argument('--jf', type=str, required=False,
-                        help='jellyfish memory flage default=10M',default='10M')
+                        help='jellyfish memory flage default=1M',default='1M')
 
     return parser.parse_args()
 
@@ -66,7 +66,7 @@ def get_non_gap_position(ref_non_gap_lookup,pos):
         non_gap_position = ref_non_gap_lookup[pos]
     return non_gap_position
 
-def runKmerCounting(input_seqs,out_dir,kLen,n_threads=1):
+def runKmerCounting(input_seqs,out_dir,jellyfish_mem,kLen,n_threads=1):
     kCount_files = []
     seqFiles = []
     for seq_id in input_seqs:
@@ -81,14 +81,14 @@ def runKmerCounting(input_seqs,out_dir,kLen,n_threads=1):
         pool = Pool(processes=n_threads)
         res = []
         for i in range(0,len(seqFiles)):
-           res.append(pool.apply_async(run_jellyfish_count,(seqFiles[i],kCount_files[i],kLen,n_threads)))
+            res.append(pool.apply_async(run_jellyfish_count,(seqFiles[i],kCount_files[i],jellyfish_mem,kLen,n_threads)))
         pool.close()
         pool.join()
         for i in range(0, len(res)):
             res[i].get()
     else:
        for i in range(0,len(seqFiles)):
-           run_jellyfish_count(seqFiles[i],kCount_files[i],kLen,n_threads)
+           run_jellyfish_count(seqFiles[i],kCount_files[i],jellyfish_mem,kLen,n_threads)
 
     return kCount_files
 
