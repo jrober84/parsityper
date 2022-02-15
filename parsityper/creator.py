@@ -100,10 +100,14 @@ def runKmerCounting(input_seqs,out_dir,jellyfish_mem,kLen,n_threads=1):
     return kCount_files
 
 def getKmerCounts(file,out_file,kLen,jellyfish_mem,min_count=1,max_count=1,max_ambig=0,n_threads=1):
+    logging.info("Running jellyfish kmer counting with k={}".format(kLen))
     run_jellyfish_count(file, out_file, jellyfish_mem, kLen, n_threads)
     kmer_df = parse_jellyfish_counts(out_file)
+    logging.info("Found {} kmers in input k={}".format(len(kmer_df),kLen))
     kmer_df = kmer_df[kmer_df['count'] <= max_count]
+    logging.info("{} kmers are present in the data <= {} k={}".format(len(kmer_df),max_count,kLen))
     kmer_df = kmer_df[kmer_df['count'] >= min_count]
+    logging.info("{} kmers are present in the data >= {} k={}".format(len(kmer_df), min_count,kLen))
     kMers = {}
     for row in kmer_df.itertuples():
         kmer = row.kmer
@@ -115,11 +119,34 @@ def getKmerCounts(file,out_file,kLen,jellyfish_mem,min_count=1,max_count=1,max_a
             kMers[kmer] = {'index':'','seq_ids':[]}
 
     aho = init_automaton_dict(dict(zip(list(kMers.keys()),list(kMers.keys()))))
-    kmer_df = find_in_fasta_dict(aho, read_fasta(file))
+    logging.info("{} kmers are present in the data >= {} k={}".format(len(kmer_df), min_count,kLen))
+
+    results = []
+    seqs = read_fasta(file)
+    logging.info("Performing searching of {} kmers against input sequences k={}".format(len(kmer_df),kLen))
+    if n_threads > 1:
+        pool = Pool(processes=n_threads)
+        batch_size = int(len(seqs) / n_threads)
+        batch = {}
+        for seq_id in seqs:
+            batch[seq_id] = seqs[seq_id]
+            if len(batch) >= batch_size:
+                results.append(pool.apply_async(find_in_fasta_dict, (aho,copy.deepcopy(batch))))
+                batch = {}
+        results.append(pool.apply_async(find_in_fasta_dict, (aho, batch)))
+        pool.close()
+        pool.join()
+        for i in range(0,len(results)):
+            results[i] = results[i].get()
+        kmer_df = pd.concat(results)
+    else:
+        kmer_df = find_in_fasta_dict(aho,seqs )
+    logging.info("Mapping complete k={}".format(kLen))
     for row in kmer_df.itertuples():
         kMers[row.kmername]['seq_ids'].append(row.contig_id)
         if kMers[row.kmername]['index'] == '':
             kMers[row.kmername]['index'] = row.match_index
+
     return kMers
 
 
@@ -167,13 +194,14 @@ def getCandidateKmers(variant_positions,input_alignment,unaligned,unal_to_aln_co
         fh.write(">{}\n{}\n".format(seq_id,unaligned[seq_id]))
     fh.close()
     tmp_kmer = os.path.join(path, "tmp.unalign.kmers.txt")
-    raw_kmers = getKmerCounts(tmp_unalign, tmp_kmer, kLen, jellyfish_mem, min_count=min_count, max_count=max_count, max_ambig=max_ambig, n_threads=1)
+    raw_kmers = getKmerCounts(tmp_unalign, tmp_kmer, kLen, jellyfish_mem, min_count=min_count, max_count=max_count, max_ambig=max_ambig, n_threads=n_threads)
+
     #os.remove(tmp_kmer)
     os.remove(tmp_unalign)
     aln_len = len(input_alignment[ref_id])
     num_samples = len(input_alignment)
     filtered_kmers = {}
-
+    logging.info("Filtering {} kmers which overlap with variant positions".format(len(raw_kmers)))
     for kmer in raw_kmers:
         kLen = len(kmer)
         seq_ids = raw_kmers[kmer]['seq_ids']
@@ -217,7 +245,7 @@ def getCandidateKmers(variant_positions,input_alignment,unaligned,unal_to_aln_co
                                 'affect_variants': overlapping_variants,
                                 'num_seqs': len(seq_ids),
                                 'seq_ids': seq_ids}
-
+    logging.info("Filtering {} / {} kmers remain".format(len(filtered_kmers),len(raw_kmers)))
     return filtered_kmers
 
 def build_mutation_lookup(variant_positions,ref_id,input_alignment,kmer_len):
@@ -504,6 +532,7 @@ def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,
     seq_kmers = {}
     for i in range(min_kmer_len,max_kmer_len+1):
         seq_kmers.update(getCandidateKmers(variant_positions,input_alignment,unaligned_seqs,unal_to_aln_coords,ref_id,jellyfish_path,jellyfish_mem,i,min_kmer_count,max_count=len(input_alignment),max_ambig=0,n_threads=n_threads))
+
     logging.info("time for kmer extraction {}".format(time.time() - stime))
 
     stime = time.time()
@@ -539,24 +568,41 @@ def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,
             if len(variant_events[mutation_key]) == 0:
                 del (mutations[mutation_key])
 
-    logging.info("Optimizing k-mer selection for {} variant using ranges {}-{}".format(len(positions),min_kmer_len,max_kmer_len))
+    #prioritize kmers which cover multiple events
+    kmer_variant_counts = {}
+    for kmername in seq_kmers:
+        kmer_variant_counts[kmername] = len(seq_kmers[kmername]['seq_ids'])
 
+    kmer_variant_counts = sorted(kmer_variant_counts.items(), key=operator.itemgetter(1),reverse=True)
+    events_to_kmers = {}
+    for kmername,count in kmer_variant_counts:
+        events = seq_kmers[kmername]['affect_variants']
+        for (start,end) in events:
+            key = "{}:{}".format(start,end)
+            if key not in events_to_kmers:
+                events_to_kmers[key] = {}
+            events_to_kmers[key][kmername] = seq_kmers[kmername]
+
+    logging.info("Optimizing k-mer selection for {} variant using ranges {}-{}".format(len(positions), min_kmer_len,
+                                                                                       max_kmer_len))
+    stime = time.time()
     for mutation_key in mutations:
         count+=1
         if not mutation_key in variant_events:
             continue
-        stime = time.time()
+
         mutation_type = mutations[mutation_key]['mutation_type']
         vStart = mutations[mutation_key]['vStart']
         vEnd = mutations[mutation_key]['vEnd']
-        ovKmers = copy.deepcopy(select_overlapping_kmers(seq_kmers, vStart, vEnd))
+        key = "{}:{}".format(vStart, vEnd)
+
+        ovKmers = events_to_kmers[key]
         if len(ovKmers) == 0:
             continue
 
         unalign_vstart =  get_non_gap_position(ref_non_gap_lookup, vStart)
         unalign_vend =  get_non_gap_position(ref_non_gap_lookup, vEnd)
         ref_variant_seq = input_alignment[ref_id][vStart:vEnd +1]
-        ovKmers = select_overlapping_kmers(seq_kmers,vStart,vEnd)
 
         if n_threads == 1:
             kmer_scheme.update(process_variant(ovKmers,mutation_type,vStart,vEnd,unalign_vstart, unalign_vend,ref_non_gap_lookup,ref_variant_seq,variant_events[mutation_key],seq_ids,ovKmers,min_kmer_len, max_kmer_len))
