@@ -12,7 +12,7 @@ from parsityper.scheme import SCHEME_HEADER
 from parsityper.kmerSearch.kmerSearch import init_automaton_dict, perform_kmerSearch_fasta
 from multiprocessing import Pool
 from parsityper.ext_tools.jellyfish import run_jellyfish_count,parse_jellyfish_counts
-from parsityper.kmerSearch.kmerSearch import  revcomp
+from parsityper.kmerSearch.kmerSearch import  revcomp, find_in_fasta_dict
 
 
 def parse_args():
@@ -30,16 +30,18 @@ def parse_args():
                         help='output directory')
     parser.add_argument('--prefix', type=str, required=False,
                         help='output file prefix',default='parsityper')
+    parser.add_argument('--min_kmer_count',type=int,required=False,
+                        help='Minimum frequency of kmer for inclusion (default=1)', default=1)
     parser.add_argument('--min_ref_frac', type=float, required=False,
-                        help='Minimum fraction of isolates positive for reference base for it to be positive 0 - 1.0 (default=0.1)', default=1)
+                        help='Minimum fraction of isolates positive for reference base for it to be positive 0 - 1.0 (default=1.0)', default=1)
     parser.add_argument('--min_alt_frac', type=float, required=False,
-                        help='Minimum fraction of isolates positive for mutation for it to be positive 0 - 1.0 (default=0.1)', default=0.95)
+                        help='Minimum fraction of isolates positive for mutation for it to be positive 0 - 1.0 (default=0.95)', default=0.95)
     parser.add_argument('--min_len', type=int, required=False,
                         help='Absolute minimum length of acceptable k-mer',default=18)
     parser.add_argument('--max_len', type=int, required=False,
                         help='Absolute minimum length of acceptable k-mer',default=18)
     parser.add_argument('--max_ambig', type=int, required=False,
-                        help='Absolute maximum of degenerate bases allowed in a k-mer',default=10)
+                        help='Absolute maximum of degenerate bases allowed in a k-mer (default=0)',default=0)
     parser.add_argument('--max_states', type=int, required=False,
                         help='Absolute maximum of states allowed per kmer',default=256)
     parser.add_argument('--min_complexity', type=int, required=False,
@@ -54,6 +56,8 @@ def parse_args():
                         help='fraction of bases needed for imputing ambiguous bases',default=0.9)
     parser.add_argument('--jf', type=str, required=False,
                         help='jellyfish memory flage default=1M',default='1M')
+    parser.add_argument('--no_plots', required=False,
+                        help='suppress making plots, required for large datasets',action='store_true')
 
     return parser.parse_args()
 
@@ -81,18 +85,45 @@ def runKmerCounting(input_seqs,out_dir,jellyfish_mem,kLen,n_threads=1):
         pool = Pool(processes=n_threads)
         res = []
         for i in range(0,len(seqFiles)):
-            res.append(pool.apply_async(run_jellyfish_count,(seqFiles[i],kCount_files[i],jellyfish_mem,kLen,n_threads)))
+            #skip files that already exist
+            if not os.path.isfile(kCount_files[i]):
+                res.append(pool.apply_async(run_jellyfish_count,(seqFiles[i],kCount_files[i],jellyfish_mem,kLen,n_threads)))
         pool.close()
         pool.join()
         for i in range(0, len(res)):
             res[i].get()
     else:
        for i in range(0,len(seqFiles)):
-           run_jellyfish_count(seqFiles[i],kCount_files[i],jellyfish_mem,kLen,n_threads)
+           if not os.path.isfile(kCount_files[i]):
+               run_jellyfish_count(seqFiles[i],kCount_files[i],jellyfish_mem,kLen,n_threads)
 
     return kCount_files
 
-def getKmerCounts(input_seqs,out_dir,kLen,jellyfish_mem,max_count=1,max_ambig=0,n_threads=1):
+def getKmerCounts(file,out_file,kLen,jellyfish_mem,min_count=1,max_count=1,max_ambig=0,n_threads=1):
+    run_jellyfish_count(file, out_file, jellyfish_mem, kLen, n_threads)
+    kmer_df = parse_jellyfish_counts(out_file)
+    kmer_df = kmer_df[kmer_df['count'] <= max_count]
+    kmer_df = kmer_df[kmer_df['count'] >= min_count]
+    kMers = {}
+    for row in kmer_df.itertuples():
+        kmer = row.kmer
+        bCounts = Counter(kmer)
+        if 'N' in bCounts:
+            if bCounts['N'] > max_ambig:
+                continue
+        if not kmer in kMers:
+            kMers[kmer] = {'index':'','seq_ids':[]}
+
+    aho = init_automaton_dict(dict(zip(list(kMers.keys()),list(kMers.keys()))))
+    kmer_df = find_in_fasta_dict(aho, read_fasta(file))
+    for row in kmer_df.itertuples():
+        kMers[row.kmername]['seq_ids'].append(row.contig_id)
+        if kMers[row.kmername]['index'] == '':
+            kMers[row.kmername]['index'] = row.match_index
+    return kMers
+
+
+def getKmerCounts_bck(input_seqs,out_dir,kLen,jellyfish_mem,max_count=1,max_ambig=0,n_threads=1):
     kCount_files = runKmerCounting(input_seqs,out_dir,kLen,jellyfish_mem,n_threads)
     kMers = {}
     for file in kCount_files:
@@ -129,23 +160,30 @@ def generate_gap_lookup(aln,seq):
         seq_lookup.append(p)
     return seq_lookup
 
-def getCandidateKmers(variant_positions,input_alignment,unaligned,unal_to_aln_coords,ref_id,path,jellyfish_mem,kLen,max_count=1,max_ambig=0,n_threads=1):
-    raw_kmers = getKmerCounts(unaligned, path, kLen, jellyfish_mem,max_count, max_ambig,
-                              n_threads)
+def getCandidateKmers(variant_positions,input_alignment,unaligned,unal_to_aln_coords,ref_id,path,jellyfish_mem,kLen,min_count=1,max_count=1,max_ambig=0,n_threads=1):
+    tmp_unalign = os.path.join(path,"tmp.unalign.fasta")
+    fh = open(tmp_unalign,'w')
+    for seq_id in unaligned:
+        fh.write(">{}\n{}\n".format(seq_id,unaligned[seq_id]))
+    fh.close()
+    tmp_kmer = os.path.join(path, "tmp.unalign.kmers.txt")
+    raw_kmers = getKmerCounts(tmp_unalign, tmp_kmer, kLen, jellyfish_mem, min_count=min_count, max_count=max_count, max_ambig=max_ambig, n_threads=1)
+    #os.remove(tmp_kmer)
+    os.remove(tmp_unalign)
     aln_len = len(input_alignment[ref_id])
     num_samples = len(input_alignment)
     filtered_kmers = {}
 
     for kmer in raw_kmers:
         kLen = len(kmer)
-        seq_ids = raw_kmers[kmer]
+        seq_ids = raw_kmers[kmer]['seq_ids']
         if len(seq_ids) == num_samples:
             continue
         seq_id = seq_ids[0]
-        kStart_unaln = unaligned[seq_id].find(kmer)
-
+        kStart_unaln = raw_kmers[kmer]['index']
         kEnd_unaln = kStart_unaln + kLen
         kStart_aln = unal_to_aln_coords[seq_id][kStart_unaln]
+
         # revcomp kmer sequences to correct strand
         if kStart_unaln == -1:
             kmer = revcomp(kmer)
@@ -179,6 +217,7 @@ def getCandidateKmers(variant_positions,input_alignment,unaligned,unal_to_aln_co
                                 'affect_variants': overlapping_variants,
                                 'num_seqs': len(seq_ids),
                                 'seq_ids': seq_ids}
+
     return filtered_kmers
 
 def build_mutation_lookup(variant_positions,ref_id,input_alignment,kmer_len):
@@ -262,8 +301,7 @@ def get_alt_variants(input_alignment,mutations,align_len):
                         state = 'alt'
                     else:
                         state = 'ref'
-            #if state == 'alt':
-            #    print("{}\t{}\t{}\t{}\t{}\t{}".format(seq_id,state,vStart,vEnd,variant,ref_variant))
+
             if state == 'ref':
                 continue
             if not mutation_key in variants:
@@ -331,6 +369,7 @@ def create_entry(variant_key,dna_name,mutation_type,groups,vStart,vEnd,unalign_v
                 'negative_genotypes': [],
                 'is_kmer_found': True,
                 'is_kmer_length_ok': True,
+                'is_ambig_ok':True,
                 'is_kmer_unique': True,
                 'is_kmer_complexity_ok': True,
                 'is_valid': True
@@ -423,13 +462,13 @@ def calc_complexity_scheme(scheme):
                 entry['complexity'] = calc_kmer_complexity(kSeq)
     return scheme
 
-def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,jellyfish_mem,min_kmer_len,max_kmer_len,n_threads=1):
+def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,jellyfish_mem,min_kmer_count,min_kmer_len,max_kmer_len,n_threads=1):
     # initialize analysis directory
     if not os.path.isdir(jellyfish_path):
         logging.info("Creating analysis results directory {}".format(jellyfish_path))
         os.mkdir(jellyfish_path, 0o755)
     else:
-        logging.info("Results directory {} already exits, will overwrite any results files here".format(jellyfish_path))
+        logging.info("Results directory {} already exits, will resuse any results files here".format(jellyfish_path))
 
     seq_ids = list(input_alignment.keys())
     ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_id])
@@ -439,8 +478,6 @@ def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,
     for seq_id in input_alignment:
         unaligned_seqs[seq_id] = input_alignment[seq_id].replace('-','')
         unal_to_aln_coords[seq_id] = generate_gap_lookup(input_alignment[seq_id], unaligned_seqs[seq_id])
-
-
 
     align_len = len(input_alignment[ref_id])
     logging.info("Building mutation event lookup")
@@ -462,10 +499,11 @@ def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,
     if n_threads > 1:
         pool = Pool(processes=n_threads)
 
-    logging.info("Begining k-mer extraction for {} variant positions".format(len(positions)))
+    logging.info("Begining k-mer extraction for {} variants".format(len(positions)))
     stime = time.time()
-
-    seq_kmers = getCandidateKmers(variant_positions,input_alignment,unaligned_seqs,unal_to_aln_coords,ref_id,jellyfish_path,jellyfish_mem,max_kmer_len,max_count=1,max_ambig=0,n_threads=n_threads)
+    seq_kmers = {}
+    for i in range(min_kmer_len,max_kmer_len+1):
+        seq_kmers.update(getCandidateKmers(variant_positions,input_alignment,unaligned_seqs,unal_to_aln_coords,ref_id,jellyfish_path,jellyfish_mem,i,min_kmer_count,max_count=len(input_alignment),max_ambig=0,n_threads=n_threads))
     logging.info("time for kmer extraction {}".format(time.time() - stime))
 
     stime = time.time()
@@ -501,7 +539,7 @@ def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,
             if len(variant_events[mutation_key]) == 0:
                 del (mutations[mutation_key])
 
-    logging.info("Optimizing k-mer selection for {} variant positions using ranges {}-{}".format(len(positions),min_kmer_len,max_kmer_len))
+    logging.info("Optimizing k-mer selection for {} variant using ranges {}-{}".format(len(positions),min_kmer_len,max_kmer_len))
 
     for mutation_key in mutations:
         count+=1
@@ -561,7 +599,7 @@ def add_gene_inference(scheme,ref_name,reference_info,input_alignment):
 
     return scheme
 
-def qa_scheme(scheme,input_alignment,ref_id,genotype_mapping,min_len, max_len,min_complexity,n_threads=1):
+def qa_scheme(scheme,input_alignment,ref_id,genotype_mapping,min_len, max_len,min_complexity,max_ambig):
     scheme = calc_complexity_scheme(scheme)
     unaligned = {}
     for seq_id in input_alignment:
@@ -572,14 +610,21 @@ def qa_scheme(scheme,input_alignment,ref_id,genotype_mapping,min_len, max_len,mi
         for state in scheme[mutation_key]:
             for row in scheme[mutation_key][state]:
                 klen = len(row['unalign_kseq'])
+                ambig_count = row['unalign_kseq'].count('N')
+                if ambig_count > max_ambig:
+                    row['is_ambig_ok'] = False
+                    row['is_valid'] = False
+
                 if klen > max_len or klen < min_len:
                     row['is_kmer_length_ok'] = False
                     row['is_valid'] = False
                 if row['complexity'] >= 1 - min_complexity:
                     row['is_kmer_complexity_ok'] = False
                     row['is_valid'] = False
+
                 if not row['is_valid']:
                     problem_mutations.append(mutation_key)
+
     return scheme
 
 def format_scheme_human_readable(scheme,ref_id,input_alignment):
@@ -1025,6 +1070,8 @@ def run():
     impute_min_frac = cmd_args.iFrac
     jellyfish_mem = cmd_args.jf
     jellyfish_path = os.path.join(outdir,"jellyfish")
+    no_plots = cmd_args.no_plots
+    min_kmer_count = cmd_args.min_kmer_count
 
 
     # initialize analysis directory
@@ -1057,10 +1104,9 @@ def run():
     else:
         logger.info("Imputing ambiguous bases not enabled")
 
-    min_members = len(input_alignment) - len(input_alignment)*max_missing
     logger.info("Found {} sequences in msa".format(len(input_alignment)))
     consensus_bases = calc_consensus(input_alignment)
-    consensus_seq = generate_consensus_seq(consensus_bases)
+
 
     #read the metadata associations
     logger.info("Reading genotype associations from {}".format(input_meta))
@@ -1109,10 +1155,10 @@ def run():
 
     logger.info("Creating scheme based on identified SNPs and indels")
 
-    scheme = construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path, jellyfish_mem,min_len, max_len,n_threads)
+    scheme = construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path, jellyfish_mem,min_kmer_count,min_len, max_len,n_threads)
 
     logger.info("Performing QA on selected k-mers")
-    scheme = qa_scheme(scheme, input_alignment, ref_id, genotype_mapping,min_len=min_len, max_len=max_len,min_complexity=min_complexity)
+    scheme = qa_scheme(scheme, input_alignment, ref_id, genotype_mapping,min_len=min_len, max_len=max_len,min_complexity=min_complexity,max_ambig=max_ambig)
 
     logger.info("Adding gene annotations")
     scheme = add_gene_inference(scheme, ref_id, ref_features, input_alignment)
@@ -1135,7 +1181,7 @@ def run():
     kmer_profile = build_kmer_profiles(list(genotype_mapping.keys()),scheme)
 
     # create a plot of sample similarity for a multi-sample run
-    if len(kmer_profile ) > 1:
+    if len(kmer_profile ) > 1 and not no_plots:
         logger.info("Plotting Sample dendrogram")
         labels = []
         for sample in kmer_profile:

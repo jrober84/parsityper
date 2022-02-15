@@ -38,6 +38,7 @@ SCHEME_HEADER = [
                 'seq_ids',
                 'positive_genotypes',
                 'partial_genotypes',
+                'is_ambig_ok',
                 'is_kmer_found',
                 'is_kmer_length_ok',
                 'is_kmer_unique',
