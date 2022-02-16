@@ -598,6 +598,7 @@ def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,
 
         if key in events_to_kmers:
             ovKmers = events_to_kmers[key]
+        else:
             continue
 
         if len(ovKmers) == 0:
@@ -1136,6 +1137,8 @@ def run():
     genotypes_mut_file = os.path.join(outdir,"{}-mutation.associations.txt".format(prefix))
     genotypes_kmers_file = os.path.join(outdir, "{}-kmers.associations.txt".format(prefix))
     genotype_dendrogram = os.path.join(outdir, "{}-dendropgram.html".format(prefix))
+    alignment_base_counts = os.path.join(outdir, "{}-alignment_base_counts.txt".format(prefix))
+    mutation_events = os.path.join(outdir, "{}-detected.mutations.txt".format(prefix))
 
     #Get the Gene features from the reference sequence
     ref_features = parse_reference_sequence(ref_gbk)
@@ -1155,6 +1158,20 @@ def run():
 
     logger.info("Found {} sequences in msa".format(len(input_alignment)))
     consensus_bases = calc_consensus(input_alignment)
+    logger.info("Writting bases counts per position in msa")
+    fh = open(alignment_base_counts,'w')
+    out_data = ["position\tA\tT\tC\tG\tN\t-"]
+    for pos in range(0,len(consensus_bases)):
+        a_count = consensus_bases[pos]['A']
+        t_count = consensus_bases[pos]['T']
+        c_count = consensus_bases[pos]['C']
+        g_count = consensus_bases[pos]['G']
+        n_count = consensus_bases[pos]['N']
+        missing_count = consensus_bases[pos]['-']
+        out_data.append("{}\t{}\t{}\t{}\t{}\t{}\t{}".format(pos,a_count,t_count,c_count,g_count,n_count,missing_count))
+    fh.write("\n".join(out_data))
+    del(out_data)
+    fh.close()
 
 
     #read the metadata associations
@@ -1201,7 +1218,7 @@ def run():
     for indel in unique_indels:
         (start,end) = indel.split(':')
         variant_positions.append([int(start),int(end)])
-
+    
     logger.info("Creating scheme based on identified SNPs and indels")
 
     scheme = construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path, jellyfish_mem,min_kmer_count,min_len, max_len,n_threads)
@@ -1350,6 +1367,28 @@ def run():
 
     logger.info("Performing genotype mutation quality control analysis")
     genotype_report_mutation = qa_genotype_mutations(genotype_mapping,mutation_geno_association)
+    # remove mutations where only one state is present
+    filtered = {}
+    for mutation_key in scheme:
+        states = scheme[mutation_key]
+        if len(states['alt']) > 0 and len(states['ref']) :
+            filtered[mutation_key] = scheme[mutation_key]
+    scheme = filtered
+    del(filtered)
+
+
+
+    #find mutations where partial rule should be blanked because there is no positives
+    for mutation_key in scheme:
+        counts = {'alt':0,'ref':0}
+        for state in scheme[mutation_key]:
+            for row in scheme[mutation_key][state]:
+                if len(row['positive_genotypes']) > 0:
+                    counts[state]+=1
+        if counts['alt'] == 0 and counts['ref'] == 0:
+            for state in scheme[mutation_key]:
+                for row in scheme[mutation_key][state]:
+                    row['partial_genotypes'] = []
 
 
     #sort all multi-entry fields and collapse them to strings
