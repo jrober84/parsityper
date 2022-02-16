@@ -596,7 +596,8 @@ def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,
         vEnd = mutations[mutation_key]['vEnd']
         key = "{}:{}".format(vStart, vEnd)
 
-        ovKmers = events_to_kmers[key]
+        if key in events_to_kmers:
+            ovKmers = events_to_kmers[key]
         if len(ovKmers) == 0:
             continue
 
