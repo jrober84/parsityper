@@ -598,6 +598,8 @@ def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,
 
         if key in events_to_kmers:
             ovKmers = events_to_kmers[key]
+            continue
+
         if len(ovKmers) == 0:
             continue
 
