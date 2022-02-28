@@ -443,7 +443,7 @@ def parse_reference_sequence(gbk_file):
 
                     seq = ''.join(seq)
                     sequences[gb_accession]['features'][feat.key].append(
-                        {'gene_name': gene_name, 'dna_seq': seq, 'aa_seq': aa, 'positions': positions})
+                        {'gene_name': gene_name, 'dna_seq': seq, 'aa_seq': aa, 'positions': positions,'gene_len':len(seq)})
 
     return sequences
 

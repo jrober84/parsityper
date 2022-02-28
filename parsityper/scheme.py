@@ -66,10 +66,10 @@ def parseScheme(scheme_file):
         else:
             partial_genotypes = partial_genotypes.split(',')
         state = row.state
-        seq = row.unalign_kseq
-        gene = row.gene
-        variant_start = row.unalign_variant_start
-        variant_end = row.unalign_variant_end
+        seq = row.kseq
+        gene = row.gene_name
+        variant_start = row.variant_start
+        variant_end = row.variant_end
         ref_state = row.ref_state
         alt_state = row.alt_state
 

@@ -1,978 +1,611 @@
 #!/usr/bin/python
 import time
+from ahocorasick import Automaton
+from pathlib import Path
+from memory_profiler import profile
+import pickle
 from argparse import (ArgumentParser)
-import logging, os, sys, operator, copy
+import logging, os, sys, operator, copy, psutil
 from collections import Counter
 import pandas as pd
-from parsityper.helpers import init_console_logger, read_tsv, parse_reference_sequence, calc_consensus, generate_consensus_seq,\
-find_snp_positions,  find_internal_gaps, count_kmers
-from parsityper.helpers import  read_fasta, get_aa_delta, generate_non_gap_position_lookup
+from parsityper.helpers import init_console_logger, read_tsv, parse_reference_sequence, calc_consensus, \
+    generate_consensus_seq, \
+    find_snp_positions, find_internal_gaps, count_kmers
+from parsityper.helpers import read_fasta, get_aa_delta, generate_non_gap_position_lookup
 from parsityper.visualizations import dendrogram_visualization
 from parsityper.scheme import SCHEME_HEADER
 from parsityper.kmerSearch.kmerSearch import init_automaton_dict, perform_kmerSearch_fasta
 from multiprocessing import Pool
-from parsityper.ext_tools.jellyfish import run_jellyfish_count,parse_jellyfish_counts
-from parsityper.kmerSearch.kmerSearch import  revcomp, find_in_fasta_dict
+from parsityper.ext_tools.jellyfish import run_jellyfish_count, parse_jellyfish_counts
+from parsityper.kmerSearch.kmerSearch import revcomp, find_in_fasta_dict
+from parsityper.helpers import find_overlaping_gene_feature
+import pandas as pd
+import logging, os, re, operator, datetime, copy, time
+from itertools import product
+from multiprocessing import Pool
+from scipy.spatial.distance import cdist
+from parsityper.constants import HTML_TEMPLATE_FILE, LOG_FORMAT, TYPING_SCHEMES, NEGATE_BASE_IUPAC, IUPAC_LOOK_UP, \
+    bases_dict
+from parsityper.reporting.words import NOUNS, COLORS, DESCRIPTORS
+from parsityper.kmerSearch.kmerSearch import init_automaton_dict, find_in_fasta_dict
+import random, hashlib
+import numpy as np
+from datetime import datetime
+from Bio import GenBank
+from Bio import SeqIO
+from Bio.Seq import Seq
+import glob
+import gzip
+from mimetypes import guess_type
+from functools import partial
+from Bio import SeqIO
+from scipy.stats import entropy
+from sklearn.metrics import adjusted_mutual_info_score, adjusted_rand_score
+import json
+
+iupac_replacement = {'R': 'N', 'Y': 'N', 'M': 'N', 'K': 'N', 'S': 'N', 'W': 'N', 'H': 'N', 'B': 'N', 'V': 'N', 'D': 'N'}
+
+SCHEME_HEADER = [
+    'key',
+    'mutation_key',
+    'mutation_type',
+    'dna_name',
+    'gene',
+    'gene_start',
+    'gene_end',
+    'cds_start',
+    'cds_end',
+    'aa_name',
+    'aa_start',
+    'aa_end',
+    'is_silent',
+    'is_cds',
+    'is_frame_shift',
+    'variant_start',
+    'variant_end',
+    'kmer_start',
+    'kmer_end',
+    'target_variant',
+    'target_variant_len',
+    'state',
+    'ref_state',
+    'alt_state',
+    'kseq',
+    'klen',
+    'homopolymer_len',
+    'kmer_entropy',
+    'positive_genotypes',
+    'partial_genotypes',
+    'is_ambig_ok',
+    'is_kmer_found',
+    'is_kmer_length_ok',
+    'is_kmer_unique',
+    'is_valid'
+]
+
+KMER_FIELDS = {
+    'key': 0,
+    'mutation_key': '',
+    'dna_name': '',
+    'variant_start': -1,
+    'variant_end': -1,
+    'kmer_start': -1,
+    'aa_name': '',
+    'gene_name': '',
+    'cds_start': -1,
+    'cds_end': -1,
+    'aa_start': -1,
+    'aa_end': -1,
+    'is_silent': False,
+    'is_cds': False,
+    'is_frame_shift': False,
+    'target_variant': '',
+    'target_variant_len': '',
+    'mutation_type': '',
+    'state': '',
+    'kseq': '',
+    'klen': 0,
+    'homopolymer_len': 0,
+    'ref_state': '',
+    'alt_state': '',
+    'entropy': -1,
+    'positive_genotypes': [],
+    'partial_genotypes': [],
+}
 
 
 def parse_args():
     "Parse the input arguments, use '-h' for help"
-    parser = ArgumentParser(description='Kmer scheme generator')
+    parser = ArgumentParser(description='Parsityper scheme creator')
     parser.add_argument('--input_msa', type=str, required=True,
                         help='MSA in fasta format')
     parser.add_argument('--input_meta', type=str, required=True,
                         help='TSV file of sample_id,genotype')
     parser.add_argument('--ref_id', type=str, required=True,
                         help='sample_id for reference sequence to use in MSA')
-    parser.add_argument('--ref_gbk', type=str, required=True,
+    parser.add_argument('--ref_gbk', type=str, required=False,
                         help='GenBank file for reference sequences')
     parser.add_argument('--outdir', type=str, required=True,
                         help='output directory')
     parser.add_argument('--prefix', type=str, required=False,
-                        help='output file prefix',default='parsityper')
-    parser.add_argument('--min_kmer_count',type=int,required=False,
+                        help='output file prefix', default='parsityper')
+    parser.add_argument('--min_kmer_freq', type=int, required=False,
                         help='Minimum frequency of kmer for inclusion (default=1)', default=1)
+    parser.add_argument('--min_var_freq', type=int, required=False,
+                        help='Minimum frequency of variant for inclusion (default=1)', default=1)
     parser.add_argument('--min_ref_frac', type=float, required=False,
-                        help='Minimum fraction of isolates positive for reference base for it to be positive 0 - 1.0 (default=1.0)', default=1)
+                        help='Minimum fraction of isolates positive for reference base for it to be positive 0 - 1.0 (default=1.0)',
+                        default=1)
     parser.add_argument('--min_alt_frac', type=float, required=False,
-                        help='Minimum fraction of isolates positive for mutation for it to be positive 0 - 1.0 (default=0.95)', default=0.95)
-    parser.add_argument('--min_len', type=int, required=False,
-                        help='Absolute minimum length of acceptable k-mer',default=18)
-    parser.add_argument('--max_len', type=int, required=False,
-                        help='Absolute minimum length of acceptable k-mer',default=18)
+                        help='Minimum fraction of isolates positive for mutation for it to be positive 0 - 1.0 (default=0.95)',
+                        default=0.95)
+    parser.add_argument('--kmer_len', type=int, required=False,
+                        help='Length of kmer to use', default=21)
     parser.add_argument('--max_ambig', type=int, required=False,
-                        help='Absolute maximum of degenerate bases allowed in a k-mer (default=0)',default=0)
-    parser.add_argument('--max_states', type=int, required=False,
-                        help='Absolute maximum of states allowed per kmer',default=256)
-    parser.add_argument('--min_complexity', type=int, required=False,
-                        help='Absolute maximum of dimer composition',default=0.6)
-    parser.add_argument('--max_missing', type=float, required=False,
-                        help='Absolute maximum percentage of sequences allowed to be missing kmer',default=0.25)
+                        help='Absolute maximum of degenerate bases allowed in a k-mer (default=0)', default=0)
+    parser.add_argument('--max_homo', type=int, required=False,
+                        help='Absolute maximum of homopolymer run default=20% of kmer len')
     parser.add_argument('--n_threads', type=int, required=False,
-                        help='Number of threads to use',default=1)
-    parser.add_argument('-q', '--impute', required=False, help='impute ambiguous bases',
-                        action='store_true')
-    parser.add_argument('--iFrac', type=float, required=False,
-                        help='fraction of bases needed for imputing ambiguous bases',default=0.9)
-    parser.add_argument('--jf', type=str, required=False,
-                        help='jellyfish memory flage default=1M',default='1M')
+                        help='Number of threads to use', default=1)
     parser.add_argument('--no_plots', required=False,
-                        help='suppress making plots, required for large datasets',action='store_true')
-
+                        help='suppress making plots, required for large datasets', action='store_true')
+    parser.add_argument('--resume', required=False,
+                        help='Restart a previous run using checkpoints', action='store_true')
+    parser.add_argument('--max_folder_size', type=int, required=False,
+                        help='Maximum number of files per folder (default=4000)', default=4000)
+    parser.add_argument('--seq_batch_size', type=int, required=False,
+                        help='Smaller batch sizes require less memory at the expense of longer run times')
     return parser.parse_args()
 
 
-def get_non_gap_position(ref_non_gap_lookup,pos):
+def find_gaps(seq):
+    """
+    Accepts a string and returns the positions of all of the gaps in the sequence
+    :param seq: str
+    :return: list of [start,end] of all of the gaps
+    """
+    match = re.finditer(r"\w-+\w", seq)
 
-    non_gap_position = ref_non_gap_lookup[pos]
-    while non_gap_position == -1:
-        pos -= 1
-        non_gap_position = ref_non_gap_lookup[pos]
-    return non_gap_position
+    positions = []
+    for m in match:
+        positions.append([m.start() + 1, m.end() - 2])
+    return positions
 
-def runKmerCounting(input_seqs,out_dir,jellyfish_mem,kLen,n_threads=1):
-    kCount_files = []
-    seqFiles = []
-    for seq_id in input_seqs:
-        seq_file = os.path.join(out_dir, "{}.fasta".format(seq_id))
-        out_file = os.path.join(out_dir, "{}.mers".format(seq_id))
-        kCount_files.append(out_file)
-        seqFiles.append(seq_file)
-        fh = open(seq_file, 'w')
-        fh.write(">{}\n{}\n".format(seq_id, input_seqs[seq_id]))
-        fh.close()
+
+def init_consensus(seq):
+    seq_len = len(seq)
+    consensus = []
+    for i in range(0, seq_len):
+        consensus.append({'A': 0, 'T': 0, 'C': 0, 'G': 0, 'N': 0, '-': 0})
+    return consensus
+
+
+def parseVariants(consensus, all_seq_ids, gaps, ref_seq, min_var_freq):
+    variants = {'snp': {}, 'del': {}, 'ins': {}}
+    bases = ['A', 'T', 'C', 'G']
+    for i in range(0, len(ref_seq)):
+        pos = consensus[i]
+        count_bases = 0
+        ref_base = ref_seq[i]
+        if ref_base == '-':
+            continue
+        alt_bases = {'A': 0, 'T': 0, 'C': 0, 'G': 0}
+        for b in bases:
+            if pos[b] > 0:
+                if b != ref_base:
+                    alt_bases[b] += 1
+        for b in alt_bases:
+            if alt_bases[b] < min_var_freq:
+                alt_bases[b] = 0
+            else:
+                count_bases += 1
+
+        if count_bases >= 1:
+            variants['snp'][i] = {'ref': ref_base, 'alt': alt_bases}
+
+    for gap in gaps:
+        (start, end) = gap.split(':')
+        seq_ids = gaps[gap]
+        start = int(start)
+        end = int(end)
+        ref_bases = ref_seq[start:end + 1].replace('-', '')
+        vType = 'del'
+        if len(ref_bases) == 0:
+            vType = 'ins'
+            seq_ids = list(set(all_seq_ids) - set(seq_ids))
+        if len(seq_ids) < min_var_freq:
+            continue
+        variants[vType][gap] = {'start': start, 'end': end, 'seq_ids': seq_ids}
+    return variants
+
+
+def preprocess_seqs(fasta_file, ref_id, sample_ids, batch_size, out_dir, prefix, iupac_replacement, min_var_freq,
+                    max_folder_size=1000):
+    trans = str.maketrans(''.join(iupac_replacement.keys()), ''.join(iupac_replacement.values()))
+    sample_batch_index = {}
+    encoding = guess_type(fasta_file)[1]
+    _open = partial(gzip.open, mode='rt') if encoding == 'gzip' else open
+    is_align_ok = True
+    seq_ids = []
+    subset_files = []
+    file_index = 0
+    batch_count = 0
+    gaps = {}
+    ref_seq = ''
+    unalign_files = []
+    with _open(fasta_file) as f:
+        seq_record = next(SeqIO.parse(f, 'fasta'))
+        seq = str(seq_record.seq).upper()
+        seq = seq.translate(trans)
+        consensus = init_consensus(seq)
+        align_len = len(seq)
+    out_unalin = []
+    out_alin = []
+    seq_base_range = range(0, align_len)
+    with _open(fasta_file) as f:
+        for seq_record in SeqIO.parse(f, 'fasta'):
+            stime = time.time()
+            id = str(seq_record.id)
+            if id not in sample_ids:
+                continue
+            sample_batch_index[id] = file_index
+            if batch_count == 0:
+                sub_outfile = os.path.join(out_dir, "{}-{}.subset.fasta".format(prefix, file_index))
+                unaln_outfile = os.path.join(out_dir, "{}-{}.unaln.fasta".format(prefix, file_index))
+                unalign_files.append(unaln_outfile)
+                subset_files.append(sub_outfile)
+                sFH = open(sub_outfile, 'w')
+                uFH = open(unaln_outfile, 'w')
+            batch_count += 1
+            seq_ids.append(id)
+            seq = str(seq_record.seq).upper()
+            seq = seq.translate(trans)
+            seq_len = len(seq)
+            if id == ref_id:
+                ref_seq = seq
+
+            intGaps = find_gaps(seq)
+
+            for (start, end) in intGaps:
+                gap = "{}:{}".format(start, end)
+                if not gap in gaps:
+                    gaps[gap] = []
+                gaps[gap].append(id)
+
+            for i in seq_base_range:
+                consensus[i][seq[i]] += 1
+
+            if seq_len != align_len:
+                logging.error("Sequence length mismatch {}: {} vs. {}".format(id, seq_len, align_len))
+                is_align_ok = False
+            if id not in sample_ids:
+                logging.error("Sequence id: {} is not present in metadata file...skip".format(id))
+                continue
+            out_unalin.append(">{}\n{}".format(id, seq.replace('-', '')))
+            out_alin.append(">{}\n{}".format(id, seq))
+            if batch_count == batch_size:
+                batch_count = 0
+                sFH.write("{}\n".format("\n".join(out_alin)))
+                uFH.write("{}\n".format("\n".join(out_unalin)))
+                sFH.close()
+                uFH.close()
+                out_unalin = []
+                out_alin = []
+                file_index += 1
+
+        sFH.write("{}\n".format("\n".join(out_alin)))
+        uFH.write("{}\n".format("\n".join(out_unalin)))
+        sFH.close()
+        uFH.close()
+
+    variants = parseVariants(consensus, seq_ids, gaps, ref_seq, min_var_freq)
+
+    return {'seq_ids': seq_ids, 'is_align_ok': is_align_ok, 'consensus': consensus, 'subset_files': subset_files,
+            'unalign_files': unalign_files, 'align_len': align_len,
+            'sample_batch_index': sample_batch_index, 'gaps': gaps, 'variants': variants, 'ref_aln': ref_seq}
+
+
+def perform_kmer_counting(file_manifest, kLen, jellyfish_mem, n_threads):
     if n_threads > 1:
         pool = Pool(processes=n_threads)
-        res = []
-        for i in range(0,len(seqFiles)):
-            #skip files that already exist
-            if not os.path.isfile(kCount_files[i]):
-                res.append(pool.apply_async(run_jellyfish_count,(seqFiles[i],kCount_files[i],jellyfish_mem,kLen,n_threads)))
+    res = []
+    for i in range(0, len(file_manifest)):
+        seq_file = file_manifest[i]
+        kmer_file = "{}.jellyfish.txt".format(Path(seq_file).with_suffix(''))
+        if n_threads > 1:
+            res.append(pool.apply_async(run_jellyfish_count, (seq_file, kmer_file, jellyfish_mem, kLen, n_threads)))
+        else:
+            res.append(run_jellyfish_count(seq_file, kmer_file, jellyfish_mem, kLen, n_threads))
+    if n_threads > 1:
         pool.close()
         pool.join()
         for i in range(0, len(res)):
             res[i].get()
-    else:
-       for i in range(0,len(seqFiles)):
-           if not os.path.isfile(kCount_files[i]):
-               run_jellyfish_count(seqFiles[i],kCount_files[i],jellyfish_mem,kLen,n_threads)
-
-    return kCount_files
-
-def getKmerCounts(file,out_file,kLen,jellyfish_mem,min_count=1,max_count=1,max_ambig=0,n_threads=1):
-    logging.info("Running jellyfish kmer counting with k={}".format(kLen))
-    run_jellyfish_count(file, out_file, jellyfish_mem, kLen, n_threads)
-    kmer_df = parse_jellyfish_counts(out_file)
-    logging.info("Found {} kmers in input k={}".format(len(kmer_df),kLen))
-    kmer_df = kmer_df[kmer_df['count'] <= max_count]
-    logging.info("{} kmers are present in the data <= {} k={}".format(len(kmer_df),max_count,kLen))
-    kmer_df = kmer_df[kmer_df['count'] >= min_count]
-    logging.info("{} kmers are present in the data >= {} k={}".format(len(kmer_df), min_count,kLen))
-    kMers = {}
-    for row in kmer_df.itertuples():
-        kmer = row.kmer
-        bCounts = Counter(kmer)
-        if 'N' in bCounts:
-            if bCounts['N'] > max_ambig:
-                continue
-        if not kmer in kMers:
-            kMers[kmer] = {'index':'','seq_ids':[]}
-
-    aho = init_automaton_dict(dict(zip(list(kMers.keys()),list(kMers.keys()))))
-    logging.info("{} kmers are present in the data >= {} k={}".format(len(kmer_df), min_count,kLen))
-
-    results = []
-    seqs = read_fasta(file)
-    logging.info("Performing searching of {} kmers against input sequences k={}".format(len(kmer_df),kLen))
-    if n_threads > 1:
-        pool = Pool(processes=n_threads)
-        batch_size = int(len(seqs) / n_threads)
-        batch = {}
-        for seq_id in seqs:
-            batch[seq_id] = seqs[seq_id]
-            if len(batch) >= batch_size:
-                results.append(pool.apply_async(find_in_fasta_dict, (aho,copy.deepcopy(batch))))
-                batch = {}
-        results.append(pool.apply_async(find_in_fasta_dict, (aho, batch)))
-        pool.close()
-        pool.join()
-        for i in range(0,len(results)):
-            results[i] = results[i].get()
-        kmer_df = pd.concat(results)
-    else:
-        kmer_df = find_in_fasta_dict(aho,seqs )
-    logging.info("Mapping complete k={}".format(kLen))
-    for row in kmer_df.itertuples():
-        kMers[row.kmername]['seq_ids'].append(row.contig_id)
-        if kMers[row.kmername]['index'] == '':
-            kMers[row.kmername]['index'] = row.match_index
-
-    return kMers
+    return res
 
 
-def getKmerCounts_bck(input_seqs,out_dir,kLen,jellyfish_mem,max_count=1,max_ambig=0,n_threads=1):
-    kCount_files = runKmerCounting(input_seqs,out_dir,kLen,jellyfish_mem,n_threads)
-    kMers = {}
-    for file in kCount_files:
-        sample_id = os.path.basename(file).replace('.mers','')
-        kmer_df = parse_jellyfish_counts(file)
-        kmer_df = kmer_df[kmer_df['count'] <= max_count]
+def combine_jellyfish_results(file_manifest):
+    kmers = {}
+    for i in range(0, len(file_manifest)):
+        kmer_file = file_manifest[i]
+        kmer_file = "{}.jellyfish.txt".format(Path(kmer_file).with_suffix(''))
+        kmer_df = parse_jellyfish_counts(kmer_file)
         for row in kmer_df.itertuples():
             kmer = row.kmer
-            bCounts = Counter(kmer)
-            if 'N' in bCounts:
-                if bCounts['N'] > max_ambig:
-                    continue
-            if not kmer in kMers:
-                kMers[kmer] = []
-            kMers[kmer].append(sample_id)
-    return kMers
+            count = row.count
+            if not kmer in kmers:
+                kmers[kmer] = 0
+            kmers[kmer] += count
+    return kmers
 
-def generate_gap_lookup(aln,seq):
-    aLen = len(aln)
-    sLen = len(seq)
-    seq_lookup = []
-    p = 0
-    for i in range(0,sLen):
-        padding = 0
-        for k in range(p,aLen):
-            aBase = aln[k]
-            sBase = seq[i]
-            if aBase == '-':
-                padding+=1
-                continue
-            if aBase == sBase:
-                break
-        p = k
-        seq_lookup.append(p)
-    return seq_lookup
 
-def getCandidateKmers(variant_positions,input_alignment,unaligned,unal_to_aln_coords,ref_id,path,jellyfish_mem,kLen,min_count=1,max_count=1,max_ambig=0,n_threads=1):
-    tmp_unalign = os.path.join(path,"tmp.unalign.fasta")
-    fh = open(tmp_unalign,'w')
-    for seq_id in unaligned:
-        fh.write(">{}\n{}\n".format(seq_id,unaligned[seq_id]))
-    fh.close()
-    tmp_kmer = os.path.join(path, "tmp.unalign.kmers.txt")
-    raw_kmers = getKmerCounts(tmp_unalign, tmp_kmer, kLen, jellyfish_mem, min_count=min_count, max_count=max_count, max_ambig=max_ambig, n_threads=n_threads)
+def calc_homopolymers(seq):
+    longest = 0
+    for b in ['A', 'T', 'C', 'C']:
+        matches = re.findall("{}+".format(b), seq)
+        for m in matches:
+            length = len(m)
+            if length > longest:
+                longest = length
+    return longest
 
-    #os.remove(tmp_kmer)
-    os.remove(tmp_unalign)
-    aln_len = len(input_alignment[ref_id])
-    num_samples = len(input_alignment)
-    filtered_kmers = {}
-    logging.info("Filtering {} kmers which overlap with variant positions".format(len(raw_kmers)))
-    for kmer in raw_kmers:
-        kLen = len(kmer)
-        seq_ids = raw_kmers[kmer]['seq_ids']
-        if len(seq_ids) == num_samples:
+
+def filter_kmers(kMers, min_count, max_count, max_ambig, max_homo):
+    filtered = {}
+    for kmer in kMers:
+        count = kMers[kmer]
+        if count < min_count or count >= max_count:
             continue
-        seq_id = seq_ids[0]
-        kStart_unaln = raw_kmers[kmer]['index']
-        kEnd_unaln = kStart_unaln + kLen
-        kStart_aln = unal_to_aln_coords[seq_id][kStart_unaln]
-
-        # revcomp kmer sequences to correct strand
-        if kStart_unaln == -1:
-            kmer = revcomp(kmer)
-            kStart_unaln = unaligned[seq_id].find(kmer)
-            kEnd_unaln = kStart_unaln + kLen
-            kStart_aln = unal_to_aln_coords[seq_id][kStart_unaln]
-
-        count_bases = 1
-        for i in range(kStart_aln, aln_len):
-            if input_alignment[seq_id][i] == '-':
-                continue
-            count_bases += 1
-            if count_bases == kLen:
-                break
-        kEnd_aln = i
-        overlapping_variants = []
-        for (vStart, vEnd) in variant_positions:
-            if vStart >= kStart_aln and vStart <= kEnd_aln:
-                overlapping_variants.append([vStart, vEnd])
-            elif vEnd >= kStart_aln and vEnd <= kEnd_aln:
-                overlapping_variants.append([vStart, vEnd])
-
-        # disregard kmers which are not involved in a variant
-        if len(overlapping_variants) == 0:
+        n_count = kmer.count('N')
+        if n_count > max_ambig:
             continue
-
-        filtered_kmers[kmer] = {'kStart_unalign': kStart_unaln,
-                                'kEnd_unalign': kEnd_unaln,
-                                'kStart_align': kStart_aln,
-                                'kEnd_align': kEnd_aln,
-                                'affect_variants': overlapping_variants,
-                                'num_seqs': len(seq_ids),
-                                'seq_ids': seq_ids}
-    logging.info("Filtering {} / {} kmers remain".format(len(filtered_kmers),len(raw_kmers)))
-    return filtered_kmers
-
-def build_mutation_lookup(variant_positions,ref_id,input_alignment,kmer_len):
-    # init ref kmer data structure
-    ref_seq = input_alignment[ref_id]
-    ref_len = len(ref_seq)
-    ref_seq_nmasked = ref_seq.replace('A', 'N').replace('T', 'N').replace('C','N').replace('G', 'N')
-    num_variants = len(variant_positions)
-    mutations = {}
-    for i in range(0, num_variants):
-        vStart = variant_positions[i][0]
-        vEnd = variant_positions[i][1]
-        kStart = vStart - kmer_len
-        kEnd = vEnd + 1
-        if kStart < 0:
-            kStart = 0
-        if kEnd >= ref_len:
-            kEnd = ref_len - 1
-
-        variant = ref_seq_nmasked[vStart:vEnd +1]
-        if vStart - vEnd == 0 and variant == 'N':
-            mutation_type = 'snp'
-            mutation_key = "snp{}".format(vStart)
-            variant = ref_seq[vStart]
-        else:
-            if '-' not in variant:
-                mutation_type = 'del'
-                mutation_key = "del{}_{}".format(vStart,vEnd)
-            else:
-                mutation_type = 'ins'
-                mutation_key = "ins{}_{}".format(vStart, vEnd)
-
-        if not mutation_key in mutations:
-            mutations[mutation_key] = {'mutation_type':mutation_type,'vStart':vStart,
-                                       'vEnd':vEnd,'vLen':(vEnd-vStart)+1,'kStart':kStart,'kEnd':kEnd,'ref_variant':variant}
-
-    return mutations
-
-def get_alt_variants(input_alignment,mutations,align_len):
-    variants = {}
-    #process each sequence to create a list of the variants
-    for seq_id in input_alignment:
-        for mutation_key in mutations:
-            vStart = mutations[mutation_key]['vStart']
-            vEnd = mutations[mutation_key]['vEnd']
-            mutation_type = mutations[mutation_key]['mutation_type']
-            ref_variant = mutations[mutation_key]['ref_variant']
-            variant = input_alignment[seq_id][vStart:vEnd + 1]
-            s = vStart
-            e = vEnd
-            if mutation_type == 'snp':
-                if variant == 'N':
-                    continue
-                if '-' == variant:
-                    if vStart > 0:
-                        s = vStart - 1
-                    if vEnd < len(input_alignment[seq_id]) -2:
-                        e = vEnd +1
-                    if input_alignment[seq_id][s] == '-' and input_alignment[seq_id][e] == '-':
-                        continue
-                if variant == ref_variant:
-                    state = 'ref'
-                else:
-                    state = 'alt'
-            else:
-                # Anchor variant to an N base around gaps
-                # this handels multiple indel substrings
-                iStart = vStart
-                while input_alignment[seq_id][iStart] == '-' and iStart > 0:
-                    iStart -= 1
-                iEnd = vEnd
-                while input_alignment[seq_id][iEnd] == '-' and iEnd < align_len -1:
-                    iEnd += 1
-                if mutation_type == 'ins':
-                    if abs(iStart - vStart) == 0 and (iEnd - vEnd) == 0:
-                        state = 'alt'
-                    else:
-                        state = 'ref'
-                else:
-                    if abs(iStart - vStart) == 1 and (iEnd - vEnd) == 1:
-                        state = 'alt'
-                    else:
-                        state = 'ref'
-
-            if state == 'ref':
-                continue
-            if not mutation_key in variants:
-                variants[mutation_key] = {}
-            if not variant in variants[mutation_key]:
-                variants[mutation_key][variant] = {
-                    'mutation_type': mutation_type,
-                    'vStart': vStart,
-                    'vEnd': vEnd,
-                    'vLen': (vEnd - vStart) + 1,
-                    'state':state,
-                    'target_variant': variant,
-                    'seq_ids':[]
-                }
-            variants[mutation_key][variant]['seq_ids'].append(seq_id)
-
-    return variants
-
-def select_overlapping_kmers(raw_kmers,vStart,vEnd):
-    filt_kmers = {}
-    for kmer in raw_kmers:
-        kStart_aln = raw_kmers[kmer]['kStart_align']
-        kEnd_aln = raw_kmers[kmer]['kEnd_align']
-        is_found = False
-        if vStart >= kStart_aln and vStart <= kEnd_aln:
-            is_found=True
-        elif vEnd >= kStart_aln and vEnd <= kEnd_aln:
-            is_found=True
-        if is_found:
-            filt_kmers[kmer] = raw_kmers[kmer]
-    return filt_kmers
-
-def create_entry(variant_key,dna_name,mutation_type,groups,vStart,vEnd,unalign_vstart,unalign_vend,variant_seq,ref_seq,ref_non_gap_lookup,state):
-    kmer_entries = []
-    for kmer in groups:
-        kStart = groups[kmer]['kStart_align']
-        kEnd = groups[kmer]['kEnd_align']
-        kMembers = groups[kmer]['seq_ids']
-        unalign_kstart = get_non_gap_position(ref_non_gap_lookup, kStart)
-        unalign_kend = get_non_gap_position(ref_non_gap_lookup, kEnd)
-        kmer_entries.append(
-            {
-                'mutation_key': variant_key,
-                'dna_name': dna_name,
-                'align_variant_start': vStart,
-                'align_variant_end': vEnd,
-                'unalign_variant_start': unalign_vstart,
-                'unalign_variant_end': unalign_vend,
-                'align_kmer_start': kStart,
-                'align_kmer_end': kEnd,
-                'unalign_kmer_start': unalign_kstart,
-                'unalign_kmer_end': unalign_kend,
-                'target_variant': variant_seq,
-                'target_variant_len': len(variant_seq),
-                'ref_variant': ref_seq,
-                'ref_variant_len': len(ref_seq),
-                'mutation_type': mutation_type,
-                'state': state,
-                'align_kseq': kmer,
-                'unalign_kseq': kmer,
-                'unalign_klen': len(kmer),
-                'seq_ids': kMembers,
-                'positive_genotypes': [],
-                'partial_genotypes': [],
-                'negative_genotypes': [],
-                'is_kmer_found': True,
-                'is_kmer_length_ok': True,
-                'is_ambig_ok':True,
-                'is_kmer_unique': True,
-                'is_kmer_complexity_ok': True,
-                'is_valid': True
-            })
-    return kmer_entries
-
-def process_variant(kmers,mutation_type,vStart,vEnd,unalign_vstart,unalign_vend,ref_non_gap_lookup,ref_variant_seq,variant_events,seq_ids,seq_kmers,min_kmer_len, max_kmer_len):
-    kmer_scheme = {}
-    #get kmers exclusive to each variant
-    for variant in variant_events:
-        in_seq_ids = variant_events[variant]['seq_ids']
-        out_seq_ids = list(set(seq_ids) - set(in_seq_ids))
-        valid_alt_kmers = {}
-        valid_ref_kmers = {}
-        for kmer in kmers:
-            kmer_seq_ids = list(set(kmers[kmer]['seq_ids']))
-            if len(kmer_seq_ids) == 0:
-                continue
-            in_overlap = len(set(in_seq_ids) & set(kmer_seq_ids))
-            if in_overlap == len(kmer_seq_ids):
-                valid_alt_kmers[kmer] = len(kmer_seq_ids)
-            elif in_overlap == 0:
-                valid_ref_kmers[kmer] = len(kmer_seq_ids)
-
-        if len(valid_alt_kmers) == 0:
+        homo_len = calc_homopolymers(kmer)
+        if homo_len > max_homo:
             continue
+        filtered[kmer] = count
+    return filtered
 
-        valid_alt_kmers = sorted(valid_alt_kmers.items(), key=lambda x: x[1], reverse=True)
-        valid_ref_kmers = sorted(valid_ref_kmers.items(), key=lambda x: x[1], reverse=True)
 
-        selected_alt_kmers = {}
-        assigned_alt_samples = []
-        num_in_samples = len(in_seq_ids)
-        for (kmer,count) in valid_alt_kmers:
-            kmer_seq_ids = list(set(kmers[kmer]['seq_ids']))
-            unassigned_samples = list(set(kmer_seq_ids) - set(assigned_alt_samples))
-            if len(unassigned_samples) == 0:
-                continue
-            assigned_alt_samples.extend(unassigned_samples)
-            selected_alt_kmers[kmer] = kmers[kmer]
-            if len(assigned_alt_samples) == num_in_samples:
-                break
+def read_fasta(fasta_file):
+    """
+    Reads fasta file into a dict
+    :param fasta_file: fasta formatted file
+    :return: dict of sequences
+    """
+    reference = {}
 
-        selected_ref_kmers = {}
-        assigned_ref_samples = []
-        num_out_samples = len(out_seq_ids)
-        for (kmer,count) in valid_ref_kmers:
-            kmer_seq_ids = list(set(kmers[kmer]['seq_ids']))
-            unassigned_samples = list(set(kmer_seq_ids) - set(assigned_ref_samples))
-            if len(unassigned_samples) == 0:
-                continue
-            assigned_ref_samples.extend(unassigned_samples)
-            selected_ref_kmers[kmer] = kmers[kmer]
-            if len(assigned_ref_samples) == num_out_samples:
-                break
+    encoding = guess_type(fasta_file)[1]
+    _open = partial(gzip.open, mode='rt') if encoding == 'gzip' else open
 
-        if mutation_type == 'snp':
-            variant_key = "{}_{}_{}_{}".format(mutation_type, ref_variant_seq, vStart, variant)
-            dna_name = "{}{}{}".format(ref_variant_seq, vStart, variant)
-        else:
-            variant_key = "{}_{}_{}".format(mutation_type, vStart, vEnd)
-            dna_name = variant_key
-        kmer_scheme[variant_key] = {'ref': [], 'alt': []}
-        kmer_scheme[variant_key]['alt'] = create_entry(variant_key, dna_name, mutation_type, selected_alt_kmers , vStart, vEnd,
-                                                       unalign_vstart, unalign_vend,
-                                                       variant, ref_variant_seq, ref_non_gap_lookup, 'alt')
-        kmer_scheme[variant_key]['ref'] = create_entry(variant_key, dna_name, mutation_type, selected_ref_kmers , vStart,
-                                                       vEnd, unalign_vstart, unalign_vend,
-                                                       variant, ref_variant_seq, ref_non_gap_lookup, 'ref')
-    return kmer_scheme
+    with _open(fasta_file) as f:
+        for seq_record in SeqIO.parse(f, 'fasta'):
+            reference[str(seq_record.id)] = str(seq_record.seq).upper()
 
-def calc_kmer_complexity(kSeq):
-    mers = count_kmers(kSeq, K=2)
-    num_kmers = sum(mers.values())
-    mer_perc = []
-    for m in mers:
-        mer_perc.append(mers[m] / num_kmers)
-    if len(mer_perc) > 0:
-        m = max(mer_perc)
-    else:
-        m = 1
-    return m
+    return reference
 
-def calc_complexity_scheme(scheme):
-    for mutation in scheme:
-        states = ['ref','alt']
-        for state in states:
-            for entry in scheme[mutation][state]:
-                kSeq = entry['unalign_kseq']
-                entry['complexity'] = calc_kmer_complexity(kSeq)
-    return scheme
 
-def construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path,jellyfish_mem,min_kmer_count,min_kmer_len,max_kmer_len,n_threads=1):
-    # initialize analysis directory
-    if not os.path.isdir(jellyfish_path):
-        logging.info("Creating analysis results directory {}".format(jellyfish_path))
-        os.mkdir(jellyfish_path, 0o755)
-    else:
-        logging.info("Results directory {} already exits, will resuse any results files here".format(jellyfish_path))
+def write_aho_kmerResults(aho, seq_file, out_file):
+    find_in_fasta_dict(aho, read_fasta(seq_file)).reset_index().to_csv(out_file, header=True, sep="\t")
 
-    seq_ids = list(input_alignment.keys())
-    ref_non_gap_lookup = generate_non_gap_position_lookup(input_alignment[ref_id])
-    unaligned_seqs = {}
-    unal_to_aln_coords = {}
-    logging.info("Building unaligned lookup")
-    for seq_id in input_alignment:
-        unaligned_seqs[seq_id] = input_alignment[seq_id].replace('-','')
-        unal_to_aln_coords[seq_id] = generate_gap_lookup(input_alignment[seq_id], unaligned_seqs[seq_id])
 
-    align_len = len(input_alignment[ref_id])
-    logging.info("Building mutation event lookup")
-    mutations = build_mutation_lookup(variant_positions, ref_id, input_alignment, min_kmer_len)
+def process_aho_kmerResults(aho, num_kmers, seq_file, kLen):
+    seqs = read_fasta(seq_file)
+    kmer_results = {}
+    sample_results = {}
+    iter_keys = seqs.keys()
+    aln_lookup = {}
+    for seq_id in iter_keys:
+        sample_results[seq_id] = [0] * num_kmers
+        seq = seqs[seq_id].replace('-', '')
+        for idx, (kIndex, kmer_seq, is_revcomp) in aho.iter(seq):
+            kIndex = int(kIndex)
+            sample_results[seq_id][kIndex] = 1
+            if not kIndex in kmer_results:
+                kmer_results[kIndex] = {'kSeq': kmer_seq, 'aSeq': '', 'rSeq': '', 'match_index': idx,
+                                        'is_revcomp': is_revcomp, 'uStart': 0, 'uEnd': 0, 'aStart': 0, 'aEnd': 0,
+                                        'seq_id': seq_id}
+                if not seq_id in aln_lookup:
+                    aln_lookup[seq_id] = create_aln_pos_from_unalign_pos(seqs[seq_id])
 
-    logging.info("Cataloguing variants")
-    variant_events = get_alt_variants(input_alignment,mutations,align_len)
-    positions = []
+    for kIndex in kmer_results:
+        seq_id = kmer_results[kIndex]['seq_id']
+        match_index = int(kmer_results[kIndex]['match_index'])
+        unalign_pos_end = match_index
+        unalign_pos_start = match_index - kLen + 1
 
-    for mutation_key in variant_events:
-        if not mutation_key in variant_events:
-            logging.info("Mutation {} did not have a valid alt state..skipping".format(mutation_key))
-            continue
-        for variant in variant_events[mutation_key]:
-            vStart = variant_events[mutation_key][variant]['vStart']
-            vEnd = variant_events[mutation_key][variant]['vEnd']
-            positions.append([vStart,vEnd])
+        align_pos_start = aln_lookup[seq_id][unalign_pos_start]
+        align_pos_end = aln_lookup[seq_id][unalign_pos_end]
+        aSeq = seqs[seq_id][align_pos_start:align_pos_end + 1]
+        kmer_results[kIndex]['aSeq'] = aSeq
+        kmer_results[kIndex]['uStart'] = unalign_pos_start
+        kmer_results[kIndex]['uEnd'] = unalign_pos_end
+        kmer_results[kIndex]['aStart'] = align_pos_start
+        kmer_results[kIndex]['aEnd'] = align_pos_end
 
+    return {'kmer': kmer_results, 'samples': sample_results}
+
+
+def map_kmers(kMers, file_manifest, n_threads):
+    kmer_index = {}
+    i = 0
+    for kmer in kMers:
+        kmer_index[i] = kmer
+        i += 1
+    kLen = len(kmer_index[0])
+    num_kmers = len(kmer_index)
+    aho = init_automaton_dict(kmer_index)
     if n_threads > 1:
         pool = Pool(processes=n_threads)
-
-    logging.info("Begining k-mer extraction for {} variants".format(len(positions)))
-    stime = time.time()
-    seq_kmers = {}
-    for i in range(min_kmer_len,max_kmer_len+1):
-        seq_kmers.update(getCandidateKmers(variant_positions,input_alignment,unaligned_seqs,unal_to_aln_coords,ref_id,jellyfish_path,jellyfish_mem,i,min_kmer_count,max_count=len(input_alignment),max_ambig=0,n_threads=n_threads))
-
-    logging.info("time for kmer extraction {}".format(time.time() - stime))
-
-    stime = time.time()
-    res = []
-    kmer_scheme = {}
-    count = 0
-    logging.info("Deconvoluting complex mutations")
-
-    #triage single bp deletions
-    mutation_keys = list(mutations.keys())
-    for mutation_key in mutation_keys:
-        mutation_type = mutations[mutation_key]['mutation_type']
-        if mutation_type != 'snp':
-            continue
-        vStart = mutations[mutation_key]['vStart']
-        vEnd = mutations[mutation_key]['vEnd']
-        kStart = mutations[mutation_key]['kStart']
-        kEnd = mutations[mutation_key]['kEnd']
-        variant = mutations[mutation_key]['ref_variant']
-        vlen = mutations[mutation_key]['vLen']
-        if '-' in variant_events[mutation_key]:
-            m = {}
-            for key in variant_events[mutation_key]['-']:
-                m[key] = variant_events[mutation_key]['-'][key]
-            m['mutation_type'] = 'del'
-            m['target_variant'] = '-'
-            key = "del{}_{}".format(vStart,vEnd)
-            variant_events[key] = {}
-            variant_events[key]['-'] = m
-            mutations[key] = {'mutation_type':'del','vStart':vStart,
-                                       'vEnd':vEnd,'vLen':vlen,'kStart':kStart,'kEnd':kEnd,'ref_variant':variant}
-            del(variant_events[mutation_key]['-'])
-            if len(variant_events[mutation_key]) == 0:
-                del (mutations[mutation_key])
-
-    #prioritize kmers which cover multiple events
-    kmer_variant_counts = {}
-    for kmername in seq_kmers:
-        kmer_variant_counts[kmername] = len(seq_kmers[kmername]['seq_ids'])
-
-    kmer_variant_counts = sorted(kmer_variant_counts.items(), key=operator.itemgetter(1),reverse=True)
-    events_to_kmers = {}
-    for kmername,count in kmer_variant_counts:
-        events = seq_kmers[kmername]['affect_variants']
-        for (start,end) in events:
-            key = "{}:{}".format(start,end)
-            if key not in events_to_kmers:
-                events_to_kmers[key] = {}
-            events_to_kmers[key][kmername] = seq_kmers[kmername]
-
-    logging.info("Optimizing k-mer selection for {} variant using ranges {}-{}".format(len(positions), min_kmer_len,
-                                                                                       max_kmer_len))
-    stime = time.time()
-    for mutation_key in mutations:
-        count+=1
-        if not mutation_key in variant_events:
-            continue
-
-        mutation_type = mutations[mutation_key]['mutation_type']
-        vStart = mutations[mutation_key]['vStart']
-        vEnd = mutations[mutation_key]['vEnd']
-        key = "{}:{}".format(vStart, vEnd)
-
-        if key in events_to_kmers:
-            ovKmers = events_to_kmers[key]
+    results = []
+    for i in range(0, len(file_manifest)):
+        seq_file = file_manifest[i]
+        if n_threads > 1:
+            results.append(pool.apply_async(process_aho_kmerResults, (aho, num_kmers, seq_file, kLen)))
         else:
-            continue
-
-        if len(ovKmers) == 0:
-            continue
-
-        unalign_vstart =  get_non_gap_position(ref_non_gap_lookup, vStart)
-        unalign_vend =  get_non_gap_position(ref_non_gap_lookup, vEnd)
-        ref_variant_seq = input_alignment[ref_id][vStart:vEnd +1]
-
-        if n_threads == 1:
-            kmer_scheme.update(process_variant(ovKmers,mutation_type,vStart,vEnd,unalign_vstart, unalign_vend,ref_non_gap_lookup,ref_variant_seq,variant_events[mutation_key],seq_ids,ovKmers,min_kmer_len, max_kmer_len))
-        else:
-            res.append(pool.apply_async(process_variant, (ovKmers,mutation_type,vStart,vEnd,unalign_vstart, unalign_vend,copy.deepcopy(ref_non_gap_lookup),ref_variant_seq,copy.deepcopy(variant_events[mutation_key]),copy.deepcopy(seq_ids),ovKmers,min_kmer_len, max_kmer_len)))
+            results.append(process_aho_kmerResults(aho, num_kmers, seq_file, kLen))
 
     if n_threads > 1:
         pool.close()
         pool.join()
-    for i in range(0, len(res)):
-        kmer_scheme.update(res[i].get())
-    logging.info("time for kmer selection {}".format(time.time() - stime))
-    return kmer_scheme
+        for i in range(0, len(results)):
+            results[i].get()
 
-def add_gene_inference(scheme,ref_name,reference_info,input_alignment):
-    for mutation_key in scheme:
-        for state in scheme[mutation_key]:
-            for record in scheme[mutation_key][state]:
-                mutation_type = record['mutation_type']
-                align_start = record['align_variant_start']
-                align_end= record['align_variant_end']
-                non_gap_start = record['unalign_variant_start']
-                non_gap_end= record['unalign_variant_end']
-                seq_id = record['seq_ids'][0]
-
-                #Fix Variant information
-                if mutation_type == 'del':
-                    variant = ''.join(['-']*(1+align_end-align_start))
-                elif mutation_type == 'ins':
-                    variant = input_alignment[seq_id][align_start:align_end+1].replace('-','')
-                else:
-                    variant = record['target_variant']
-
-                record['target_variant'] = variant
-                record['target_variant_len'] = len(variant)
-                aa_info = get_aa_delta(non_gap_start, non_gap_end, variant, mutation_type,reference_info,ref_name,trans_table=1)
-                for key in aa_info:
-                    value = aa_info[key]
-                    record[key] = value
-
-    return scheme
-
-def qa_scheme(scheme,input_alignment,ref_id,genotype_mapping,min_len, max_len,min_complexity,max_ambig):
-    scheme = calc_complexity_scheme(scheme)
-    unaligned = {}
-    for seq_id in input_alignment:
-        unaligned[seq_id] = input_alignment[seq_id].replace("-",'')
-    scheme = multiplicity_check(scheme, unaligned,genotype_mapping)
-    problem_mutations = []
-    for mutation_key in scheme:
-        for state in scheme[mutation_key]:
-            for row in scheme[mutation_key][state]:
-                klen = len(row['unalign_kseq'])
-                ambig_count = row['unalign_kseq'].count('N')
-                if ambig_count > max_ambig:
-                    row['is_ambig_ok'] = False
-                    row['is_valid'] = False
-
-                if klen > max_len or klen < min_len:
-                    row['is_kmer_length_ok'] = False
-                    row['is_valid'] = False
-                if row['complexity'] >= 1 - min_complexity:
-                    row['is_kmer_complexity_ok'] = False
-                    row['is_valid'] = False
-
-                if not row['is_valid']:
-                    problem_mutations.append(mutation_key)
-
-    return scheme
-
-def format_scheme_human_readable(scheme,ref_id,input_alignment):
-    seq = input_alignment[ref_id]
-    for key in scheme:
-        for state in scheme[key]:
-            for row in scheme[key][state]:
-                ref_variant = seq[row['align_variant_start']:row['align_variant_end'] + 1].replace('-', '')
-                #change from base 0 to base 1 for all coordinates
-                row['align_variant_start']+=1
-                row['align_variant_end'] += 1
-                row['unalign_variant_start'] += 1
-                row['unalign_variant_end'] += 1
-                row['align_kmer_start']+=1
-                row['align_kmer_end'] += 1
-                row['unalign_kmer_start']+=1
-                row['unalign_kmer_end'] += 1
-                row['gene_start'] += 1
-                row['gene_end'] += 1
-                row['cds_start'] += 1
-                row['cds_end'] += 1
-                row['aa_start'] += 1
-                row['aa_end'] += 1
-
-                target_variant = row['target_variant']
-                mutation_type = row['mutation_type']
-                is_cds = row['is_cds']
-                aa_name = 'N/A'
-                ref_state = row['ref_state']
-                alt_state = row['alt_state']
-                aa_start = row['aa_start']
-                aa_end = row['aa_end']
-                if mutation_type == 'snp':
-                    mutation_key = "{}_{}".format(mutation_type,row['unalign_variant_start'])
-                    if state == 'alt':
-                        dna_name = "{}{}{}".format(ref_variant,row['unalign_variant_start'],target_variant)
-                    else:
-                        dna_name = "{}{}{}".format(ref_variant, row['unalign_variant_start'], ref_variant)
-                    if is_cds:
-                        aa_name = "{}{}{}".format(ref_state,aa_start,ref_state)
-                        if state == 'alt':
-                            aa_name = "{}{}{}".format(ref_state,aa_start,alt_state)
-                elif mutation_type == 'del':
-                    mutation_key = "{}_{}_{}".format(mutation_type,row['unalign_variant_start'],row['unalign_variant_end'])
-                    dna_name = "{}_{}_{}_{}".format(mutation_type,row['unalign_variant_start'],row['unalign_variant_end'],ref_variant )
-                    if state == 'alt':
-                        dna_name = "{}_{}_{}".format(mutation_type, row['unalign_variant_start'],
-                                                        row['unalign_variant_end'])
-                    if is_cds:
-                        aa_name = "{}_{}_{}_{}".format(mutation_type, aa_start, aa_end, ref_state)
-                        if state == 'alt':
-                            aa_name = "{}_{}_{}".format(mutation_type, aa_start, aa_end)
-                else:
-                    mutation_key = "{}_{}_{}".format(mutation_type, row['unalign_variant_start'],row['unalign_variant_end'])
-                    if state == 'alt':
-                        dna_name = "{}_{}_{}_{}".format(mutation_type,row['unalign_variant_start'],row['unalign_variant_end'],target_variant )
-                    else:
-                        dna_name = "{}_{}_{}".format(mutation_type, row['unalign_variant_start'],
-                                                        row['unalign_variant_end'])
-                    if is_cds:
-                        if state == 'alt':
-                            aa_name = "{}_{}_{}_{}".format(mutation_type, aa_start, aa_end, alt_state)
-                        else:
-                            aa_name = "{}_{}_{}".format(mutation_type, aa_start, aa_end)
-                row['mutation_key'] = mutation_key
-                row['dna_name'] = dna_name
-                row['aa_name'] = aa_name
-
-    return  scheme
-
-def identify_shared_kmers(genotype_mapping,scheme,min_thresh=0.5,max_thresh=1):
-    '''
-    :param genotype_mapping:
-    :type genotype_mapping:
-    :param kmer_profile:
-    :type kmer_profile:
-    :param min_thresh:
-    :type min_thresh:
-    :param max_thresh:
-    :type max_thresh:
-    :return:
-    :rtype:
-    '''
-
-    all_seq_ids = list(genotype_mapping.keys())
-
-    #Get counts of each genotype
-    genotype_sample_counts = {}
-    for sample_id in genotype_mapping:
-        genotype = genotype_mapping[sample_id]
-        if not genotype in genotype_sample_counts:
-            genotype_sample_counts[genotype] = 0
-        genotype_sample_counts[genotype]+=1
-    genotype_shared_kmers = {}
-    for genotype in genotype_sample_counts:
-        genotype_shared_kmers[genotype] = []
+    return combine_aho_results(results)
 
 
-    #Process each kmer and determine if it meets the thresholds
-
-    for mutation_key in scheme:
-        for state in scheme[mutation_key]:
-            for kmer_entry in scheme[mutation_key][state]:
-                uid =  kmer_entry['key']
-                seq_ids = kmer_entry['seq_ids']
-                genotypes = []
-                for sample_id in seq_ids:
-                    genotype = genotype_mapping[sample_id]
-                    genotypes.append(genotype)
-                gCounts = Counter(genotypes)
-                for genotype in gCounts:
-                    count = gCounts[genotype]
-                    perc = count / genotype_sample_counts[genotype]
-                    if perc >= min_thresh and perc <= max_thresh:
-                        genotype_shared_kmers[genotype].append(uid)
-    return genotype_shared_kmers
-
-def identify_shared_mutations(genotype_mapping,scheme,min_thresh=0.5,max_thresh=1):
-    '''
-    :param genotype_mapping:
-    :type genotype_mapping:
-    :param kmer_profile:
-    :type kmer_profile:
-    :param min_thresh:
-    :type min_thresh:
-    :param max_thresh:
-    :type max_thresh:
-    :return:
-    :rtype:
-    '''
-    #Get counts of each genotype
-    genotype_sample_counts = {}
-    shared_mutations = {}
-    for sample_id in genotype_mapping:
-        genotype = genotype_mapping[sample_id]
-        if not genotype in genotype_sample_counts:
-            genotype_sample_counts[genotype] = 0
-            shared_mutations[genotype] = []
-        genotype_sample_counts[genotype]+=1
-
-    #get counts of genotypes by mutation
-    mutation_geno_counts = {}
-    for mutation_key in scheme:
-        for state in scheme[mutation_key]:
-            for row in scheme[mutation_key][state]:
-                dna_name = row['dna_name']
-                if not dna_name in mutation_geno_counts:
-                    mutation_geno_counts[dna_name] = {}
-                seq_ids = row['seq_ids']
-                for sid in seq_ids:
-                    genotype = genotype_mapping[sid]
-                    if not genotype in mutation_geno_counts[dna_name]:
-                        mutation_geno_counts[dna_name][genotype]= 0
-                    mutation_geno_counts[dna_name][genotype] += 1
-    for mutation in mutation_geno_counts:
-        for genotype in mutation_geno_counts[mutation]:
-            perc = mutation_geno_counts[mutation][genotype] / genotype_sample_counts[genotype]
-            if perc >= min_thresh and perc <= max_thresh:
-                shared_mutations[genotype].append(mutation)
-
-
-    return shared_mutations
-
-def qa_genotype_kmers(genotype_mapping,kmer_geno_assoc,uid_map):
-    report = {}
-
-    # Get counts of each genotype
-    genotype_sample_counts = {}
-    for sample_id in genotype_mapping:
-        genotype = genotype_mapping[sample_id]
-        if not genotype in genotype_sample_counts:
-            genotype_sample_counts[genotype] = 0
-            report[genotype] = {
-                'name': genotype,
-                'num_members': 0,
-                'num_shared_kmers': 0,
-                'num_diagnostic_kmers': 0,
-                'shared_kmers': [],
-                'diagnostic_kmers': [],
-                'qc_message': ''
-            }
-        genotype_sample_counts[genotype] += 1
-        report[genotype]['num_members'] += 1
-
-    for uid in kmer_geno_assoc:
-        shared_genotypes = kmer_geno_assoc[uid]['shared']
-        for genotype in shared_genotypes:
-            n = uid_map[uid]
-            report[genotype]['shared_kmers'].append(n)
-        diagnostic_genotypes = kmer_geno_assoc[uid]['diagnostic']
-        for genotype in diagnostic_genotypes:
-            n = uid_map[uid]
-            report[genotype]['diagnostic_kmers'].append(n)
-
-
-    for genotype in report:
-        report[genotype]['num_shared_kmers'] = len(report[genotype]['shared_kmers'])
-        report[genotype]['num_diagnostic_kmers'] = len(report[genotype]['diagnostic_kmers'])
-        report[genotype]['shared_kmers'].sort()
-        report[genotype]['shared_kmers'] = ';'.join(report[genotype]['shared_kmers'] )
-        report[genotype]['diagnostic_kmers'].sort()
-        report[genotype]['diagnostic_kmers'] = ';'.join(report[genotype]['diagnostic_kmers'])
-
-        qc_message = []
-        if report[genotype]['num_shared_kmers'] == 0:
-            qc_message.append( 'FAIL: No shared kmers' )
-        if report[genotype]['diagnostic_kmers'] == 0:
-            qc_message.append( 'WARNING: No diagnostic kmers' )
-        report[genotype]['qc_message'] = ';'.join(qc_message)
-
-    return report
-
-def qa_genotype_mutations(genotype_mapping,mutation_geno_association):
-    report = {}
-
-    # Get counts of each genotype
-    genotype_sample_counts = {}
-    for sample_id in genotype_mapping:
-        genotype = genotype_mapping[sample_id]
-        if not genotype in genotype_sample_counts:
-            genotype_sample_counts[genotype] = 0
-            report[genotype] = {
-                'name': genotype,
-                'num_members': 0,
-                'num_shared_mutations': 0,
-                'num_diagnostic_mutations': 0,
-                'shared_mutations': [],
-                'diagnostic_mutations': [],
-                'qc_message': ''
-            }
-        genotype_sample_counts[genotype] += 1
-        report[genotype]['num_members'] += 1
-
-    for mkey in mutation_geno_association:
-        shared_genotypes = mutation_geno_association[mkey]['shared']
-        for genotype in shared_genotypes:
-            report[genotype]['shared_mutations'].append(mkey)
-        diagnostic_genotypes = mutation_geno_association[mkey]['diagnostic']
-        for genotype in diagnostic_genotypes:
-            report[genotype]['diagnostic_mutations'].append(mkey)
-
-
-    for genotype in report:
-        report[genotype]['num_shared_mutations'] = len(report[genotype]['shared_mutations'])
-        report[genotype]['num_diagnostic_mutations'] = len(report[genotype]['diagnostic_mutations'])
-        report[genotype]['shared_mutations'].sort()
-        report[genotype]['shared_mutations'] = ';'.join(report[genotype]['shared_mutations'] )
-        report[genotype]['diagnostic_mutations'].sort()
-        report[genotype]['diagnostic_mutations'] = ';'.join(report[genotype]['diagnostic_mutations'])
-
-        qc_message = []
-        if report[genotype]['num_shared_mutations'] == 0:
-            qc_message.append( 'FAIL: No shared mutations' )
-        if report[genotype]['diagnostic_mutations'] == 0:
-            qc_message.append( 'WARNING: No diagnostic mutations' )
-        report[genotype]['qc_message'] = ';'.join(qc_message)
-
-    return report
-
-def print_scheme(scheme,file,header):
-    """
-    Takes the kmer dictionary and writes it to a file
-    :param scheme: dict of kmer info
-    :param file: file path
-    :return:
-    """
-    fh = open(file,'w')
-    fh.write("\t".join(header) + "\n")
-    for mutation_key in scheme:
-        for state in scheme[mutation_key]:
-            for data in scheme[mutation_key][state]:
-                row = []
-                for field in header:
-                    if field in data:
-                        row.append(data[field])
-                    else:
-                        row.append('')
-                fh.write("{}\n".format("\t".join([str(x) for x in row])))
-    fh.close()
-
-def impute_ambiguous_bases(input_alignment,ref_id,min_frac=0.9):
-    align_len = len(input_alignment[ref_id])
-    consensus_bases = calc_consensus(input_alignment)
-    num_seqs = len(input_alignment)
-    for seq_id in input_alignment:
-        if seq_id == ref_id:
-            continue
-        seq = list(input_alignment[seq_id])
-        for i in range(0,align_len):
-            base = seq[i]
-            if base in ['A','T','C','G','-']:
+def combine_aho_results(results):
+    kmers = {}
+    samples = {}
+    for i in range(0, len(results)):
+        for kmer in results[i]['kmer']:
+            if kmer in kmers:
                 continue
-            consensus_base = max(consensus_bases[i].items(), key=operator.itemgetter(1))[0]
-            consensus_base_count = consensus_bases[i][consensus_base]
-            if consensus_base in ['A','T','C','G'] and consensus_base_count/num_seqs > min_frac:
-                seq[i] = consensus_base
-        input_alignment[seq_id] = ''.join(seq)
-    return input_alignment
+            kmers[kmer] = results[i]['kmer'][kmer]
+        for sample_id in results[i]['samples']:
+            samples[sample_id] = results[i]['samples'][sample_id]
+    return {'kmer': kmers, 'samples': samples}
+
+
+def add_ref_kmer_info(kmer_results, kmer_counts, ref_seq, kLen):
+    kmer_base_range = range(0, kLen)
+    for i in kmer_results['kmer']:
+        aStart = kmer_results['kmer'][i]['aStart']
+        aEnd = kmer_results['kmer'][i]['aEnd']
+        kmer_results['kmer'][i]['rSeq'] = ref_seq[aStart:aEnd + 1]
+        count_var = 0
+        for k in kmer_base_range:
+            if kmer_results['kmer'][i]['rSeq'][k] != kmer_results['kmer'][i]['aSeq'][k]:
+                count_var += 1
+        kmer_results['kmer'][i]['count_var'] = count_var
+        kmer_results['kmer'][i]['total_count'] = kmer_counts[kmer_results['kmer'][i]['kSeq']]
+        kmer_results['kmer'][i]['positive_genotypes'] = []
+        kmer_results['kmer'][i]['partial_genotypes'] = []
+
+
+def map_kmers_bck(kMers, file_manifest, out_dir, prefix, n_threads):
+    aho = init_automaton_dict(dict(zip(list(kMers.keys()), list(kMers.keys()))))
+    kmer_files = []
+    if n_threads > 1:
+        pool = Pool(processes=n_threads)
+    results = []
+    for i in range(0, len(file_manifest)):
+        seq_file = file_manifest[i]['seq_file']
+        file = os.path.join(out_dir, "{}-{}.aho.txt".format(prefix, i))
+        kmer_files.append(file)
+        if n_threads > 1:
+            results.append(pool.apply_async(write_aho_kmerResults, (aho, read_fasta(seq_file), file)))
+        else:
+            write_aho_kmerResults(aho, seq_file, file)
+
+    if n_threads > 1:
+        pool.close()
+        pool.join()
+        for i in range(0, len(results)):
+            results[i].get()
+    return kmer_files
+
+
+def get_kmer_genotype_counts_bck(kmer_files, genotypeMapping):
+    genotypes = list(set(genotypeMapping.values()))
+    num_genotypes = len(genotypes)
+    genotype_kCounts = {}
+    for i in range(0, len(kmer_files)):
+        kmer_df = read_tsv(kmer_files[i])
+        for row in kmer_df.itertuples():
+            kmer = row.kmername
+            seq_id = row.contig_id
+            pos = row.match_index
+            genotype = genotypeMapping[seq_id]
+            if not kmer in genotype_kCounts:
+                genotype_kCounts[kmer] = {'total': 0, 'counts': {}, 'pos': pos, 'seq_id': seq_id}
+                for k in range(0, num_genotypes):
+                    genotype_kCounts[kmer]['counts'][genotypes[k]] = 0
+            genotype_kCounts[kmer]['counts'][genotype] += 1
+            genotype_kCounts[kmer]['total'] += 1
+    return genotype_kCounts
+
+
+def get_kmer_genotype_counts(valid_kmer_indicies, sample_profiles, genotypeMapping):
+    genotypes = list(set(genotypeMapping.values()))
+    num_genotypes = len(genotypes)
+    genotype_kCounts = {}
+    for i in valid_kmer_indicies:
+        genotype_kCounts[i] = {'total': 0, 'counts': {}}
+        for genotype in genotypes:
+            genotype_kCounts[i]['counts'][genotype] = 0
+
+    num_kmers = len(valid_kmer_indicies)
+    kmer_range = range(0, num_kmers)
+    profiles = {}
+    for sample_id in sample_profiles:
+        profiles[sample_id] = [0] * num_kmers
+        genotype = genotypeMapping[sample_id]
+        for i in kmer_range:
+            index = valid_kmer_indicies[i]
+            value = sample_profiles[sample_id][index]
+            profiles[sample_id][i] = value
+            genotype_kCounts[index]['counts'][genotype] += value
+            genotype_kCounts[index]['total'] += value
+    sample_profiles = profiles
+    return genotype_kCounts
+
+
+def calc_shanon_entropy(value_list):
+    total = sum(value_list)
+    values = []
+    for v in value_list:
+        values.append(v / total)
+    return entropy(values)
+
+
+def calc_AMI(category_1, category_2):
+    return adjusted_mutual_info_score(category_1, category_2, average_method='arithmetic')
+
+
+def calc_ARI(category_1, category_2):
+    return adjusted_rand_score(category_1, category_2)
+
+
+def calc_kmer_entropy(genotype_kCounts):
+    sEntropy = {}
+    for kmer in genotype_kCounts:
+        counts = list(genotype_kCounts[kmer]['counts'].values())
+        sEntropy[kmer] = calc_shanon_entropy(counts)
+    return sEntropy
+
+
+def calc_kmer_associations(genotype_kCounts, genotypeCounts, sample_count, n_threads=1):
+    sampleInfo = {}
+    sample_padding = sample_count * (len(genotypeCounts) - 1)
+
+    for kmer in genotype_kCounts:
+        stime = time.time()
+        sampleInfo[kmer] = {}
+        kVec = []
+        genotypeVec = {}
+
+        # Init the kmer presence vector accross all samples
+        for genotype in genotype_kCounts[kmer]['counts']:
+            total = genotypeCounts[genotype]
+            num_pos = total - genotype_kCounts[kmer]['counts'][genotype]
+            perc_pos = num_pos / total
+            scaled_num_pos = int(perc_pos * sample_count)
+            scaled_num_neg = sample_count - scaled_num_pos
+            gVec = ([1] * scaled_num_pos) + ([0] * scaled_num_neg)
+            kVec += gVec
+            genotypeVec[genotype] = gVec + [0] * sample_padding
+
+        # Compare ARI and AMI for each kmer with each genotype
+        for genotype in genotypeVec:
+            gVec = genotypeVec[genotype]
+            if len(gVec) != len(kVec):
+                print("{}\n{}\n{}\n".format(kmer, kVec, gVec))
+            ami = calc_AMI(gVec, kVec)
+            ari = calc_ARI(gVec, kVec)
+            sampleInfo[kmer][genotype] = {'ari': ari, 'ami': ami}
+        print(time.time() - stime)
+    return sampleInfo
+
 
 def get_genotype_mapping(metadata_df):
     '''
@@ -989,436 +622,925 @@ def get_genotype_mapping(metadata_df):
         mapping[sample_id] = genotype
     return mapping
 
-def build_kmer_profiles(sequence_ids,scheme):
-    '''
-    :param scheme:
-    :type scheme:
-    :return:
-    :rtype:
-    '''
-    profiles = {}
-    mutations = list(scheme.keys())
-    for sample_id in sequence_ids:
-        profiles[sample_id] = {}
-        for mutation_key in mutations:
-            profiles[sample_id][mutation_key] = 0
 
-    #only flip the alt status
-    for mutation_key in scheme:
-        for kmer_entry in scheme[mutation_key]['alt']:
-            seq_ids = kmer_entry['seq_ids']
-            for seq_id in seq_ids:
-                profiles[seq_id][mutation_key] = 1
-
-    return profiles
-
-def multiplicity_check(scheme,input_alignment,genotype_mapping):
-    kmers_to_uid = {}
-    uid_to_kmer = {}
-    uid_to_state = {}
-    mut_to_uid = {}
-    uid = 0
-    for mutation in scheme:
-        mut_to_uid[mutation] = []
-        for state in ['ref','alt']:
-            for i in range(0,len(scheme[mutation][state])):
-                record = scheme[mutation][state][i]
-                uid_to_kmer[uid] = record['unalign_kseq']
-                uid_to_state[uid] = state
-                if not record['unalign_kseq'] in kmers_to_uid:
-                    kmers_to_uid[record['unalign_kseq']] = []
-                kmers_to_uid[record['unalign_kseq']].append(uid)
-                mut_to_uid[mutation].append(uid)
-                record['key'] = uid
-                uid+=1
+def get_non_gap_position(ref_non_gap_lookup, pos):
+    non_gap_position = ref_non_gap_lookup[pos]
+    while non_gap_position == -1:
+        pos -= 1
+        non_gap_position = ref_non_gap_lookup[pos]
+    return non_gap_position
 
 
-    A = init_automaton_dict(uid_to_kmer)
-    kmer_results = {}
-    for sample_id in input_alignment:
-        kmer_results[sample_id] = perform_kmerSearch_fasta(uid_to_kmer, kmers_to_uid, A, {sample_id:input_alignment[sample_id]},1)
-        for kmer in kmers_to_uid:
-            uids = kmers_to_uid[kmer]
-            for uid in uids:
-                if uid in kmer_results[sample_id]:
-                    freq = kmer_results[sample_id][uid]
-                    break
-            for uid in uids:
-                kmer_results[sample_id][uid] = freq
+def create_aln_pos_from_unalign_pos(aln_seq):
+    unalign_seq = aln_seq.replace('-', '')
+    aln_len = len(aln_seq)
+    unaln_len = len(unalign_seq)
+    lookup = [-1] * unaln_len
+    pos = 0
+    for i in range(0, unaln_len):
+        for k in range(pos, aln_len):
+            if unalign_seq[i] == aln_seq[k]:
+                lookup[i] = k
+                pos = k + 1
+                break
+    return lookup
 
 
+def generate_non_gap_position_lookup(seq):
+    """
+    Creates a list of positions which correspond to the position of that base in a gapless sequence
+    :param seq: string
+    :return: list
+    """
+    length = len(seq)
+    num_gaps = 0
+    lookup = []
+    for i in range(0, length):
+        base = seq[i]
+        if base == '-':
+            num_gaps += 1
+            lookup.append(-1)
+        else:
+            lookup.append(i - num_gaps)
+    return lookup
 
 
+def get_kmer_positions(ref_id, genotype_kCounts, kLen, fasta_dir, individual_file_sample_index):
+    positions = {}
+    aln_lookup = {}
+    non_gap_lookup = {}
+    file_index = individual_file_sample_index[ref_id]
+    fasta_file = os.path.join(fasta_dir, "{}/{}.fasta".format(file_index, ref_id))
+    ref_seq = read_fasta(fasta_file)[ref_id]
+    aln_len = len(ref_seq)
+    aln_lookup[ref_id] = create_aln_pos_from_unalign_pos(ref_seq)
+    non_gap_lookup[ref_id] = generate_non_gap_position_lookup(ref_seq)
 
-    info = {'warnings':{},'errors':{},'valid':{}}
-    for sample_id in kmer_results:
-        results = kmer_results[sample_id]
-        for mutation in mut_to_uid:
-            count_ref = 0
-            count_alt = 0
-            uids = mut_to_uid[mutation]
+    # saves having to sort after the fact
+    for i in range(0, aln_len):
+        positions[i] = {}
+    seqs = {ref_id: ref_seq}
 
-            for uid in uids:
-                if results [uid] == 0:
-                    continue
-                state = uid_to_state[uid]
-                if state == 'ref':
-                    count_ref += results[uid]
+    for kmer in genotype_kCounts:
+        unalign_pos_start = genotype_kCounts[kmer]['pos'] - kLen + 1
+        unalign_pos_end = unalign_pos_start + kLen - 1
+        seq_id = genotype_kCounts[kmer]['seq_id']
+        file_index = individual_file_sample_index[seq_id]
+        if not seq_id in aln_lookup:
+            fasta_file = os.path.join(fasta_dir, "{}/{}.fasta".format(file_index, seq_id))
+            seqs[seq_id] = read_fasta(fasta_file)[seq_id]
+            aln_lookup[seq_id] = create_aln_pos_from_unalign_pos(seqs[seq_id])
+        align_pos_start = aln_lookup[seq_id][unalign_pos_start]
+        align_pos_end = aln_lookup[seq_id][unalign_pos_end]
+        kTest = seqs[seq_id].replace('-', '')[unalign_pos_start:unalign_pos_end + 1]
+        is_rev = False
+        if kTest != kmer:
+            is_rev = True
+        align_refSeq_kmer = ref_seq[align_pos_start:align_pos_end + 1]
+        align_querySeq_kmer = seqs[seq_id][align_pos_start:align_pos_end + 1]
+        kmer_bases = []
+        count_var = 0
+
+        for i in range(0, kLen):
+            if align_refSeq_kmer[i] != align_querySeq_kmer[i]:
+                if align_refSeq_kmer[i] != 'N' and align_querySeq_kmer[i] != 'N':
+                    count_var += 1
+
+        unalign_pos_start = get_non_gap_position(non_gap_lookup[ref_id], unalign_pos_start)
+        unalign_pos_end = get_non_gap_position(non_gap_lookup[ref_id], unalign_pos_end)
+        positions[align_pos_start][kmer] = {'aStart': align_pos_start, 'aEnd': align_pos_end,
+                                            'uStart': unalign_pos_start,
+                                            'uEnd': unalign_pos_end, 'count_var_pos': count_var, 'is_rev': is_rev,
+                                            'entropy': -1, 'total_count': 0,
+                                            'align_refSeq_kmer': align_refSeq_kmer,
+                                            'align_querySeq_kmer': align_querySeq_kmer, 'seq_id': seq_id,
+                                            'positive_genotypes': [], 'partial_genotypes': []}
+    return positions
+
+
+def add_gene_inference(selected_kmers, ref_seq, ref_id, reference_info, trans_table=1):
+    aln_refLookup = create_aln_pos_from_unalign_pos(ref_seq)
+    raw_refLookup = generate_non_gap_position_lookup(ref_seq)
+    for mutation_type in selected_kmers:
+        for event in selected_kmers[mutation_type]:
+            ref_var = ''
+            alt_var = ''
+            aa_name = ''
+            gene_name = 'intergenic'
+            gene_len = 0
+            gene_start = -1
+            gene_end = -1
+            gene_seq = ''
+            positions = ''
+            is_cds = False
+            is_silent = True
+            is_frameshift = False
+
+            if mutation_type == 'snp':
+                start = event
+                end = event
+                for base in selected_kmers[mutation_type][event]['ref']['kmers']:
+                    if len(selected_kmers[mutation_type][event]['ref']['kmers'][base]) > 0:
+                        ref_var = base
+                var_len = 1
+            else:
+                (start, end) = event.split(':')
+                start = int(start)
+                end = int(end)
+                ref_var = ref_seq[start:end + 1]
+                var_len = len(ref_var.replace('-', ''))
+
+            ref_var_dna = ref_var
+            gene_feature = find_overlaping_gene_feature(start, end, reference_info, ref_id)
+            ref_var_aa = ''
+            if gene_feature is not None:
+                is_cds = True
+                if mutation_type != 'snp' and (var_len - 1) % 3 > 0:
+                    is_frameshift = True
+
+                gene_name = gene_feature['gene_name']
+                gene_len = gene_feature['gene_len']
+                positions = gene_feature['positions']
+                for s, e in positions:
+                    if gene_start == -1:
+                        gene_start = s
+                        gene_end = e
+                    else:
+                        if gene_start > s:
+                            gene_start = s
+                        if gene_end < e:
+                            gene_end = e
+                aln_gene_start = aln_refLookup[gene_start]
+                aln_gene_end = aln_refLookup[gene_end]
+                if aln_gene_start == aln_gene_end:
+                    aln_gene_seq = ref_seq[aln_gene_start:aln_gene_end + 1]
                 else:
-                    count_alt += results[uid]
+                    aln_gene_seq = ref_seq[aln_gene_start:aln_gene_end]
+                rel_var_start = abs(start - aln_gene_start)
+                rel_var_end = abs(end - aln_gene_start)
+                aa_var_start = int(rel_var_start / 3)
+                codon_var_start = aa_var_start * 3
+                var_len = rel_var_end - rel_var_start + 1
+                rem = 3 - var_len % 3
+                codon_var_end = int(codon_var_start + (var_len + rem))
+                aa_var_end = int(codon_var_end / 3)
+                if codon_var_end == 0:
+                    codon_var_end = codon_var_start + 3
+                ref_var_dna = aln_gene_seq[codon_var_start:codon_var_end].replace('-', '')
+                while len(ref_var_dna) % 3 != 0:
+                    incr += 1
+                    ref_var_dna = ''.join(aln_gene_seq[codon_var_start:codon_var_end + incr]).replace('-', '')
+                ref_var_aa = str(Seq(ref_var_dna).translate(table=trans_table))
 
-            if count_ref == count_alt and count_ref == 0:
-                if not mutation in info['warnings']:
-                    info['warnings'][mutation] = {}
-                info['warnings'][mutation][sample_id] = 'missing'
+            if mutation_type == 'snp':
+                for kmer in selected_kmers[mutation_type][event]['ref']['kmers'][ref_var]:
 
-            elif count_ref >= 1 and count_alt >= 1 :
-                if not mutation in info['errors']:
-                    info['errors'][mutation] = {}
-                info['errors'][mutation][sample_id] = 'multi'
+                    selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['is_cds'] = is_cds
+                    selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['is_silent'] = is_silent
+                    selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['is_frameshift'] = is_frameshift
+                    selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['gene_name'] = gene_name
+                    selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['gene_len'] = gene_len
+                    selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['ref_var'] = ref_var
+                    selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['target_var'] = ref_var
+                    selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['ref_var_dna'] = ref_var_dna
+                    selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['ref_var_aa'] = ref_var_aa
+                    if is_cds:
+                        selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer][
+                            'cds_start'] = codon_var_start
+                        selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer][
+                            'cds_end'] = codon_var_end - 1
+                        selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['aa_start'] = aa_var_start
+                        selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['aa_end'] = aa_var_end - 1
+                        selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer][
+                            'aa_name'] = "{}{}{}".format(ref_var_aa, aa_var_start, ref_var_aa)
+            else:
+                for kmer in selected_kmers[mutation_type][event]['ref']['kmers']:
+                    selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['is_cds'] = is_cds
+                    selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['is_silent'] = is_silent
+                    selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['is_frameshift'] = is_frameshift
+                    selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['gene_name'] = gene_name
+                    selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['gene_len'] = gene_len
+                    selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['ref_var'] = ref_var
+                    selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['target_var'] = ref_var
+                    selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['ref_var_dna'] = ref_var_dna
+                    selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['ref_var_aa'] = ref_var_aa
+                    if is_cds:
+                        selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['cds_start'] = codon_var_start
+                        selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['cds_end'] = codon_var_end - 1
+                        selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['aa_start'] = aa_var_start
+                        selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['aa_end'] = aa_var_end - 1
+                        selected_kmers[mutation_type][event]['ref']['kmers'][kmer][
+                            'aa_name'] = "{}_{}_{}".format(mutation_type, aa_var_start, aa_var_end - 1)
+
+            if mutation_type == 'snp':
+                for base in selected_kmers[mutation_type][event]['alt']['kmers']:
+                    if len(selected_kmers[mutation_type][event]['alt']['kmers'][base]) == 0:
+                        continue
+                    for kmer in selected_kmers[mutation_type][event]['alt']['kmers'][base]:
+                        align_querySeq_kmer = selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['aSeq']
+                        akmer_start = selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['aStart']
+                        akmer_end = selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['aEnd']
+                        rel_alt_start = abs(start - akmer_start)
+                        rel_alt_end = rel_alt_start + var_len
+                        alt_var = align_querySeq_kmer[rel_alt_start:rel_alt_end]
+                        alt_var_aa = ''
+                        alt_var_dna = alt_var
+                        if is_cds:
+                            alt_seq = list(aln_gene_seq)
+                            for i in range(0, len(alt_var_dna)):
+                                pos = i + rel_var_start
+                                alt_seq[pos] = alt_var_dna[i]
+                            alt_var_dna = ''.join(alt_seq[codon_var_start:codon_var_end]).replace('-', '')
+                            alt_var_aa = str(Seq(alt_var_dna).translate(table=trans_table))
+                            selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer][
+                                'cds_start'] = codon_var_start
+                            selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer][
+                                'cds_end'] = codon_var_end - 1
+                            selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['aa_start'] = aa_var_start
+                            selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['aa_end'] = aa_var_end - 1
+                            selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer][
+                                'aa_name'] = "{}{}{}".format(ref_var_aa, aa_var_start, alt_var_aa)
+                            if alt_var_aa != ref_var_aa:
+                                is_silent = False
+                        selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['is_silent'] = is_silent
+                        selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer][
+                            'is_frameshift'] = is_frameshift
+                        selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['is_cds'] = is_cds
+                        selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['gene_name'] = gene_name
+                        selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['gene_len'] = gene_len
+                        selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['ref_var'] = ref_var
+                        selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['target_var'] = alt_var
+                        selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['alt_var_dna'] = alt_var_dna
+                        selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['alt_var_aa'] = alt_var_aa
+            else:
+                for kmer in selected_kmers[mutation_type][event]['alt']['kmers']:
+                    align_querySeq_kmer = selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['aSeq']
+                    akmer_start = selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['aStart']
+                    akmer_end = selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['aEnd']
+                    rel_alt_start = abs(start - akmer_start)
+                    rel_alt_end = rel_alt_start + var_len
+                    alt_var = align_querySeq_kmer[rel_alt_start:rel_alt_end]
+                    alt_var_aa = ''
+                    alt_var_dna = alt_var
+                    if is_cds:
+                        alt_seq = list(aln_gene_seq)
+                        for i in range(0, len(alt_var_dna)):
+                            pos = i + rel_var_start
+                            alt_seq[pos] = alt_var_dna[i]
+                        alt_var_dna = ''.join(alt_seq[codon_var_start:codon_var_end]).replace('-', '')
+                        incr = 0
+                        while len(alt_var_dna) % 3 != 0:
+                            incr += 1
+                            alt_var_dna = ''.join(alt_seq[codon_var_start:codon_var_end + incr]).replace('-', '')
+                        alt_var_aa = str(Seq(alt_var_dna.replace('-', '')).translate(table=trans_table))
+                        selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['cds_start'] = codon_var_start
+                        selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['cds_end'] = codon_var_end - 1
+                        selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['aa_start'] = aa_var_start
+                        selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['aa_end'] = aa_var_end - 1
+                        selected_kmers[mutation_type][event]['alt']['kmers'][kmer][
+                            'aa_name'] = "{}_{}_{}".format(mutation_type, aa_var_start, aa_var_end - 1)
+                        if alt_var_aa != ref_var_aa:
+                            is_silent = False
+
+                    selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['is_silent'] = is_silent
+                    selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['is_frameshift'] = is_frameshift
+                    selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['is_cds'] = is_cds
+                    selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['gene_name'] = gene_name
+                    selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['gene_len'] = gene_len
+                    selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['ref_var'] = ref_var
+                    selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['target_var'] = alt_var
+                    selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['alt_var_dna'] = alt_var_dna
+                    selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['alt_var_aa'] = alt_var_aa
+
+    return selected_kmers
+
+
+def select_snp_kmers(snp_variants, kLen, kmer_alignment_positions):
+    variant_kmers = {}
+    for aln_start in kmer_alignment_positions:
+        kmers = kmer_alignment_positions[aln_start]
+        affected_bases = range(aln_start, aln_start + kLen)
+        ovlVariants = {}
+        for i in affected_bases:
+            if i in snp_variants:
+                ovlVariants[i] = snp_variants[i]
+        if len(ovlVariants) == 0:
+            continue
+
+        max_count_var = 0
+
+        for kmer in kmers:
+            count_variants = kmers[kmer]['count_var']
+            if count_variants > max_count_var:
+                max_count_var = count_variants
+
+        for pos in ovlVariants:
+            is_new = False
+            if not pos in variant_kmers:
+                variant_kmers[pos] = {
+                    'ref': {'count_var': 0, 'kmers': {'A': {}, 'T': {}, 'C': {}, 'G': {}}},
+                    'alt': {'count_var': 0, 'kmers': {'A': {}, 'T': {}, 'C': {}, 'G': {}}}
+                }
+                is_new = True
+
+            ref_base = snp_variants[pos]['ref']
+            if ref_base == '-':
+                continue
+            alt_bases = snp_variants[pos]['alt']
+            rel_pos = pos - aln_start
+
+            for kmer in kmers:
+                seq = kmers[kmer]['aSeq']
+                b = seq[rel_pos]
+                if b == '-':
+                    continue
+                state = 'ref'
+                if b != 'N' and b != ref_base and alt_bases[b] > 0:
+                    state = 'alt'
+
+                if is_new:
+                    variant_kmers[pos][state]['count_var'] = max_count_var
+                    variant_kmers[pos][state]['kmers'][b][int(kmer)] = copy.deepcopy(
+                        kmer_alignment_positions[aln_start][kmer])
+                elif variant_kmers[pos][state]['count_var'] < max_count_var:
+                    variant_kmers[pos][state]['kmers'][b] = {}
+                    variant_kmers[pos][state]['count_var'] = max_count_var
+                    variant_kmers[pos][state]['kmers'][b][int(kmer)] = copy.deepcopy(
+                        kmer_alignment_positions[aln_start][kmer])
+    return variant_kmers
+
+
+def select_indel_kmers(indel_variants, kLen, kmer_alignment_positions):
+    # print(json.dumps(kmer_alignment_positions,indent=4))
+    variant_kmers = {}
+    max_key = max(list(kmer_alignment_positions.keys()))
+    for indel in indel_variants:
+        aStart = indel_variants[indel]['start']
+        s = aStart - kLen - 1
+        if s < 0:
+            s = 0
+        aEnd = indel_variants[indel]['end']
+        e = aEnd + kLen
+        if e > max_key:
+            e = max_key + 1
+
+        affected_bases = range(s, e)
+        variant_kmers[indel] = {'ref': {'count_var': 0, 'kmers': {}}, 'alt': {'count_var': 0, 'kmers': {}}}
+        indel_len = aEnd - aStart + 1
+
+        for i in affected_bases:
+            if not i in kmer_alignment_positions:
+                continue
+
+            if len(kmer_alignment_positions[i]) == 1:
+                continue
+
+            kmers = kmer_alignment_positions[i]
+            rel_start = abs(aStart - i)
+            rel_end = rel_start + indel_len
+            max_count_var = 0
+            to_add = False
+            rKmers = []
+            aKmers = []
+            for kmer in kmers:
+                count_variants = kmers[kmer]['count_var']
+                rSeq = kmers[kmer]['rSeq'][rel_start:rel_end].replace('-', '')
+                qSeq = kmers[kmer]['aSeq'][rel_start:rel_end].replace('-', '')
+                qLen = len(qSeq)
+                rLen = len(rSeq)
+                delta = abs(rLen - qLen)
+
+                if delta == 0:
+                    rKmers.append(kmer)
+                elif delta == indel_len:
+                    aKmers.append(kmer)
+                else:
+                    rKmers.append(kmer)
+
+                if count_variants > max_count_var:
+                    max_count_var = count_variants
+                    to_add = True
+
+            if len(rKmers) == 0 or len(aKmers) == 0:
+                continue
+
+            if to_add:
+                variant_kmers[indel] = {'ref': {'count_var': 0, 'kmers': {}}, 'alt': {'count_var': 0, 'kmers': {}}}
+                variant_kmers[indel]['ref']['count_var'] = max_count_var
+                variant_kmers[indel]['alt']['count_var'] = max_count_var
+                for kmer in rKmers:
+                    variant_kmers[indel]['ref']['kmers'][int(kmer)] = copy.deepcopy(kmer_alignment_positions[i][kmer])
+                for kmer in aKmers:
+                    variant_kmers[indel]['alt']['kmers'][int(kmer)] = copy.deepcopy(kmer_alignment_positions[i][kmer])
+
+    return variant_kmers
+
+
+def getSelectedKmerIndicies(selected_kmers):
+    indicies = []
+    for vType in selected_kmers:
+        for event in selected_kmers[vType]:
+            for state in ['ref', 'alt']:
+                if vType == 'snp':
+                    for base in selected_kmers[vType][event][state]["kmers"]:
+                        indicies += list(selected_kmers[vType][event][state]["kmers"][base].keys())
+                else:
+                    indicies += list(selected_kmers[vType][event][state]["kmers"])
+    return sorted(list(set(indicies)))
+
+
+def populate_fields(uid, mutation_type, vStart, vEnd, state, ref_variant, alt_variant, kmer_info):
+    record = copy.deepcopy(KMER_FIELDS)
+    for field in record:
+        if field in kmer_info:
+            record[field] = kmer_info[field]
+    record['key'] = uid
+    record['mutation_type'] = mutation_type
+    record['state'] = state
+    record['ref_state'] = ref_variant
+    record['alt_state'] = alt_variant
+    record['variant_start'] = vStart
+    record['variant_end'] = vEnd
+    record['kmer_start'] = kmer_info['aStart']
+    record['kseq'] = kmer_info['aSeq'].replace('-', '')
+    record['klen'] = len(record['kseq'])
+    record['homopolymer_len'] = calc_homopolymers(record['kseq'])
+    record['target_variant'] = kmer_info['target_var']
+    record['target_variant_len'] = len(record['target_variant'])
+    record['positive_genotypes'].sort()
+    record['positive_genotypes'] = ','.join([str(x) for x in record['positive_genotypes']])
+    record['partial_genotypes'].sort()
+    record['partial_genotypes'] = ','.join([str(x) for x in record['partial_genotypes']])
+    target_variant = record['target_variant']
+    is_cds = kmer_info['is_cds']
+
+    if is_cds:
+        aa_start = kmer_info['aa_start']
+        aa_end = kmer_info['aa_end']
+        if mutation_type == 'snp':
+            record['aa_name'] = "{}{}{}".format(ref_variant, aa_start, target_variant)
+        else:
+            record['aa_name'] = "{}_{}_{}".format(mutation_type, aa_start, aa_end)
+    if mutation_type == 'snp':
+        record['mutation_key'] = "{}_{}_{}_{}".format(mutation_type, ref_variant, vStart, alt_variant)
+        record['dna_name'] = "{}{}{}".format(ref_variant, vStart, target_variant)
+    else:
+        record['mutation_key'] = "{}_{}_{}_{}".format(mutation_type, vStart, vEnd, alt_variant)
+        record['dna_name'] = "{}_{}_{}_{}".format(mutation_type, vStart, vEnd, target_variant)
+
+    return record
+
+
+def scheme_format(selected_kmers):
+    scheme = {}
+    uid = 0
+    for mutation_type in selected_kmers:
+        for event in selected_kmers[mutation_type]:
+            if mutation_type == 'snp':
+                vStart = event
+                vEnd = event
+                for base in selected_kmers[mutation_type][event]['ref']['kmers']:
+                    if len(selected_kmers[mutation_type][event]['ref']['kmers'][base]) == 0:
+                        continue
+                    ref_variant = base
+                    break
+
+                for base in selected_kmers[mutation_type][event]['alt']['kmers']:
+                    if len(selected_kmers[mutation_type][event]['alt']['kmers'][base]) == 0:
+                        continue
+                    alt_variant = base
+                    for kmer in selected_kmers[mutation_type][event]['ref']['kmers'][ref_variant]:
+                        kmer_info = selected_kmers[mutation_type][event]['ref']['kmers'][ref_variant][kmer]
+                        if not 'target_var' in kmer_info:
+                            continue
+                        scheme[uid] = populate_fields(uid, mutation_type, vStart, vEnd, 'ref', ref_variant, alt_variant,
+                                                      kmer_info)
+                        uid += 1
+
+                    for kmer in selected_kmers[mutation_type][event]['alt']['kmers'][base]:
+                        kmer_info = selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]
+                        if not 'target_var' in kmer_info:
+                            continue
+                        scheme[uid] = populate_fields(uid, mutation_type, vStart, vEnd, 'alt', ref_variant, alt_variant,
+                                                      kmer_info)
+                        uid += 1
 
             else:
-                if not mutation in info['valid']:
-                    info['valid'][mutation] = {}
-                info['valid'][mutation][sample_id] = 'valid'
-
-    for mutation in scheme:
-        for state in ['ref','alt']:
-            for i in range(0,len(scheme[mutation][state])):
-                if mutation in info['valid'] or mutation in info['errors']:
-                    scheme[mutation][state][i]['is_kmer_found'] = True
+                (vStart, vEnd) = event.split(':')
+                vStart = int(vStart)
+                vEnd = int(vEnd)
+                vLen = vEnd - vStart + 1
+                if mutation_type == 'del':
+                    ref_variant = ''.join(['N'] * vLen)
+                    alt_variant = ''.join(['-'] * vLen)
                 else:
-                    scheme[mutation][state][i]['is_kmer_found'] = False
-                    scheme[mutation][state][i]['is_valid'] = False
-                if mutation in info['errors']:
-                    scheme[mutation][state][i]['is_kmer_unique'] = False
-                    scheme[mutation][state][i]['is_valid'] = False
+                    ref_variant = ''.join(['-'] * vLen)
+                    alt_variant = ''.join(['N'] * vLen)
+
+                for state in selected_kmers[mutation_type][event]:
+                    for kmer in selected_kmers[mutation_type][event][state]['kmers']:
+                        kmer_info = selected_kmers[mutation_type][event][state]['kmers'][kmer]
+                        if not 'target_var' in kmer_info:
+                            continue
+                        scheme[uid] = populate_fields(uid, mutation_type, vStart, vEnd, state, ref_variant, alt_variant,
+                                                      kmer_info)
+                        uid += 1
 
     return scheme
 
 
+def get_genotype_kmer_frac(genotype_kCounts, genotype_counts, min_frac):
+    rules = {}
+    for kmer in genotype_kCounts:
+        for genotype in genotype_kCounts[kmer]['counts']:
+            if not genotype in genotype_counts:
+                continue
+            total = genotype_counts[genotype]
+            kCount = genotype_kCounts[kmer]['counts'][genotype]
+            if total == 0:
+                continue
+            frac = kCount / total
+            if frac > min_frac:
+                if not kmer in rules:
+                    rules[kmer] = {}
+                rules[kmer][genotype] = frac
+    return rules
+
+
+def associate_genotype_rules(selected_kmers, genotype_fracs, min_ref_frac, min_alt_frac):
+    min_par_frac = max([1 - min_alt_frac, 1 - min_ref_frac])
+    for mutation_type in selected_kmers:
+        for event in selected_kmers[mutation_type]:
+            if mutation_type == 'snp':
+                for state in selected_kmers[mutation_type][event]:
+                    thresh = min_ref_frac
+                    if state == 'alt':
+                        thresh = min_alt_frac
+                    for base in selected_kmers[mutation_type][event][state]['kmers']:
+                        if len(selected_kmers[mutation_type][event][state]['kmers'][base]) == 0:
+                            continue
+                        for kmer in selected_kmers[mutation_type][event][state]['kmers'][base]:
+                            if not kmer in genotype_fracs:
+                                continue
+                            gfracs = genotype_fracs[kmer]
+                            for genotype in gfracs:
+                                frac = gfracs[genotype]
+                                if frac >= thresh:
+                                    selected_kmers[mutation_type][event][state]['kmers'][base][kmer][
+                                        'positive_genotypes'].append(genotype)
+                                elif frac >= min_par_frac:
+                                    selected_kmers[mutation_type][event][state]['kmers'][base][kmer][
+                                        'partial_genotypes'].append(genotype)
+            else:
+                for state in selected_kmers[mutation_type][event]:
+                    thresh = min_ref_frac
+                    if state == 'alt':
+                        thresh = min_alt_frac
+
+                    for kmer in selected_kmers[mutation_type][event][state]['kmers']:
+                        if not kmer in genotype_fracs:
+                            continue
+                        gfracs = genotype_fracs[kmer]
+                        for genotype in gfracs:
+                            frac = gfracs[genotype]
+                            if frac >= thresh:
+                                selected_kmers[mutation_type][event][state]['kmers'][kmer]['positive_genotypes'].append(
+                                    genotype)
+                            elif frac >= min_par_frac:
+                                selected_kmers[mutation_type][event][state]['kmers'][kmer]['partial_genotypes'].append(
+                                    genotype)
+
+
+def write_genotype_reports(out_dir, genotype_counts, scheme):
+    mutations_report_file = os.path.join(out_dir, "genotype.mutations.txt")
+    kmer_report_file = os.path.join(out_dir, "genotype.kmers.txt")
+
+    assoc = {}
+    kmer_report = {}
+    mutations_report = {}
+    for genotype in genotype_counts:
+        assoc[genotype] = {
+            'total': genotype_counts[genotype],
+            'mutations': {'ref': set(), 'alt': set()},
+            'kmers': {'ref': set(), 'alt': set()}
+        }
+
+        kmer_report[genotype] = {'genotype': genotype,
+                                 'num_members': assoc['total'],
+                                 'num_pos_ref': 0,
+                                 'num_pos_alt': 0,
+                                 'alt_kmers': [],
+                                 'num_uniq': 0,
+                                 'uniq_kmers': []
+                                 }
+
+        mutations_report[genotype] = {'genotype': genotype,
+                                      'num_members': assoc['total'],
+                                      'num_pos_ref': 0,
+                                      'num_pos_alt': 0,
+                                      'alt_mutations': [],
+                                      'num_uniq': 0,
+                                      'uniq_mutations': []
+                                      }
+
+    for uid in scheme:
+        state = scheme[uid]['state']
+        pos = scheme[uid]['positive_genotypes'].split(',')
+        dna_name = scheme[uid]['dna_name']
+        kseq = scheme[uid]['kseq']
+        is_diag = False
+        if len(pos) == 1:
+            is_diag = True
+
+        for genotype in pos:
+            assoc[genotype]['mutations'][state].add(dna_name)
+            assoc[genotype]['kmers'][state].add(kseq)
+            if is_diag:
+                mutations_report[genotype]['uniq_mutations'].append(dna_name)
+                mutations_report[genotype]['num_uniq'] += 1
+                kmer_report[genotype]['uniq_kmers'].append(kseq)
+                kmer_report[genotype]['num_uniq'] += 1
+
+    for genotype in assoc:
+        return
+
+
+def group_kmers_by_start_pos(kmer_results):
+    grouped_kmers = {}
+    for kIndex in kmer_results:
+        aln_start = kmer_results[kIndex]['aStart']
+        if not aln_start in grouped_kmers:
+            grouped_kmers[aln_start] = {}
+        grouped_kmers[aln_start][kIndex] = kmer_results[kIndex]
+    return grouped_kmers
+
+
+# @profile
 def run():
-    #get arguments
     cmd_args = parse_args()
     logger = init_console_logger(2)
-
-    #input parameters
-    input_msa = cmd_args.input_msa
+    # input parameters
+    input_alignment = cmd_args.input_msa
     input_meta = cmd_args.input_meta
     prefix = cmd_args.prefix
     ref_id = cmd_args.ref_id
     ref_gbk = cmd_args.ref_gbk
-    outdir = cmd_args.outdir
-    min_len = cmd_args.min_len
-    max_len = cmd_args.max_len
+    kLen = cmd_args.kmer_len
+    out_dir = cmd_args.outdir
     max_ambig = cmd_args.max_ambig
     min_ref_frac = cmd_args.min_ref_frac
     min_alt_frac = cmd_args.min_alt_frac
-    min_complexity = cmd_args.min_complexity
-    max_missing = cmd_args.max_missing
+    max_homo = cmd_args.max_homo
     n_threads = cmd_args.n_threads
-    impute_min_frac = cmd_args.iFrac
-    jellyfish_mem = cmd_args.jf
-    jellyfish_path = os.path.join(outdir,"jellyfish")
     no_plots = cmd_args.no_plots
-    min_kmer_count = cmd_args.min_kmer_count
+    min_kmer_count = cmd_args.min_kmer_freq
+    min_var_freq = cmd_args.min_var_freq
+    max_folder_size = cmd_args.max_folder_size
+    batch_size = cmd_args.seq_batch_size
+    resume = cmd_args.resume
+    num_stages = 5
 
+    # temp
+    batch_size = 2000
 
-    # initialize analysis directory
-    if not os.path.isdir(outdir):
-        logger.info("Creating analysis results directory {}".format(outdir))
-        os.mkdir(outdir, 0o755)
+    if not os.path.isdir(out_dir):
+        logging.info("Creating analysis directory {}".format(out_dir))
+        os.mkdir(out_dir, 0o755)
+    if max_homo is None:
+        max_homo = kLen
+    params_file = os.path.join(out_dir, "params.pickle")
+    if resume:
+        logging.info("Resuming previous parsityper creator analysis")
+        logging.info("Identifying analysis stage to resume from")
+        if not os.path.isfile(params_file):
+            logging.error(
+                "Error, resume selected but params.pickle is missing, please check the path or run without resume flag")
+            sys.exit()
+        stage = -1
+        for i in range(0, num_stages + 1):
+            if os.path.isfile(os.path.join(out_dir, "stage-{}.pickle".format(i))):
+                stage = i
+        if stage == -1:
+            logging.error(
+                "Error, resume selected but no check point files found, please check the path or run without resume flag")
+            sys.exit()
     else:
-        logger.info("Results directory {} already exits, will overwrite any results files here".format(outdir))
+        logging.info("Performing parsityper creator analysis")
+        # Write parameters for resume functionality
+        logging.info("Creating params file for resume functionality")
+        fh = open(params_file, 'wb')
+        pickle.dump(cmd_args, fh)
+        fh.close()
 
-
-    #output files
-    scheme_file = os.path.join(outdir,"{}-scheme.txt".format(prefix))
-    genotypes_mut_file = os.path.join(outdir,"{}-mutation.associations.txt".format(prefix))
-    genotypes_kmers_file = os.path.join(outdir, "{}-kmers.associations.txt".format(prefix))
-    genotype_dendrogram = os.path.join(outdir, "{}-dendropgram.html".format(prefix))
-    alignment_base_counts = os.path.join(outdir, "{}-alignment_base_counts.txt".format(prefix))
-    mutation_events = os.path.join(outdir, "{}-detected.mutations.txt".format(prefix))
-
-    #Get the Gene features from the reference sequence
-    ref_features = parse_reference_sequence(ref_gbk)
-
-    #Read the input MSA and calculate the consensus sequence
-    logger.info("Reading input alignment {}".format(input_msa))
-
-    input_alignment = read_fasta(input_msa)
-    if ref_id not in input_alignment:
-        logger.error("Reference id specified '{}' is not found in alignment, make sure it is present and retry".format(ref_id))
-        sys.exit()
-    if cmd_args.impute:
-        logger.info("Imputing ambiguous bases enabled with fraction of {}".format(impute_min_frac))
-        input_alignment = impute_ambiguous_bases(input_alignment, ref_id, min_frac=impute_min_frac)
+    if min_alt_frac < min_ref_frac:
+        min_frac = min_alt_frac
     else:
-        logger.info("Imputing ambiguous bases not enabled")
+        min_frac = min_ref_frac
 
-    logger.info("Found {} sequences in msa".format(len(input_alignment)))
-    consensus_bases = calc_consensus(input_alignment)
-    logger.info("Writting bases counts per position in msa")
-    fh = open(alignment_base_counts,'w')
-    out_data = ["position\tA\tT\tC\tG\tN\t-"]
-    for pos in range(0,len(consensus_bases)):
-        a_count = consensus_bases[pos]['A']
-        t_count = consensus_bases[pos]['T']
-        c_count = consensus_bases[pos]['C']
-        g_count = consensus_bases[pos]['G']
-        n_count = consensus_bases[pos]['N']
-        missing_count = consensus_bases[pos]['-']
-        out_data.append("{}\t{}\t{}\t{}\t{}\t{}\t{}".format(pos,a_count,t_count,c_count,g_count,n_count,missing_count))
-    fh.write("\n".join(out_data))
-    del(out_data)
-    fh.close()
+    total_sys_memory = psutil.virtual_memory().total
+    total_sys_threads = psutil.cpu_count()
+    if n_threads > total_sys_threads:
+        n_threads = total_sys_threads
 
-
-    #read the metadata associations
-    logger.info("Reading genotype associations from {}".format(input_meta))
+    # read metadata
+    stime = time.time()
+    logging.info("Reading genotype associations from {}".format(input_meta))
     metadata_df = read_tsv(input_meta)
-    logger.info("Found {} lines in {}".format(len(metadata_df),input_meta))
+    logging.info("Found {} lines in {}".format(len(metadata_df), input_meta))
     metadata_df['genotype'] = metadata_df['genotype'].astype(str)
     genotype_mapping = get_genotype_mapping(metadata_df)
+    print("Time to read metadata {}".format(time.time() - stime))
+
+    if batch_size is None or batch_size == 0:
+        batch_size = int(len(genotype_mapping) / n_threads)
+
+    # Get the Gene features from the reference sequenc if specified
+    perform_annotation = False
+    ref_features = {}
+
+    if len(ref_gbk) > 0:
+        perform_annotation = True
+        if os.path.isfile(ref_gbk):
+            ref_features = parse_reference_sequence(ref_gbk)
+        else:
+            logging.error("Specified ref_gbk does not exist: {}".format(ref_gbk))
+
+    # process msa
+    stime = time.time()
+    fasta_dir = os.path.join(out_dir, "_stage-0")
+    if not os.path.isdir(fasta_dir):
+        logging.info("Creating analysis directory for individual fastas {}".format(fasta_dir))
+        os.mkdir(fasta_dir, 0o755)
+
+    msa_info = preprocess_seqs(input_alignment, ref_id, list(genotype_mapping.keys()), batch_size, fasta_dir, 'stage-0',
+                               iupac_replacement, min_var_freq, max_folder_size)
+    if not msa_info['is_align_ok']:
+        logging.error("Input alignment has issues, please correct and try again")
+        sys.exit()
+    align_len = msa_info['align_len']
+    num_sequences = len(msa_info['seq_ids'])
+    max_kmer_count = num_sequences
+
+    logging.info("Writting check-point json stage-{}".format(0))
+    msa_info_file = os.path.join(out_dir, "stage-0.pickle")
+    fh = open(msa_info_file, 'wb')
+    pickle.dump(msa_info, fh)
+    fh.close()
+    print("Time to process seqs {}".format(time.time() - stime))
+    # print(json.dumps(msa_info['variants'], indent=4))
+
+    genotype_counts = {}
+    filter_samples = {}
+    for sample_id in genotype_mapping:
+        genotype = genotype_mapping[sample_id]
+        if sample_id in msa_info['seq_ids']:
+            filter_samples[sample_id] = genotype
+            if not genotype in genotype_counts:
+                genotype_counts[genotype] = 0
+            genotype_counts[genotype] += 1
+    genotype_mapping = filter_samples
+    del (filter_samples)
+
+    # kmer counting
+    stime = time.time()
+    init_jellyfish_mem = int(align_len * batch_size / 1000000)
+    if init_jellyfish_mem == 0:
+        init_jellyfish_mem = 1
+
+    perform_kmer_counting(msa_info['unalign_files'], kLen, "{}M".format(init_jellyfish_mem), n_threads)
+    print("Time to jellyfish count kmers {}".format(time.time() - stime))
+    seqKmers = filter_kmers(combine_jellyfish_results(msa_info['unalign_files']), min_kmer_count, max_kmer_count,
+                            max_ambig, max_homo)
+    aho_dir = os.path.join(out_dir, "_stage-1")
+    if not os.path.isdir(aho_dir):
+        logging.info("Creating analysis directory for aho kmer searching {}".format(aho_dir))
+        os.mkdir(aho_dir, 0o755)
+    stime = time.time()
+    aho_results = map_kmers(seqKmers, msa_info['subset_files'], n_threads)
+
+    add_ref_kmer_info(aho_results, seqKmers, msa_info['ref_aln'], kLen)
+    # aho_results = add_ref_kmer(aho_results, msa_info['ref_aln'])
+    print("Time to map kmers {}".format(time.time() - stime))
+    sample_kmer_profiles = aho_results['samples']
+
+    kmer_alignment_positions = group_kmers_by_start_pos(aho_results['kmer'])
+    filt = {}
+    for pos in kmer_alignment_positions:
+        if len(kmer_alignment_positions[pos]) == 1:
+            continue
+        filt[pos] = kmer_alignment_positions[pos]
+    kmer_alignment_positions = filt
+
+    stime = time.time()
+    selected_kmers = {
+        'snp': select_snp_kmers(msa_info['variants']['snp'], kLen, kmer_alignment_positions),
+        'del': select_indel_kmers(msa_info['variants']['del'], kLen, kmer_alignment_positions),
+        'ins': select_indel_kmers(msa_info['variants']['ins'], kLen, kmer_alignment_positions)}
+    print("Time to select kmers {}".format(time.time() - stime))
+
+    # print(json.dumps(selected_kmers,indent=4))
+
+    kmer_indicies = getSelectedKmerIndicies(selected_kmers)
+    stime = time.time()
+    genotype_kCounts = get_kmer_genotype_counts(kmer_indicies, aho_results['samples'], genotype_mapping)
+    print("Time to get genotype counts per kmers {}".format(time.time() - stime))
+    del (seqKmers)
+
+    logging.info("Writting check-point stage-{}".format(1))
+    genotype_kCounts_file = os.path.join(out_dir, "stage-1.pickle")
+    fh = open(genotype_kCounts_file, 'wb')
+    pickle.dump(genotype_kCounts, fh)
+    fh.close()
+
+    # Get Kmer positions in the alignment
+    # kmer_dir = os.path.join(out_dir, "_stage-2")
+    # if not os.path.isdir(kmer_dir):
+    #    logging.info("Creating analysis directory for aho kmer searching {}".format(kmer_dir))
+    #    os.mkdir(kmer_dir, 0o755)
+    # stime = time.time()
+    # kmer_alignment_positions = get_kmer_positions(ref_id,genotype_kCounts,kLen,fasta_dir,msa_info['individual_file_sample_index'])
+
+    # print("Time to classify kmers {}".format(time.time() - stime))
+
+    # logging.info("Writting check-point stage-{}".format(2))
+    # kmer_pos_file = os.path.join(out_dir,"stage-2.pickle")
+    # fh = open(kmer_pos_file,'wb')
+    # pickle.dump(kmer_alignment_positions, fh)
+    # fh.write(json.dumps(kmer_alignment_positions, indent=4))
+    # fh.close()
+
+    # Kmer associations
+    assoc_dir = os.path.join(out_dir, "_stage-4")
+    if not os.path.isdir(assoc_dir):
+        logging.info("Creating analysis directory for aho kmer association {}".format(assoc_dir))
+        os.mkdir(assoc_dir, 0o755)
+    stime = time.time()
+    kmer_entropies = calc_kmer_entropy(genotype_kCounts)
+    print("Time to calc entropies kmers {}".format(time.time() - stime))
+
+    # Add in entropy and count information
+    for mutation_type in selected_kmers:
+        for pos in selected_kmers[mutation_type]:
+            for state in selected_kmers[mutation_type][pos]:
+                if mutation_type == 'snp':
+                    for base in selected_kmers[mutation_type][pos][state]['kmers']:
+                        for kmer_id in selected_kmers[mutation_type][pos][state]['kmers'][base]:
+                            selected_kmers[mutation_type][pos][state]['kmers'][base][kmer_id]['entropy'] = \
+                            kmer_entropies[kmer_id]
+                            selected_kmers[mutation_type][pos][state]['kmers'][base][kmer_id]['total_count'] = \
+                            genotype_kCounts[kmer_id]['total']
+                else:
+                    for kmer_id in selected_kmers[mutation_type][pos][state]['kmers']:
+                        selected_kmers[mutation_type][pos][state]['kmers'][kmer_id]['entropy'] = kmer_entropies[kmer_id]
+                        selected_kmers[mutation_type][pos][state]['kmers'][kmer_id]['total_count'] = \
+                        genotype_kCounts[kmer_id][
+                            'total']
+
+    # Remove positions with only one kmer
+    # stime = time.time()
+    # filt = {}
+    # for pos in kmer_alignment_positions:
+    #    if len(kmer_alignment_positions[pos]) <= 1:
+    #        continue
+    #    filt[pos] = kmer_alignment_positions[pos]
+    # kmer_alignment_positions = filt
+    # del(filt)
+    # print("Time to filter kmers {}".format(time.time() - stime))
+
+    # kmer_ent_file = os.path.join(assoc_dir,"entropies.pickle")
+    # fh = open(kmer_ent_file,'wb')
+    # pickle.dump(kmer_entropies, fh)
+    # fh.close()
+    # del (kmer_entropies)
+
+    # logging.info("Writting check point stage-{}".format(4))
+    # stage_4_file = os.path.join(out_dir,"stage-4.pickle")
+    # fh = open(stage_4_file,'wb')
+    # pickle.dump(kmer_alignment_positions, fh)
+    # fh.close()
+
+    genotype_kmer_fracs = get_genotype_kmer_frac(genotype_kCounts, genotype_counts, min_frac)
+
+    associate_genotype_rules(selected_kmers, genotype_kmer_fracs, min_ref_frac, min_alt_frac)
+    if len(ref_features) > 0:
+        add_gene_inference(selected_kmers, msa_info['ref_aln'], ref_id, ref_features, trans_table=1)
+
+    scheme = scheme_format(selected_kmers)
+    select_kmer_file = os.path.join(out_dir, "{}-scheme.txt".format(prefix))
+    pd.DataFrame.from_dict(scheme, orient='index').to_csv(select_kmer_file, sep="\t", header=True, index=False)
+
+    stime = time.time()
+    '''
+    kmer_associations = calc_kmer_associations(temp, genotype_counts, 100, n_threads=1)
+    print("Time to calc ari/ami kmers {}".format(time.time() - stime))
+    del(temp)
+    '''
+    '''
+    kmer_assoc_file = os.path.join(assoc_dir,"geno.associations.json")
+    fh = open(kmer_assoc_file,'wb')
+    pickle.dump( kmer_associations, fh)
+    #fh.write(json.dumps( kmer_associations, indent=4))
+    fh.close()'''
 
 
-    #Remove pseudo sequences generated by parsityper if applicable
-    logger.info("Filtering samples from genotype map which are not also in the alignment")
-    missing_samples = list(set(list(genotype_mapping.keys())) - set(list(input_alignment.keys())) )
-    samples_to_mask = ['pseudo_A','pseudo_T','pseudo_C','pseudo_G','consensus']  + missing_samples
-    logger.info("Masking {} samples".format(len(missing_samples)))
-    for sample in samples_to_mask:
-        if sample in genotype_mapping:
-            logger.info("Removing sample {} from analysis due to no sequence in alignment".format(sample))
-            del(genotype_mapping[sample])
-
-
-    #Identify variable positions within the alignment
-    logger.info("Scanning alignment for SNPs")
-    snp_positions = find_snp_positions(consensus_bases)
-
-    logger.info("Found {} variable sites".format(len(snp_positions)))
-    sequence_deletions = {}
-    logger.info("Scanning alignment for indels")
-    for seq_id in input_alignment:
-        sequence_deletions[seq_id] = find_internal_gaps(input_alignment[seq_id])
-    variant_positions = []
-    for pos in snp_positions:
-        variant_positions.append([pos,pos])
-    unique_indels = {}
-    for sid in sequence_deletions:
-        for i in sequence_deletions[sid]:
-            if not i in unique_indels:
-                unique_indels[i] = []
-            unique_indels[i].append(sid)
-    for i in unique_indels:
-        unique_indels[i].sort()
-
-    logger.info("Found {} potential indels".format(len(unique_indels)))
-    for indel in unique_indels:
-        (start,end) = indel.split(':')
-        variant_positions.append([int(start),int(end)])
-    
-    logger.info("Creating scheme based on identified SNPs and indels")
-
-    scheme = construct_scheme(variant_positions, ref_id, input_alignment, jellyfish_path, jellyfish_mem,min_kmer_count,min_len, max_len,n_threads)
-
-    logger.info("Performing QA on selected k-mers")
-    scheme = qa_scheme(scheme, input_alignment, ref_id, genotype_mapping,min_len=min_len, max_len=max_len,min_complexity=min_complexity,max_ambig=max_ambig)
-
-    logger.info("Adding gene annotations")
-    scheme = add_gene_inference(scheme, ref_id, ref_features, input_alignment)
-
-    #remove samples where genotype mapping info is missing
-    valid_samples = set(list(genotype_mapping.keys()))
-    unique_index = 0
-    for mutation_key in scheme:
-        for state in scheme[mutation_key]:
-            for record in scheme[mutation_key][state]:
-                record['seq_ids'] = list( set(record['seq_ids']) & valid_samples )
-                record['key'] = unique_index
-                unique_index+=1
-
-
-    scheme = format_scheme_human_readable(scheme, ref_id, input_alignment)
-
-    #get the kmer profile for each sample
-    logger.info("Building genotype kmer profiles")
-    kmer_profile = build_kmer_profiles(list(genotype_mapping.keys()),scheme)
-
-    # create a plot of sample similarity for a multi-sample run
-    if len(kmer_profile ) > 1 and not no_plots:
-        logger.info("Plotting Sample dendrogram")
-        labels = []
-        for sample in kmer_profile:
-            if sample in genotype_mapping:
-                genotype = genotype_mapping[sample]
-            else:
-                genotype = 'n/a'
-            labels.append("{} | {}".format(sample,genotype))
-        d = dendrogram_visualization()
-        kmer_content_profile_df = pd.DataFrame.from_dict(kmer_profile,orient='index')
-        d.build_dendrogram(labels, kmer_content_profile_df,
-                                      genotype_dendrogram)
-    #identify genotype shared kmers
-    min_par_frac = max([1-min_alt_frac,1-min_ref_frac])
-    logger.info("Identifying shared kmers by genotype")
-    shared_kmers = identify_shared_kmers(genotype_mapping,scheme,min_thresh=0.5,max_thresh=1)
-    positive_kmers_alt_thresh = identify_shared_kmers(genotype_mapping,scheme,min_thresh=min_alt_frac,max_thresh=1)
-    partial_positive_kmers_alt_thresh = identify_shared_kmers(genotype_mapping, scheme, min_thresh=1-min_alt_frac, max_thresh=min_alt_frac)
-    positive_kmers_ref_thresh = identify_shared_kmers(genotype_mapping, scheme, min_thresh=min_ref_frac, max_thresh=1)
-    partial_positive_kmers_ref_thresh = identify_shared_kmers(genotype_mapping, scheme, min_thresh=1 - min_ref_frac,
-                                                              max_thresh=min_ref_frac)
-
-    #identify shared mutations
-    shared_mutations = identify_shared_mutations(genotype_mapping, scheme, min_thresh=0.5, max_thresh=1)
-    positive_mutations = identify_shared_mutations(genotype_mapping, scheme, min_thresh=min_alt_frac,max_thresh=1)
-    partial_positive_mutations = identify_shared_mutations(genotype_mapping, scheme, min_thresh=1-min_alt_frac, max_thresh=min_alt_frac)
-
-    #reorder datastructure to add diagnostic information to the scheme
-    kmer_geno_assoc = {}
-    kmer_geno_assoc_ref = {}
-    for genotype in shared_kmers:
-        for uid in shared_kmers[genotype]:
-            if not uid in kmer_geno_assoc:
-                kmer_geno_assoc[uid] = {'positive':[],'partial':[],'shared':[],'diagnostic':[]}
-                kmer_geno_assoc_ref[uid] = {'positive': [], 'partial': [], 'shared': [], 'diagnostic': []}
-            kmer_geno_assoc[uid]['shared'].append(genotype)
-            kmer_geno_assoc_ref[uid]['shared'].append(genotype)
-        for uid in positive_kmers_alt_thresh[genotype]:
-            if not uid in kmer_geno_assoc:
-                kmer_geno_assoc[uid] = {'positive':[],'partial':[],'shared':[],'diagnostic':[]}
-            kmer_geno_assoc[uid]['positive'].append(genotype)
-        for uid in partial_positive_kmers_alt_thresh[genotype]:
-            if not uid in kmer_geno_assoc:
-                kmer_geno_assoc[uid] = {'positive':[],'partial':[],'shared':[],'diagnostic':[]}
-            if genotype not in kmer_geno_assoc[uid]['positive']:
-                kmer_geno_assoc[uid]['partial'].append(genotype)
-        for uid in positive_kmers_ref_thresh[genotype]:
-            if not uid in kmer_geno_assoc_ref:
-                kmer_geno_assoc_ref[uid] = {'positive':[],'partial':[],'shared':[],'diagnostic':[]}
-            kmer_geno_assoc_ref[uid]['positive'].append(genotype)
-        for uid in partial_positive_kmers_ref_thresh[genotype]:
-            if not uid in kmer_geno_assoc_ref:
-                kmer_geno_assoc_ref[uid] = {'positive':[],'partial':[],'shared':[],'diagnostic':[]}
-            if not genotype in kmer_geno_assoc_ref[uid]['positive']:
-                kmer_geno_assoc_ref[uid]['partial'].append(genotype)
-
-    uid_index = {}
-    #Add positive and partial groupings to scheme
-    for mutation_key in scheme:
-        for state in scheme[mutation_key]:
-            for row in scheme[mutation_key][state]:
-                uid = row['key']
-                uid_index[uid] = "{}.{}.{}".format(uid,row['dna_name'],row['state'])
-                if uid in kmer_geno_assoc:
-                    if state == 'alt':
-                        row['positive_genotypes'] = kmer_geno_assoc[uid]['positive']
-                        row['partial_genotypes'] = kmer_geno_assoc[uid]['partial']
-                    else:
-                        if uid in kmer_geno_assoc_ref:
-                            row['positive_genotypes'] = kmer_geno_assoc_ref[uid]['positive']
-                            row['partial_genotypes'] = kmer_geno_assoc_ref[uid]['partial']
-
-    mutation_geno_association = {}
-    for genotype in shared_mutations:
-        for mkey in shared_mutations[genotype]:
-            if not mkey in mutation_geno_association:
-                mutation_geno_association[mkey] = {'positive':[],'partial':[],'shared':[],'diagnostic':[]}
-            mutation_geno_association[mkey]['shared'].append(genotype)
-        for mkey in positive_mutations[genotype]:
-            if not mkey in mutation_geno_association:
-                mutation_geno_association[mkey] = {'positive':[],'partial':[],'shared':[],'diagnostic':[]}
-            mutation_geno_association[mkey]['positive'].append(genotype)
-        for mkey in partial_positive_mutations[genotype]:
-            if not mkey in mutation_geno_association:
-                mutation_geno_association[mkey] = {'positive':[],'partial':[],'shared':[],'diagnostic':[]}
-            mutation_geno_association[mkey]['partial'].append(genotype)
-
-
-    #identify genotype diagnostic kmers
-    logger.info("Identifying diagnostic kmers by genotype")
-    for uid in kmer_geno_assoc:
-        shared = kmer_geno_assoc[uid]['shared']
-        partial = kmer_geno_assoc[uid]['partial']
-        if len(shared) == 1 :
-            genotype = shared[0]
-            kmer_geno_assoc[uid]['diagnostic'].append(genotype)
-        elif len(partial) == 1:
-            genotype = partial[0]
-            kmer_geno_assoc[uid]['diagnostic'].append(genotype)
-
-    # identify genotype diagnostic mutations
-    logger.info("Identifying diagnostic mutation events by genotype")
-    for mkey in mutation_geno_association:
-        shared = mutation_geno_association[mkey]['shared']
-        partial = mutation_geno_association[mkey]['partial']
-        if len(shared) == 1 :
-            genotype = shared[0]
-            mutation_geno_association[mkey]['diagnostic'].append(genotype)
-        elif len(partial) == 1:
-            genotype = partial[0]
-            mutation_geno_association[mkey]['diagnostic'].append(genotype)
-
-
-    #Analyse the genotypes for conflicts
-    logger.info("Performing genotype kmer quality control analysis")
-    genotype_report_kmer = qa_genotype_kmers(genotype_mapping,kmer_geno_assoc,uid_index)
-
-    logger.info("Performing genotype mutation quality control analysis")
-    genotype_report_mutation = qa_genotype_mutations(genotype_mapping,mutation_geno_association)
-    # remove mutations where only one state is present
-    filtered = {}
-    for mutation_key in scheme:
-        states = scheme[mutation_key]
-        if len(states['alt']) > 0 and len(states['ref']) :
-            filtered[mutation_key] = scheme[mutation_key]
-    scheme = filtered
-    del(filtered)
-
-
-
-    #find mutations where partial rule should be blanked because there is no positives
-    for mutation_key in scheme:
-        counts = {'alt':0,'ref':0}
-        for state in scheme[mutation_key]:
-            for row in scheme[mutation_key][state]:
-                if len(row['positive_genotypes']) > 0:
-                    counts[state]+=1
-        if counts['alt'] == 0 and counts['ref'] == 0:
-            for state in scheme[mutation_key]:
-                for row in scheme[mutation_key][state]:
-                    row['partial_genotypes'] = []
-
-
-    #sort all multi-entry fields and collapse them to strings
-    for mutation_key in scheme:
-        for state in scheme[mutation_key]:
-            for row in scheme[mutation_key][state]:
-                row['seq_ids'] = []
-                #blank genotype rules for ref state because it results in too many failed calls
-                #Potentially change this to have different rules for ref and alt positivity
-
-                row['mutation_key'] = mutation_key
-                if isinstance(row['positive_genotypes'],list):
-                    row['positive_genotypes'].sort()
-                    row['positive_genotypes'] = ','.join([str(x) for x in row['positive_genotypes']])
-                if isinstance(row['partial_genotypes'], list):
-                    row['partial_genotypes'].sort()
-                    row['partial_genotypes'] = ','.join([str(x) for x in row['partial_genotypes']])
-                if isinstance(row['seq_ids'], list):
-                    row['seq_ids'].sort()
-                    row['seq_ids'] = ','.join([str(x) for x in row['seq_ids']])
-
-
-    #write the final scheme to a file
-    logger.info("Writting completed scheme")
-    print_scheme(scheme, scheme_file,SCHEME_HEADER)
-
-
-    # write the genotype file
-    logger.info("Writting genotype report")
-    pd.DataFrame.from_dict(genotype_report_mutation,orient='index').to_csv(genotypes_mut_file,sep='\t',index=False)
-    pd.DataFrame.from_dict(genotype_report_kmer, orient='index').to_csv(genotypes_kmers_file, sep='\t', index=False)
-
-
+run()

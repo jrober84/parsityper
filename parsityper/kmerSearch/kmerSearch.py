@@ -57,7 +57,6 @@ def revcomp(s):
     """
     return s.translate(NT_SUB)[::-1]
 
-
 def init_automaton_dict(seqs):
     """Initialize Aho-Corasick Automaton with kmers from SNV scheme fasta
 
