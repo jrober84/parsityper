@@ -219,6 +219,8 @@ def perform_kmer_counting(file_manifest, kLen, jellyfish_mem, n_threads):
     if n_threads > 1:
         pool = Pool(processes=n_threads)
     res = []
+    if len(file_manifest) < n_threads:
+        n_threads = len(file_manifest)
     for i in range(0, len(file_manifest)):
         seq_file = file_manifest[i]
         kmer_file = "{}.jellyfish.txt".format(Path(seq_file).with_suffix(''))
@@ -226,6 +228,7 @@ def perform_kmer_counting(file_manifest, kLen, jellyfish_mem, n_threads):
             res.append(pool.apply_async(run_jellyfish_count, (seq_file, kmer_file, jellyfish_mem, kLen, n_threads)))
         else:
             res.append(run_jellyfish_count(seq_file, kmer_file, jellyfish_mem, kLen, n_threads))
+
     if n_threads > 1:
         pool.close()
         pool.join()
@@ -337,6 +340,7 @@ def map_kmers(kMers, file_manifest, n_threads):
     kLen = len(kmer_index[0])
     num_kmers = len(kmer_index)
     aho = init_automaton_dict(kmer_index)
+
     if n_threads > 1:
         pool = Pool(processes=n_threads)
     results = []
@@ -350,8 +354,9 @@ def map_kmers(kMers, file_manifest, n_threads):
     if n_threads > 1:
         pool.close()
         pool.join()
+
         for i in range(0, len(results)):
-            results[i].get()
+            results[i] = results[i].get()
 
     return combine_aho_results(results)
 
@@ -381,28 +386,6 @@ def add_ref_kmer_info(kmer_results, kmer_counts, ref_seq, kLen):
         kmer_results['kmer'][i]['total_count'] = kmer_counts[kmer_results['kmer'][i]['kSeq']]
         kmer_results['kmer'][i]['positive_genotypes'] = []
         kmer_results['kmer'][i]['partial_genotypes'] = []
-
-def map_kmers_bck(kMers, file_manifest, out_dir, prefix, n_threads):
-    aho = init_automaton_dict(dict(zip(list(kMers.keys()), list(kMers.keys()))))
-    kmer_files = []
-    if n_threads > 1:
-        pool = Pool(processes=n_threads)
-    results = []
-    for i in range(0, len(file_manifest)):
-        seq_file = file_manifest[i]['seq_file']
-        file = os.path.join(out_dir, "{}-{}.aho.txt".format(prefix, i))
-        kmer_files.append(file)
-        if n_threads > 1:
-            results.append(pool.apply_async(write_aho_kmerResults, (aho, read_fasta(seq_file), file)))
-        else:
-            write_aho_kmerResults(aho, seq_file, file)
-
-    if n_threads > 1:
-        pool.close()
-        pool.join()
-        for i in range(0, len(results)):
-            results[i].get()
-    return kmer_files
 
 def get_kmer_genotype_counts_bck(kmer_files, genotypeMapping):
     genotypes = list(set(genotypeMapping.values()))
@@ -472,7 +455,6 @@ def calc_kmer_associations_bck(genotype_kCounts, genotypeCounts, sample_count, n
     sample_padding = sample_count * (len(genotypeCounts) - 1)
 
     for kmer in genotype_kCounts:
-        stime = time.time()
         sampleInfo[kmer] = {}
         kVec = []
         genotypeVec = {}
@@ -522,7 +504,6 @@ def calc_kmer_associations(query_genotype, kmer, genotype_kCounts, genotypeCount
     ari = calc_ARI(gVec, kVec)
 
     return {'ami':ami,'ari':ari}
-
 
 def get_genotype_mapping(metadata_df):
     '''
@@ -761,7 +742,7 @@ def add_gene_inference(selected_kmers, ref_seq, ref_id, reference_info, trans_ta
                         if is_cds:
                             alt_seq = list(aln_gene_seq)
                             for i in range(0, len(alt_var_dna)):
-                                pos = i + rel_var_start
+                                pos = i + rel_alt_start
                                 alt_seq[pos] = alt_var_dna[i]
                             alt_var_dna = ''.join(alt_seq[codon_var_start:codon_var_end]).replace('-', '')
                             alt_var_aa = str(Seq(alt_var_dna).translate(table=trans_table))
@@ -797,8 +778,10 @@ def add_gene_inference(selected_kmers, ref_seq, ref_id, reference_info, trans_ta
                     alt_var_dna = alt_var
                     if is_cds:
                         alt_seq = list(aln_gene_seq)
+                        #print("{}\t{}\t{}\t{}\t{}\t{}\t{}".format(gene_name,alt_seq,len(alt_seq),start,end,rel_alt_start,rel_alt_end))
+
                         for i in range(0, len(alt_var_dna)):
-                            pos = i + rel_var_start
+                            pos = i + rel_alt_start
                             alt_seq[pos] = alt_var_dna[i]
                         alt_var_dna = ''.join(alt_seq[codon_var_start:codon_var_end]).replace('-', '')
                         incr = 0
@@ -806,7 +789,7 @@ def add_gene_inference(selected_kmers, ref_seq, ref_id, reference_info, trans_ta
                             incr += 1
                             alt_var_dna = ''.join(alt_seq[codon_var_start:codon_var_end + incr]).replace('-', '')
                             if incr + codon_var_end > gene_len:
-                                print("{}\t{}\t{}\t{}".format(start,end,ref_var_dna,alt_var_dna))
+                                #print("{}\t{}\t{}\t{}".format(start,end,ref_var_dna,alt_var_dna))
                                 break
                         alt_var_aa = str(Seq(alt_var_dna.replace('-', '')).translate(table=trans_table))
                         selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['cds_start'] = codon_var_start
@@ -1165,6 +1148,12 @@ def write_genotype_reports(out_dir, genotype_counts, genotype_kCounts, scheme):
                 continue
             assoc[genotype]['mutations'][state].add(dna_name)
             assoc[genotype]['kmers'][state][uid] = kseq
+            if state == 'alt':
+                mutations_report[genotype]['num_pos_alt'] += 1
+                mutations_report[genotype]['alt_mutations'].append(dna_name)
+            else:
+                mutations_report[genotype]['num_pos_ref'] += 1
+
             if is_diag:
                 mutations_report[genotype]['uniq_mutations'].append(dna_name)
                 mutations_report[genotype]['num_uniq'] += 1
@@ -1179,6 +1168,8 @@ def write_genotype_reports(out_dir, genotype_counts, genotype_kCounts, scheme):
   #              info_kmers[genotype][kmer] = calc_kmer_associations(genotype, kmer, genotype_kCounts, genotype_counts, 100)
 
     #pd.DataFrame.from_dict(info_kmers,orient='index').to_csv(inf_kmer_report_file,sep="\t",header=True, index=False)
+
+
     pd.DataFrame.from_dict(kmer_report, orient='index').to_csv(kmer_report_file, sep="\t", header=True, index=False)
     pd.DataFrame.from_dict(mutations_report, orient='index').to_csv(mutations_report_file, sep="\t", header=True, index=False)
 
@@ -1216,6 +1207,7 @@ def run():
     batch_size = cmd_args.seq_batch_size
     resume = cmd_args.resume
 
+    batch_size = 1000
     num_stages = 5
     stage = 0
 
@@ -1316,12 +1308,13 @@ def run():
                 genotype_counts[genotype] = 0
             genotype_counts[genotype] += 1
         else:
-            logging.warn("stage-{}: sample {} does not have a sequence in MSA".format(stage,sample_id))
+            logging.warning("stage-{}: sample {} does not have a sequence in MSA".format(stage,sample_id))
     genotype_mapping = filter_samples
+    num_samples = len(genotype_mapping)
     del (filter_samples)
 
     # kmer counting
-    init_jellyfish_mem = int(align_len * batch_size / 1000000)
+    init_jellyfish_mem = int(num_samples * batch_size / 1000000)
     if init_jellyfish_mem == 0:
         init_jellyfish_mem = 1
     logging.info("stage-{}: Initial jellyfish cache size set to {}M".format(stage,init_jellyfish_mem))
@@ -1437,8 +1430,21 @@ def run():
 
     logging.info("stage-{}: Determining information content of each scheme kmer".format(stage))
     write_genotype_reports(out_dir, genotype_counts, genotype_kCounts, scheme)
+
+    #stage+=1
+    #logging.info("stage-{}: Writing sample kmer profiles".format(stage))
+    #kmer_profile_file = os.path.join(out_dir, "sample.kmer.profile")
+    #pd.DataFrame.from_dict(aho_results['samples'], orient='index').reset_index().transpose().to_csv(
+    #    kmer_profile_file, sep="\t", header=True,
+    #    index=False)
+
+
+    logging.info("Cleaning up interim files")
+    for i in range(0,stage):
+        tmp =os.path.join(out_dir, "stage-{}.pickle".format(stage))
+        if os.path.isfile(tmp):
+            os.remove(tmp)
+        tmp = os.path.join(out_dir, "_stage-{}".format(stage))
+        if os.path.isdir(tmp):
+            os.rmdir(tmp)
     logging.info("Run complete")
-
-
-
-run()
