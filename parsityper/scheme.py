@@ -2,49 +2,8 @@ import logging
 import sys,time
 
 import pandas as pd
+from parsityper.constants import  SCHEME_HEADER
 
-SCHEME_HEADER = [
-                'key',
-                'mutation_key',
-                'dna_name',
-                'align_variant_start',
-                'align_variant_end',
-                'unalign_variant_start',
-                'unalign_variant_end',
-                'align_kmer_start',
-                'align_kmer_end',
-                'unalign_kmer_start',
-                'unalign_kmer_end',
-                'target_variant',
-                'target_variant_len',
-                'mutation_type',
-                'state',
-                'unalign_kseq',
-                'unalign_klen',
-                'complexity',
-                'gene',
-                'gene_start',
-                'gene_end',
-                'cds_start',
-                'cds_end',
-                'aa_name',
-                'aa_start',
-                'aa_end',
-                'ref_state',
-                'alt_state',
-                'is_silent',
-                'is_cds',
-                'is_frame_shift',
-                'seq_ids',
-                'positive_genotypes',
-                'partial_genotypes',
-                'is_ambig_ok',
-                'is_kmer_found',
-                'is_kmer_length_ok',
-                'is_kmer_unique',
-                'is_kmer_complexity_ok',
-                'is_valid'
-]
 
 def parseScheme(scheme_file):
     scheme = {}

@@ -1,117 +1,32 @@
 #!/usr/bin/python
-import time
-from ahocorasick import Automaton
-from pathlib import Path
-from memory_profiler import profile
+import copy
+import gzip
+import logging
+import os
 import pickle
+import psutil
+import re
+import sys
+import time
 from argparse import (ArgumentParser)
-import logging, os, sys, operator, copy, psutil
-from collections import Counter
-import pandas as pd
-from parsityper.helpers import init_console_logger, read_tsv, parse_reference_sequence, calc_consensus, \
-    generate_consensus_seq, \
-    find_snp_positions, find_internal_gaps, count_kmers
-from parsityper.helpers import read_fasta, get_aa_delta, generate_non_gap_position_lookup
-from parsityper.visualizations import dendrogram_visualization
-from parsityper.scheme import SCHEME_HEADER
-from parsityper.kmerSearch.kmerSearch import init_automaton_dict, perform_kmerSearch_fasta
+from functools import partial
+from mimetypes import guess_type
 from multiprocessing import Pool
-from parsityper.ext_tools.jellyfish import run_jellyfish_count, parse_jellyfish_counts
-from parsityper.kmerSearch.kmerSearch import revcomp, find_in_fasta_dict
-from parsityper.helpers import find_overlaping_gene_feature
+from pathlib import Path
+
 import pandas as pd
-import logging, os, re, operator, datetime, copy, time
-from itertools import product
-from multiprocessing import Pool
-from scipy.spatial.distance import cdist
-from parsityper.constants import HTML_TEMPLATE_FILE, LOG_FORMAT, TYPING_SCHEMES, NEGATE_BASE_IUPAC, IUPAC_LOOK_UP, \
-    bases_dict
-from parsityper.reporting.words import NOUNS, COLORS, DESCRIPTORS
-from parsityper.kmerSearch.kmerSearch import init_automaton_dict, find_in_fasta_dict
-import random, hashlib
-import numpy as np
-from datetime import datetime
-from Bio import GenBank
 from Bio import SeqIO
 from Bio.Seq import Seq
-import glob
-import gzip
-from mimetypes import guess_type
-from functools import partial
-from Bio import SeqIO
 from scipy.stats import entropy
 from sklearn.metrics import adjusted_mutual_info_score, adjusted_rand_score
-import json
 
-iupac_replacement = {'R': 'N', 'Y': 'N', 'M': 'N', 'K': 'N', 'S': 'N', 'W': 'N', 'H': 'N', 'B': 'N', 'V': 'N', 'D': 'N'}
-
-SCHEME_HEADER = [
-    'key',
-    'mutation_key',
-    'mutation_type',
-    'dna_name',
-    'gene',
-    'gene_start',
-    'gene_end',
-    'cds_start',
-    'cds_end',
-    'aa_name',
-    'aa_start',
-    'aa_end',
-    'is_silent',
-    'is_cds',
-    'is_frame_shift',
-    'variant_start',
-    'variant_end',
-    'kmer_start',
-    'kmer_end',
-    'target_variant',
-    'target_variant_len',
-    'state',
-    'ref_state',
-    'alt_state',
-    'kseq',
-    'klen',
-    'homopolymer_len',
-    'kmer_entropy',
-    'positive_genotypes',
-    'partial_genotypes',
-    'is_ambig_ok',
-    'is_kmer_found',
-    'is_kmer_length_ok',
-    'is_kmer_unique',
-    'is_valid'
-]
-
-KMER_FIELDS = {
-    'key': 0,
-    'mutation_key': '',
-    'dna_name': '',
-    'variant_start': -1,
-    'variant_end': -1,
-    'kmer_start': -1,
-    'aa_name': '',
-    'gene_name': '',
-    'cds_start': -1,
-    'cds_end': -1,
-    'aa_start': -1,
-    'aa_end': -1,
-    'is_silent': False,
-    'is_cds': False,
-    'is_frame_shift': False,
-    'target_variant': '',
-    'target_variant_len': '',
-    'mutation_type': '',
-    'state': '',
-    'kseq': '',
-    'klen': 0,
-    'homopolymer_len': 0,
-    'ref_state': '',
-    'alt_state': '',
-    'entropy': -1,
-    'positive_genotypes': [],
-    'partial_genotypes': [],
-}
+from parsityper.constants import iupac_replacement, KMER_FIELDS
+from parsityper.ext_tools.jellyfish import run_jellyfish_count, parse_jellyfish_counts
+from parsityper.helpers import find_overlaping_gene_feature
+from parsityper.helpers import init_console_logger, read_tsv, parse_reference_sequence
+from parsityper.helpers import read_fasta, generate_non_gap_position_lookup
+from parsityper.kmerSearch.kmerSearch import init_automaton_dict, find_in_fasta_dict
+from parsityper.version import __version__
 
 
 def parse_args():
@@ -151,10 +66,9 @@ def parse_args():
                         help='suppress making plots, required for large datasets', action='store_true')
     parser.add_argument('--resume', required=False,
                         help='Restart a previous run using checkpoints', action='store_true')
-    parser.add_argument('--max_folder_size', type=int, required=False,
-                        help='Maximum number of files per folder (default=4000)', default=4000)
     parser.add_argument('--seq_batch_size', type=int, required=False,
                         help='Smaller batch sizes require less memory at the expense of longer run times')
+    parser.add_argument('-V', '--version', action='version', version='%(prog)s {}'.format(__version__))
     return parser.parse_args()
 
 
@@ -171,14 +85,12 @@ def find_gaps(seq):
         positions.append([m.start() + 1, m.end() - 2])
     return positions
 
-
 def init_consensus(seq):
     seq_len = len(seq)
     consensus = []
     for i in range(0, seq_len):
         consensus.append({'A': 0, 'T': 0, 'C': 0, 'G': 0, 'N': 0, '-': 0})
     return consensus
-
 
 def parseVariants(consensus, all_seq_ids, gaps, ref_seq, min_var_freq):
     variants = {'snp': {}, 'del': {}, 'ins': {}}
@@ -218,9 +130,7 @@ def parseVariants(consensus, all_seq_ids, gaps, ref_seq, min_var_freq):
         variants[vType][gap] = {'start': start, 'end': end, 'seq_ids': seq_ids}
     return variants
 
-
-def preprocess_seqs(fasta_file, ref_id, sample_ids, batch_size, out_dir, prefix, iupac_replacement, min_var_freq,
-                    max_folder_size=1000):
+def preprocess_seqs(fasta_file, ref_id, sample_ids, batch_size, out_dir, prefix, iupac_replacement, min_var_freq):
     trans = str.maketrans(''.join(iupac_replacement.keys()), ''.join(iupac_replacement.values()))
     sample_batch_index = {}
     encoding = guess_type(fasta_file)[1]
@@ -292,18 +202,18 @@ def preprocess_seqs(fasta_file, ref_id, sample_ids, batch_size, out_dir, prefix,
                 out_unalin = []
                 out_alin = []
                 file_index += 1
-
-        sFH.write("{}\n".format("\n".join(out_alin)))
-        uFH.write("{}\n".format("\n".join(out_unalin)))
-        sFH.close()
-        uFH.close()
+        if not sFH.closed:
+            sFH.write("{}\n".format("\n".join(out_alin)))
+            sFH.close()
+        if not uFH.closed:
+            uFH.write("{}\n".format("\n".join(out_unalin)))
+            uFH.close()
 
     variants = parseVariants(consensus, seq_ids, gaps, ref_seq, min_var_freq)
 
     return {'seq_ids': seq_ids, 'is_align_ok': is_align_ok, 'consensus': consensus, 'subset_files': subset_files,
             'unalign_files': unalign_files, 'align_len': align_len,
             'sample_batch_index': sample_batch_index, 'gaps': gaps, 'variants': variants, 'ref_aln': ref_seq}
-
 
 def perform_kmer_counting(file_manifest, kLen, jellyfish_mem, n_threads):
     if n_threads > 1:
@@ -323,7 +233,6 @@ def perform_kmer_counting(file_manifest, kLen, jellyfish_mem, n_threads):
             res[i].get()
     return res
 
-
 def combine_jellyfish_results(file_manifest):
     kmers = {}
     for i in range(0, len(file_manifest)):
@@ -338,7 +247,6 @@ def combine_jellyfish_results(file_manifest):
             kmers[kmer] += count
     return kmers
 
-
 def calc_homopolymers(seq):
     longest = 0
     for b in ['A', 'T', 'C', 'C']:
@@ -348,7 +256,6 @@ def calc_homopolymers(seq):
             if length > longest:
                 longest = length
     return longest
-
 
 def filter_kmers(kMers, min_count, max_count, max_ambig, max_homo):
     filtered = {}
@@ -364,7 +271,6 @@ def filter_kmers(kMers, min_count, max_count, max_ambig, max_homo):
             continue
         filtered[kmer] = count
     return filtered
-
 
 def read_fasta(fasta_file):
     """
@@ -383,10 +289,8 @@ def read_fasta(fasta_file):
 
     return reference
 
-
 def write_aho_kmerResults(aho, seq_file, out_file):
     find_in_fasta_dict(aho, read_fasta(seq_file)).reset_index().to_csv(out_file, header=True, sep="\t")
-
 
 def process_aho_kmerResults(aho, num_kmers, seq_file, kLen):
     seqs = read_fasta(seq_file)
@@ -424,7 +328,6 @@ def process_aho_kmerResults(aho, num_kmers, seq_file, kLen):
 
     return {'kmer': kmer_results, 'samples': sample_results}
 
-
 def map_kmers(kMers, file_manifest, n_threads):
     kmer_index = {}
     i = 0
@@ -452,7 +355,6 @@ def map_kmers(kMers, file_manifest, n_threads):
 
     return combine_aho_results(results)
 
-
 def combine_aho_results(results):
     kmers = {}
     samples = {}
@@ -464,7 +366,6 @@ def combine_aho_results(results):
         for sample_id in results[i]['samples']:
             samples[sample_id] = results[i]['samples'][sample_id]
     return {'kmer': kmers, 'samples': samples}
-
 
 def add_ref_kmer_info(kmer_results, kmer_counts, ref_seq, kLen):
     kmer_base_range = range(0, kLen)
@@ -480,7 +381,6 @@ def add_ref_kmer_info(kmer_results, kmer_counts, ref_seq, kLen):
         kmer_results['kmer'][i]['total_count'] = kmer_counts[kmer_results['kmer'][i]['kSeq']]
         kmer_results['kmer'][i]['positive_genotypes'] = []
         kmer_results['kmer'][i]['partial_genotypes'] = []
-
 
 def map_kmers_bck(kMers, file_manifest, out_dir, prefix, n_threads):
     aho = init_automaton_dict(dict(zip(list(kMers.keys()), list(kMers.keys()))))
@@ -504,7 +404,6 @@ def map_kmers_bck(kMers, file_manifest, out_dir, prefix, n_threads):
             results[i].get()
     return kmer_files
 
-
 def get_kmer_genotype_counts_bck(kmer_files, genotypeMapping):
     genotypes = list(set(genotypeMapping.values()))
     num_genotypes = len(genotypes)
@@ -523,7 +422,6 @@ def get_kmer_genotype_counts_bck(kmer_files, genotypeMapping):
             genotype_kCounts[kmer]['counts'][genotype] += 1
             genotype_kCounts[kmer]['total'] += 1
     return genotype_kCounts
-
 
 def get_kmer_genotype_counts(valid_kmer_indicies, sample_profiles, genotypeMapping):
     genotypes = list(set(genotypeMapping.values()))
@@ -549,7 +447,6 @@ def get_kmer_genotype_counts(valid_kmer_indicies, sample_profiles, genotypeMappi
     sample_profiles = profiles
     return genotype_kCounts
 
-
 def calc_shanon_entropy(value_list):
     total = sum(value_list)
     values = []
@@ -557,14 +454,11 @@ def calc_shanon_entropy(value_list):
         values.append(v / total)
     return entropy(values)
 
-
 def calc_AMI(category_1, category_2):
     return adjusted_mutual_info_score(category_1, category_2, average_method='arithmetic')
 
-
 def calc_ARI(category_1, category_2):
     return adjusted_rand_score(category_1, category_2)
-
 
 def calc_kmer_entropy(genotype_kCounts):
     sEntropy = {}
@@ -573,8 +467,7 @@ def calc_kmer_entropy(genotype_kCounts):
         sEntropy[kmer] = calc_shanon_entropy(counts)
     return sEntropy
 
-
-def calc_kmer_associations(genotype_kCounts, genotypeCounts, sample_count, n_threads=1):
+def calc_kmer_associations_bck(genotype_kCounts, genotypeCounts, sample_count, n_threads=1):
     sampleInfo = {}
     sample_padding = sample_count * (len(genotypeCounts) - 1)
 
@@ -603,8 +496,32 @@ def calc_kmer_associations(genotype_kCounts, genotypeCounts, sample_count, n_thr
             ami = calc_AMI(gVec, kVec)
             ari = calc_ARI(gVec, kVec)
             sampleInfo[kmer][genotype] = {'ari': ari, 'ami': ami}
-        print(time.time() - stime)
     return sampleInfo
+
+def calc_kmer_associations(query_genotype, kmer, genotype_kCounts, genotypeCounts, sample_count):
+    sample_padding = sample_count * (len(genotypeCounts) - 1)
+    kVec = []
+    genotypeVec = {}
+    # Init the kmer presence vector accross all samples
+    for genotype in genotype_kCounts[kmer]['counts']:
+        total = genotypeCounts[genotype]
+        num_pos = total - genotype_kCounts[kmer]['counts'][genotype]
+        perc_pos = num_pos / total
+        scaled_num_pos = int(perc_pos * sample_count)
+        scaled_num_neg = sample_count - scaled_num_pos
+        gVec = ([1] * scaled_num_pos) + ([0] * scaled_num_neg)
+        kVec += gVec
+        genotypeVec[genotype] = gVec + [0] * sample_padding
+
+    # Compare ARI and AMI for each kmer with each genotype
+
+    gVec = genotypeVec[query_genotype]
+    if len(gVec) != len(kVec):
+        logging.error("{}\n{}\n{}\n".format(kmer, kVec, gVec))
+    ami = calc_AMI(gVec, kVec)
+    ari = calc_ARI(gVec, kVec)
+
+    return {'ami':ami,'ari':ari}
 
 
 def get_genotype_mapping(metadata_df):
@@ -622,14 +539,12 @@ def get_genotype_mapping(metadata_df):
         mapping[sample_id] = genotype
     return mapping
 
-
 def get_non_gap_position(ref_non_gap_lookup, pos):
     non_gap_position = ref_non_gap_lookup[pos]
     while non_gap_position == -1:
         pos -= 1
         non_gap_position = ref_non_gap_lookup[pos]
     return non_gap_position
-
 
 def create_aln_pos_from_unalign_pos(aln_seq):
     unalign_seq = aln_seq.replace('-', '')
@@ -644,7 +559,6 @@ def create_aln_pos_from_unalign_pos(aln_seq):
                 pos = k + 1
                 break
     return lookup
-
 
 def generate_non_gap_position_lookup(seq):
     """
@@ -663,7 +577,6 @@ def generate_non_gap_position_lookup(seq):
         else:
             lookup.append(i - num_gaps)
     return lookup
-
 
 def get_kmer_positions(ref_id, genotype_kCounts, kLen, fasta_dir, individual_file_sample_index):
     positions = {}
@@ -717,10 +630,8 @@ def get_kmer_positions(ref_id, genotype_kCounts, kLen, fasta_dir, individual_fil
                                             'positive_genotypes': [], 'partial_genotypes': []}
     return positions
 
-
 def add_gene_inference(selected_kmers, ref_seq, ref_id, reference_info, trans_table=1):
     aln_refLookup = create_aln_pos_from_unalign_pos(ref_seq)
-    raw_refLookup = generate_non_gap_position_lookup(ref_seq)
     for mutation_type in selected_kmers:
         for event in selected_kmers[mutation_type]:
             ref_var = ''
@@ -790,6 +701,8 @@ def add_gene_inference(selected_kmers, ref_seq, ref_id, reference_info, trans_ta
                 while len(ref_var_dna) % 3 != 0:
                     incr += 1
                     ref_var_dna = ''.join(aln_gene_seq[codon_var_start:codon_var_end + incr]).replace('-', '')
+                    if incr + codon_var_end > gene_len:
+                        break
                 ref_var_aa = str(Seq(ref_var_dna).translate(table=trans_table))
 
             if mutation_type == 'snp':
@@ -892,6 +805,9 @@ def add_gene_inference(selected_kmers, ref_seq, ref_id, reference_info, trans_ta
                         while len(alt_var_dna) % 3 != 0:
                             incr += 1
                             alt_var_dna = ''.join(alt_seq[codon_var_start:codon_var_end + incr]).replace('-', '')
+                            if incr + codon_var_end > gene_len:
+                                print("{}\t{}\t{}\t{}".format(start,end,ref_var_dna,alt_var_dna))
+                                break
                         alt_var_aa = str(Seq(alt_var_dna.replace('-', '')).translate(table=trans_table))
                         selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['cds_start'] = codon_var_start
                         selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['cds_end'] = codon_var_end - 1
@@ -913,7 +829,6 @@ def add_gene_inference(selected_kmers, ref_seq, ref_id, reference_info, trans_ta
                     selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['alt_var_aa'] = alt_var_aa
 
     return selected_kmers
-
 
 def select_snp_kmers(snp_variants, kLen, kmer_alignment_positions):
     variant_kmers = {}
@@ -969,9 +884,7 @@ def select_snp_kmers(snp_variants, kLen, kmer_alignment_positions):
                         kmer_alignment_positions[aln_start][kmer])
     return variant_kmers
 
-
 def select_indel_kmers(indel_variants, kLen, kmer_alignment_positions):
-    # print(json.dumps(kmer_alignment_positions,indent=4))
     variant_kmers = {}
     max_key = max(list(kmer_alignment_positions.keys()))
     for indel in indel_variants:
@@ -1035,7 +948,6 @@ def select_indel_kmers(indel_variants, kLen, kmer_alignment_positions):
 
     return variant_kmers
 
-
 def getSelectedKmerIndicies(selected_kmers):
     indicies = []
     for vType in selected_kmers:
@@ -1047,7 +959,6 @@ def getSelectedKmerIndicies(selected_kmers):
                 else:
                     indicies += list(selected_kmers[vType][event][state]["kmers"])
     return sorted(list(set(indicies)))
-
 
 def populate_fields(uid, mutation_type, vStart, vEnd, state, ref_variant, alt_variant, kmer_info):
     record = copy.deepcopy(KMER_FIELDS)
@@ -1089,7 +1000,6 @@ def populate_fields(uid, mutation_type, vStart, vEnd, state, ref_variant, alt_va
         record['dna_name'] = "{}_{}_{}_{}".format(mutation_type, vStart, vEnd, target_variant)
 
     return record
-
 
 def scheme_format(selected_kmers):
     scheme = {}
@@ -1148,7 +1058,6 @@ def scheme_format(selected_kmers):
 
     return scheme
 
-
 def get_genotype_kmer_frac(genotype_kCounts, genotype_counts, min_frac):
     rules = {}
     for kmer in genotype_kCounts:
@@ -1165,7 +1074,6 @@ def get_genotype_kmer_frac(genotype_kCounts, genotype_counts, min_frac):
                     rules[kmer] = {}
                 rules[kmer][genotype] = frac
     return rules
-
 
 def associate_genotype_rules(selected_kmers, genotype_fracs, min_ref_frac, min_alt_frac):
     min_par_frac = max([1 - min_alt_frac, 1 - min_ref_frac])
@@ -1210,10 +1118,10 @@ def associate_genotype_rules(selected_kmers, genotype_fracs, min_ref_frac, min_a
                                 selected_kmers[mutation_type][event][state]['kmers'][kmer]['partial_genotypes'].append(
                                     genotype)
 
-
-def write_genotype_reports(out_dir, genotype_counts, scheme):
+def write_genotype_reports(out_dir, genotype_counts, genotype_kCounts, scheme):
     mutations_report_file = os.path.join(out_dir, "genotype.mutations.txt")
     kmer_report_file = os.path.join(out_dir, "genotype.kmers.txt")
+    inf_kmer_report_file = os.path.join(out_dir, "informative.kmers.txt")
 
     assoc = {}
     kmer_report = {}
@@ -1222,20 +1130,20 @@ def write_genotype_reports(out_dir, genotype_counts, scheme):
         assoc[genotype] = {
             'total': genotype_counts[genotype],
             'mutations': {'ref': set(), 'alt': set()},
-            'kmers': {'ref': set(), 'alt': set()}
+            'kmers': {'ref': {}, 'alt': {}}
         }
 
         kmer_report[genotype] = {'genotype': genotype,
-                                 'num_members': assoc['total'],
+                                 'num_members': assoc[genotype]['total'],
                                  'num_pos_ref': 0,
                                  'num_pos_alt': 0,
                                  'alt_kmers': [],
                                  'num_uniq': 0,
-                                 'uniq_kmers': []
+                                 'uniq_kmers': {}
                                  }
 
         mutations_report[genotype] = {'genotype': genotype,
-                                      'num_members': assoc['total'],
+                                      'num_members': assoc[genotype]['total'],
                                       'num_pos_ref': 0,
                                       'num_pos_alt': 0,
                                       'alt_mutations': [],
@@ -1253,17 +1161,29 @@ def write_genotype_reports(out_dir, genotype_counts, scheme):
             is_diag = True
 
         for genotype in pos:
+            if not genotype in assoc:
+                continue
             assoc[genotype]['mutations'][state].add(dna_name)
-            assoc[genotype]['kmers'][state].add(kseq)
+            assoc[genotype]['kmers'][state][uid] = kseq
             if is_diag:
                 mutations_report[genotype]['uniq_mutations'].append(dna_name)
                 mutations_report[genotype]['num_uniq'] += 1
-                kmer_report[genotype]['uniq_kmers'].append(kseq)
+                kmer_report[genotype]['uniq_kmers'][uid] = kseq
                 kmer_report[genotype]['num_uniq'] += 1
 
-    for genotype in assoc:
-        return
+  #  info_kmers = {}
+  #  for genotype in assoc:
+  #      info_kmers[genotype] = {}
+  #      for state in assoc[genotype]['kmers']:
+  #          for kmer in assoc[genotype]['kmers'][state]:
+  #              info_kmers[genotype][kmer] = calc_kmer_associations(genotype, kmer, genotype_kCounts, genotype_counts, 100)
 
+    #pd.DataFrame.from_dict(info_kmers,orient='index').to_csv(inf_kmer_report_file,sep="\t",header=True, index=False)
+    pd.DataFrame.from_dict(kmer_report, orient='index').to_csv(kmer_report_file, sep="\t", header=True, index=False)
+    pd.DataFrame.from_dict(mutations_report, orient='index').to_csv(mutations_report_file, sep="\t", header=True, index=False)
+
+
+    return
 
 def group_kmers_by_start_pos(kmer_results):
     grouped_kmers = {}
@@ -1274,8 +1194,6 @@ def group_kmers_by_start_pos(kmer_results):
         grouped_kmers[aln_start][kIndex] = kmer_results[kIndex]
     return grouped_kmers
 
-
-# @profile
 def run():
     cmd_args = parse_args()
     logger = init_console_logger(2)
@@ -1295,14 +1213,13 @@ def run():
     no_plots = cmd_args.no_plots
     min_kmer_count = cmd_args.min_kmer_freq
     min_var_freq = cmd_args.min_var_freq
-    max_folder_size = cmd_args.max_folder_size
     batch_size = cmd_args.seq_batch_size
     resume = cmd_args.resume
+
     num_stages = 5
+    stage = 0
 
-    # temp
-    batch_size = 2000
-
+    logging.info("Parsityper creator v {}".format(__version__))
     if not os.path.isdir(out_dir):
         logging.info("Creating analysis directory {}".format(out_dir))
         os.mkdir(out_dir, 0o755)
@@ -1343,13 +1260,11 @@ def run():
         n_threads = total_sys_threads
 
     # read metadata
-    stime = time.time()
-    logging.info("Reading genotype associations from {}".format(input_meta))
+    logging.info("Reading genotype assignments from {}".format(input_meta))
     metadata_df = read_tsv(input_meta)
     logging.info("Found {} lines in {}".format(len(metadata_df), input_meta))
     metadata_df['genotype'] = metadata_df['genotype'].astype(str)
     genotype_mapping = get_genotype_mapping(metadata_df)
-    print("Time to read metadata {}".format(time.time() - stime))
 
     if batch_size is None or batch_size == 0:
         batch_size = int(len(genotype_mapping) / n_threads)
@@ -1367,13 +1282,14 @@ def run():
 
     # process msa
     stime = time.time()
-    fasta_dir = os.path.join(out_dir, "_stage-0")
+    fasta_dir = os.path.join(out_dir, "_stage-{}".format(stage))
     if not os.path.isdir(fasta_dir):
-        logging.info("Creating analysis directory for individual fastas {}".format(fasta_dir))
+        logging.info("Creating analysis directory for interim fastas {}".format(fasta_dir))
         os.mkdir(fasta_dir, 0o755)
 
+    logging.info("stage-{}: Processing sequences from MSA {}".format(stage,input_alignment))
     msa_info = preprocess_seqs(input_alignment, ref_id, list(genotype_mapping.keys()), batch_size, fasta_dir, 'stage-0',
-                               iupac_replacement, min_var_freq, max_folder_size)
+                               iupac_replacement, min_var_freq)
     if not msa_info['is_align_ok']:
         logging.error("Input alignment has issues, please correct and try again")
         sys.exit()
@@ -1381,14 +1297,15 @@ def run():
     num_sequences = len(msa_info['seq_ids'])
     max_kmer_count = num_sequences
 
-    logging.info("Writting check-point json stage-{}".format(0))
-    msa_info_file = os.path.join(out_dir, "stage-0.pickle")
+    logging.info("Writting check-point pickle stage-{}".format(stage))
+    msa_info_file = os.path.join(out_dir, "stage-{}.pickle".format(stage))
     fh = open(msa_info_file, 'wb')
     pickle.dump(msa_info, fh)
     fh.close()
-    print("Time to process seqs {}".format(time.time() - stime))
-    # print(json.dumps(msa_info['variants'], indent=4))
 
+    stage+=1
+
+    logging.info("stage-{}: Filtering samples from metadata which do not have a sequence in MSA".format(stage))
     genotype_counts = {}
     filter_samples = {}
     for sample_id in genotype_mapping:
@@ -1398,32 +1315,43 @@ def run():
             if not genotype in genotype_counts:
                 genotype_counts[genotype] = 0
             genotype_counts[genotype] += 1
+        else:
+            logging.warn("stage-{}: sample {} does not have a sequence in MSA".format(stage,sample_id))
     genotype_mapping = filter_samples
     del (filter_samples)
 
     # kmer counting
-    stime = time.time()
     init_jellyfish_mem = int(align_len * batch_size / 1000000)
     if init_jellyfish_mem == 0:
         init_jellyfish_mem = 1
-
+    logging.info("stage-{}: Initial jellyfish cache size set to {}M".format(stage,init_jellyfish_mem))
+    logging.info("stage-{}: Perfoming k-mer counting using {} threads".format(stage, n_threads))
     perform_kmer_counting(msa_info['unalign_files'], kLen, "{}M".format(init_jellyfish_mem), n_threads)
-    print("Time to jellyfish count kmers {}".format(time.time() - stime))
+    logging.info("stage-{}: Combining {} jellyfish files".format(stage, len(msa_info['unalign_files'])))
     seqKmers = filter_kmers(combine_jellyfish_results(msa_info['unalign_files']), min_kmer_count, max_kmer_count,
                             max_ambig, max_homo)
-    aho_dir = os.path.join(out_dir, "_stage-1")
-    if not os.path.isdir(aho_dir):
-        logging.info("Creating analysis directory for aho kmer searching {}".format(aho_dir))
-        os.mkdir(aho_dir, 0o755)
-    stime = time.time()
+
+    logging.info("Writting check-point pickle stage-{}".format(stage))
+    check_point = os.path.join(out_dir, "stage-{}.pickle".format(stage))
+    fh = open(check_point, 'wb')
+    pickle.dump(seqKmers, fh)
+    fh.close()
+    stage+=1
+
+    logging.info("stage-{}: Perfoming k-mer searching using {} threads".format(stage, n_threads))
     aho_results = map_kmers(seqKmers, msa_info['subset_files'], n_threads)
-
     add_ref_kmer_info(aho_results, seqKmers, msa_info['ref_aln'], kLen)
-    # aho_results = add_ref_kmer(aho_results, msa_info['ref_aln'])
-    print("Time to map kmers {}".format(time.time() - stime))
-    sample_kmer_profiles = aho_results['samples']
 
+    logging.info("Writting check-point pickle stage-{}".format(stage))
+    check_point = os.path.join(out_dir, "stage-{}.pickle".format(stage))
+    fh = open(check_point, 'wb')
+    pickle.dump(aho_results, fh)
+    fh.close()
+    stage+=1
+
+    logging.info("stage-{}: Grouping k-mers by start position".format(stage))
     kmer_alignment_positions = group_kmers_by_start_pos(aho_results['kmer'])
+    logging.info("stage-{}: Filtering singleton k-mers".format(stage))
     filt = {}
     for pos in kmer_alignment_positions:
         if len(kmer_alignment_positions[pos]) == 1:
@@ -1431,52 +1359,35 @@ def run():
         filt[pos] = kmer_alignment_positions[pos]
     kmer_alignment_positions = filt
 
-    stime = time.time()
+    logging.info("stage-{}: Selecting kmers".format(stage))
     selected_kmers = {
         'snp': select_snp_kmers(msa_info['variants']['snp'], kLen, kmer_alignment_positions),
         'del': select_indel_kmers(msa_info['variants']['del'], kLen, kmer_alignment_positions),
         'ins': select_indel_kmers(msa_info['variants']['ins'], kLen, kmer_alignment_positions)}
-    print("Time to select kmers {}".format(time.time() - stime))
 
-    # print(json.dumps(selected_kmers,indent=4))
+    logging.info("Writting check-point pickle stage-{}".format(stage))
+    check_point = os.path.join(out_dir, "stage-{}.pickle".format(stage))
+    fh = open(check_point, 'wb')
+    pickle.dump(selected_kmers, fh)
+    fh.close()
+    stage+=1
 
     kmer_indicies = getSelectedKmerIndicies(selected_kmers)
-    stime = time.time()
+    logging.info("stage-{}: {} kmers selected".format(stage,len(kmer_indicies)))
+    logging.info("stage-{}: associating {} kmers with {} genotypes".format(stage,len(kmer_indicies),len(genotype_counts)))
     genotype_kCounts = get_kmer_genotype_counts(kmer_indicies, aho_results['samples'], genotype_mapping)
-    print("Time to get genotype counts per kmers {}".format(time.time() - stime))
     del (seqKmers)
 
-    logging.info("Writting check-point stage-{}".format(1))
-    genotype_kCounts_file = os.path.join(out_dir, "stage-1.pickle")
-    fh = open(genotype_kCounts_file, 'wb')
+    logging.info("Writting check-point pickle stage-{}".format(stage))
+    check_point = os.path.join(out_dir, "stage-{}.pickle".format(stage))
+    fh = open(check_point, 'wb')
     pickle.dump(genotype_kCounts, fh)
     fh.close()
+    stage+=1
 
-    # Get Kmer positions in the alignment
-    # kmer_dir = os.path.join(out_dir, "_stage-2")
-    # if not os.path.isdir(kmer_dir):
-    #    logging.info("Creating analysis directory for aho kmer searching {}".format(kmer_dir))
-    #    os.mkdir(kmer_dir, 0o755)
-    # stime = time.time()
-    # kmer_alignment_positions = get_kmer_positions(ref_id,genotype_kCounts,kLen,fasta_dir,msa_info['individual_file_sample_index'])
-
-    # print("Time to classify kmers {}".format(time.time() - stime))
-
-    # logging.info("Writting check-point stage-{}".format(2))
-    # kmer_pos_file = os.path.join(out_dir,"stage-2.pickle")
-    # fh = open(kmer_pos_file,'wb')
-    # pickle.dump(kmer_alignment_positions, fh)
-    # fh.write(json.dumps(kmer_alignment_positions, indent=4))
-    # fh.close()
-
-    # Kmer associations
-    assoc_dir = os.path.join(out_dir, "_stage-4")
-    if not os.path.isdir(assoc_dir):
-        logging.info("Creating analysis directory for aho kmer association {}".format(assoc_dir))
-        os.mkdir(assoc_dir, 0o755)
-    stime = time.time()
+    logging.info("stage-{}: Calculating kmer entropy by genotype".format(stage))
     kmer_entropies = calc_kmer_entropy(genotype_kCounts)
-    print("Time to calc entropies kmers {}".format(time.time() - stime))
+
 
     # Add in entropy and count information
     for mutation_type in selected_kmers:
@@ -1493,54 +1404,41 @@ def run():
                     for kmer_id in selected_kmers[mutation_type][pos][state]['kmers']:
                         selected_kmers[mutation_type][pos][state]['kmers'][kmer_id]['entropy'] = kmer_entropies[kmer_id]
                         selected_kmers[mutation_type][pos][state]['kmers'][kmer_id]['total_count'] = \
-                        genotype_kCounts[kmer_id][
-                            'total']
+                        genotype_kCounts[kmer_id]['total']
 
-    # Remove positions with only one kmer
-    # stime = time.time()
-    # filt = {}
-    # for pos in kmer_alignment_positions:
-    #    if len(kmer_alignment_positions[pos]) <= 1:
-    #        continue
-    #    filt[pos] = kmer_alignment_positions[pos]
-    # kmer_alignment_positions = filt
-    # del(filt)
-    # print("Time to filter kmers {}".format(time.time() - stime))
+    logging.info("Writting check-point pickle stage-{}".format(stage))
+    check_point = os.path.join(out_dir, "stage-{}.pickle".format(stage))
+    fh = open(check_point, 'wb')
+    pickle.dump(selected_kmers, fh)
+    fh.close()
+    stage+=1
 
-    # kmer_ent_file = os.path.join(assoc_dir,"entropies.pickle")
-    # fh = open(kmer_ent_file,'wb')
-    # pickle.dump(kmer_entropies, fh)
-    # fh.close()
-    # del (kmer_entropies)
-
-    # logging.info("Writting check point stage-{}".format(4))
-    # stage_4_file = os.path.join(out_dir,"stage-4.pickle")
-    # fh = open(stage_4_file,'wb')
-    # pickle.dump(kmer_alignment_positions, fh)
-    # fh.close()
-
+    logging.info("stage-{}: Calculating kmer positivity rate".format(stage))
     genotype_kmer_fracs = get_genotype_kmer_frac(genotype_kCounts, genotype_counts, min_frac)
 
+    logging.info("stage-{}: Adding genotyping rules".format(stage))
     associate_genotype_rules(selected_kmers, genotype_kmer_fracs, min_ref_frac, min_alt_frac)
     if len(ref_features) > 0:
         add_gene_inference(selected_kmers, msa_info['ref_aln'], ref_id, ref_features, trans_table=1)
 
+    logging.info("Writting check-point pickle stage-{}".format(stage))
+    check_point = os.path.join(out_dir, "stage-{}.pickle".format(stage))
+    fh = open(check_point, 'wb')
+    pickle.dump(selected_kmers, fh)
+    fh.close()
+    stage+=1
+
+    logging.info("stage-{}: Formatting scheme".format(stage))
     scheme = scheme_format(selected_kmers)
+
+    logging.info("Writting scheme file")
     select_kmer_file = os.path.join(out_dir, "{}-scheme.txt".format(prefix))
     pd.DataFrame.from_dict(scheme, orient='index').to_csv(select_kmer_file, sep="\t", header=True, index=False)
 
-    stime = time.time()
-    '''
-    kmer_associations = calc_kmer_associations(temp, genotype_counts, 100, n_threads=1)
-    print("Time to calc ari/ami kmers {}".format(time.time() - stime))
-    del(temp)
-    '''
-    '''
-    kmer_assoc_file = os.path.join(assoc_dir,"geno.associations.json")
-    fh = open(kmer_assoc_file,'wb')
-    pickle.dump( kmer_associations, fh)
-    #fh.write(json.dumps( kmer_associations, indent=4))
-    fh.close()'''
+    logging.info("stage-{}: Determining information content of each scheme kmer".format(stage))
+    write_genotype_reports(out_dir, genotype_counts, genotype_kCounts, scheme)
+    logging.info("Run complete")
+
 
 
 run()
