@@ -679,6 +679,7 @@ def add_gene_inference(selected_kmers, ref_seq, ref_id, reference_info, trans_ta
                 if codon_var_end == 0:
                     codon_var_end = codon_var_start + 3
                 ref_var_dna = aln_gene_seq[codon_var_start:codon_var_end].replace('-', '')
+                incr=0
                 while len(ref_var_dna) % 3 != 0:
                     incr += 1
                     ref_var_dna = ''.join(aln_gene_seq[codon_var_start:codon_var_end + incr]).replace('-', '')
@@ -1292,7 +1293,7 @@ def run():
     logging.info("Writting check-point pickle stage-{}".format(stage))
     msa_info_file = os.path.join(out_dir, "stage-{}.pickle".format(stage))
     fh = open(msa_info_file, 'wb')
-    pickle.dump(msa_info, fh)
+    #pickle.dump(msa_info, fh)
     fh.close()
 
     stage+=1
@@ -1327,7 +1328,7 @@ def run():
     logging.info("Writting check-point pickle stage-{}".format(stage))
     check_point = os.path.join(out_dir, "stage-{}.pickle".format(stage))
     fh = open(check_point, 'wb')
-    pickle.dump(seqKmers, fh)
+    #pickle.dump(seqKmers, fh)
     fh.close()
     stage+=1
 
@@ -1338,7 +1339,7 @@ def run():
     logging.info("Writting check-point pickle stage-{}".format(stage))
     check_point = os.path.join(out_dir, "stage-{}.pickle".format(stage))
     fh = open(check_point, 'wb')
-    pickle.dump(aho_results, fh)
+    #pickle.dump(aho_results, fh)
     fh.close()
     stage+=1
 
@@ -1361,7 +1362,7 @@ def run():
     logging.info("Writting check-point pickle stage-{}".format(stage))
     check_point = os.path.join(out_dir, "stage-{}.pickle".format(stage))
     fh = open(check_point, 'wb')
-    pickle.dump(selected_kmers, fh)
+    #pickle.dump(selected_kmers, fh)
     fh.close()
     stage+=1
 
@@ -1374,7 +1375,7 @@ def run():
     logging.info("Writting check-point pickle stage-{}".format(stage))
     check_point = os.path.join(out_dir, "stage-{}.pickle".format(stage))
     fh = open(check_point, 'wb')
-    pickle.dump(genotype_kCounts, fh)
+    #pickle.dump(genotype_kCounts, fh)
     fh.close()
     stage+=1
 
@@ -1402,7 +1403,7 @@ def run():
     logging.info("Writting check-point pickle stage-{}".format(stage))
     check_point = os.path.join(out_dir, "stage-{}.pickle".format(stage))
     fh = open(check_point, 'wb')
-    pickle.dump(selected_kmers, fh)
+    #pickle.dump(selected_kmers, fh)
     fh.close()
     stage+=1
 
@@ -1417,7 +1418,7 @@ def run():
     logging.info("Writting check-point pickle stage-{}".format(stage))
     check_point = os.path.join(out_dir, "stage-{}.pickle".format(stage))
     fh = open(check_point, 'wb')
-    pickle.dump(selected_kmers, fh)
+    #pickle.dump(selected_kmers, fh)
     fh.close()
     stage+=1
 
