@@ -6,7 +6,8 @@ import pandas as pd
 from parsityper.helpers import init_console_logger,read_fasta, read_samples
 import multiprocessing as mp
 from multiprocessing import Pool
-from parsityper.scheme import parseScheme, constructSchemeLookups, SCHEME_HEADER
+from parsityper.constants import KMER_FIELDS
+from parsityper.scheme import parseScheme, constructSchemeLookups
 from parsityper.kmerSearch.kmerSearch import init_automaton_dict,perform_kmerSearch_fasta,perform_kmerSearch_fastq,process_kmer_results
 from parsityper.version import __version__
 
@@ -290,9 +291,9 @@ def updateSchemeInfo(scheme_info,valid_mutations,valid_uids,valid_genotypes):
 def updateScheme(scheme_file,scheme_info,outfile):
     df = pd.read_csv(scheme_file, sep="\t", header=0)
     fh = open(outfile,'w')
-    fh.write("{}\n".format("\t".join(SCHEME_HEADER)))
+    fh.write("{}\n".format("\t".join(KMER_FIELDS)))
     columns = df.columns.tolist()
-    num_fields = len(SCHEME_HEADER)
+    num_fields = len(KMER_FIELDS)
     new_uid_key = 0
     rules = {}
     partial_rules = {}
@@ -366,7 +367,7 @@ def updateScheme(scheme_file,scheme_info,outfile):
         if not seq in scheme_info['kseq_to_uids']:
             continue
         entry = {}
-        for field in SCHEME_HEADER:
+        for field in KMER_FIELDS:
             if field in columns:
                 value = str(row[field])
                 if value == 'nan':
@@ -394,7 +395,7 @@ def updateScheme(scheme_file,scheme_info,outfile):
 
         record = []
         for i in range(0,num_fields):
-            record.append(entry[SCHEME_HEADER[i]])
+            record.append(entry[KMER_FIELDS[i]])
         fh.write("{}\n".format("\t".join([str(x) for x in record])))
         new_uid_key+=1
     fh.close()
