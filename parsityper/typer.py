@@ -292,6 +292,7 @@ def compare_sample_to_genotypes(data,genotype_results,scheme_info,outfile):
         #uids = uids - set(geno_rules[genotype]['partial_uids'])
         #mismatches = uids - detected_scheme_kmers
         #matched = list(detected_scheme_kmers & (uids - mismatches))
+        positive_match = list(set(geno_rules[genotype]['positive_uids']) & set(matched ))
         positive_alt_match = list(set(geno_rules[genotype]['positive_alt']) & set(matched ))
         positive_alt_mismatch = list(set(geno_rules[genotype]['positive_alt']) & set(mismatches))
         genotype_results[genotype]['matched_pos_kmers'] = matched
@@ -320,7 +321,7 @@ def compare_sample_to_genotypes(data,genotype_results,scheme_info,outfile):
         genotype_results[genotype]['mismatched_kmers'] = ','.join(sorted([scheme_info['uid_to_dna_name'][x] for x in mismatches]))
         genotype_results[genotype]['matched_pos_kmers_alt'] = positive_alt_match
         genotype_results[genotype]['mismatched_pos_kmers_alt'] = positive_alt_mismatch
-        #del(genotype_results[genotype]['matched_pos_kmers'])
+        genotype_results[genotype]['matched_pos_kmers'] = matched
 
         if len(mismatches) > 0:
             genotype_results[genotype]['is_compatible'] = False
@@ -421,16 +422,50 @@ def call_compatible_genotypes(scheme_info, kmer_results, outdir, n_threads=1):
             if not genotype_results[sample_id][genotype] or not genotype_results[sample_id][genotype]['is_compatible']:
                 continue
             valid_genotypes[genotype] = genotype_results[sample_id][genotype]['kmer_genotype_dist']
+
         #order valid genotypes by lowest kmer distance
         valid_genotypes = {k: v for k, v in sorted(valid_genotypes.items(), key=lambda item: item[1])}
+        geno_rules = scheme_info['genotype_rule_sets']
+        genotype_order = {}
+        for genotype in valid_genotypes:
+            dist_key = str(valid_genotypes[genotype])
+            if not dist_key in genotype_order:
+               genotype_order[dist_key] = {}
+            genotype_order[dist_key][genotype] = len(set(geno_rules[genotype]['positive_uids']) & set(genotype_results[sample_id][genotype]['matched_pos_kmers']))
+
+
+        tmp = {}
+        for dist_key in genotype_order:
+            genotype_order[dist_key] = {k: v for k, v in sorted(genotype_order[dist_key].items(), key=lambda item: item[1],reverse=True)}
+            for genotype in genotype_order[dist_key]:
+                tmp[genotype] = valid_genotypes[genotype]
+        valid_genotypes = tmp
+        del(tmp)
+
+        assigned_kmers = []
+        for dist_key in genotype_order:
+            for genotype in genotype_order[dist_key]:
+                unassigned = list(set(genotype_results[sample_id][genotype]['matched_pos_kmers']) - set(assigned_kmers))
+                if len(unassigned) == 0:
+                    continue
+                if len(set(geno_rules[genotype]['positive_uids']) & set(unassigned)) == 0:
+                    continue
+                assigned_kmers.extend(unassigned)
+                parsiony_genotypes[genotype] = unassigned
+
+                print("{}\n{}\n{}".format(genotype,unassigned,set(geno_rules[genotype]['positive_uids']) & set(unassigned)))
+
+        '''
+        print(valid_genotypes)
         genotypes_with_exclusive_kmers = {}
         pos_kmers = {}
         for genotype in valid_genotypes:
-            kmers =  genotype_results[sample_id][genotype]['matched_pos_kmers']
+            kmers =  list(set(geno_rules[genotype]['positive_uids']) & set(genotype_results[sample_id][genotype]['matched_pos_kmers']))
             for k in kmers:
                 if not k in pos_kmers:
                     pos_kmers[k] = []
                 pos_kmers[k].append(genotype)
+
         for k in pos_kmers:
             if len(pos_kmers[k]) == 1:
                 genotype = pos_kmers[k][0]
@@ -440,7 +475,8 @@ def call_compatible_genotypes(scheme_info, kmer_results, outdir, n_threads=1):
 
         #Resolve kmers first by genotypes which have an exclusive kmer
         assigned_kmers = []
-
+        #print(genotypes_with_exclusive_kmers)
+        #sys.exit()
         for genotype in genotypes_with_exclusive_kmers:
             unassigned = list(set(genotype_results[sample_id][genotype]['matched_pos_kmers']) - set(assigned_kmers))
             if len(unassigned) == 0:
@@ -454,6 +490,7 @@ def call_compatible_genotypes(scheme_info, kmer_results, outdir, n_threads=1):
         for genotype in valid_genotypes:
             dist = valid_genotypes[genotype]
             unassigned = list(set(genotype_results[sample_id][genotype]['matched_pos_kmers']) - set(assigned_kmers))
+
             if dist == prev_dist and prev_genotype != '':
                 parsiony_genotypes[genotype] = copy.deepcopy(parsiony_genotypes[prev_genotype])
                 if unassigned is not None and len(unassigned) > 0:
@@ -467,7 +504,7 @@ def call_compatible_genotypes(scheme_info, kmer_results, outdir, n_threads=1):
             prev_genotype = genotype
             assigned_kmers.extend(unassigned)
             parsiony_genotypes[genotype] = unassigned
-
+        '''
         called_genotypes[sample_id]['called_genotypes'] = parsiony_genotypes
 
     return called_genotypes

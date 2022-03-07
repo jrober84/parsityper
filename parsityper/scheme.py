@@ -34,7 +34,7 @@ def parseScheme(scheme_file):
 
         if uid !=-1:
             if row.key - uid != 1:
-                logging.ERROR("The scheme unique id column is not sequential offending keys {}..{}".format(uid,row.key))
+                logging.error("The scheme unique id column is not sequential offending keys {}..{}".format(uid,row.key))
                 sys.exit()
         uid = row.key
         aa_name = row.aa_name

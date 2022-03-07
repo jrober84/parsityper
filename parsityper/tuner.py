@@ -362,7 +362,7 @@ def updateScheme(scheme_file,scheme_info,outfile):
         mutation_key = row['mutation_key']
         if not mutation_key in scheme_info['mutation_to_uid']:
             continue
-        seq = row['unalign_kseq']
+        seq = row['seq']
         if not seq in scheme_info['kseq_to_uids']:
             continue
         entry = {}
@@ -609,7 +609,7 @@ def run():
 
     logger.info("Initializing sample manifest from {}".format(input))
     samples = read_samples(input)
-
+    logger.info("Read {} samples from  {}".format(len(samples),input))
     sampleManifest = init_sampleManifest(samples,scheme_name,scheme_info,analysis_date)
 
     num_samples = len(sampleManifest )
@@ -626,6 +626,7 @@ def run():
         genotypeMap[genotype].append(sampleID)
 
     if profile == None:
+        logger.info("Performing kmer searching")
         result = batch_process_genotype_seqs(sampleManifest, genotypeMap, scheme_info, nthreads, min_cov, outdir, min_cov_frac,
                                     min_alt_frac, min_ref_frac, min_partial_frac,nthreads)
 

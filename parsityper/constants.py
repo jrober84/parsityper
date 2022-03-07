@@ -45,12 +45,6 @@ TYPING_SCHEMES = {
 
 }
 
-PANGOLIN_KMER_PROFILES = {
-    'SARS-COV-2_v1': os.path.join(default_database_dir,'sars-cov-2-kmers.v1.genotype_profiles.txt'),
-    'SARS-COV-2_v2': '',
-    'SARS-COV-2_v3': '',
-}
-
 HTML_TEMPLATE_FILE = os.path.join(default_database_dir,'report.template.html')
 
 bases_dict = {

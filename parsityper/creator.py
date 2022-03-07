@@ -738,6 +738,7 @@ def add_gene_inference(selected_kmers, ref_seq, ref_id, reference_info, trans_ta
                         rel_alt_start = abs(start - akmer_start)
                         rel_alt_end = rel_alt_start + var_len
                         alt_var = align_querySeq_kmer[rel_alt_start:rel_alt_end]
+                        rel_alt_start = abs(start - gene_start)
                         alt_var_aa = ''
                         alt_var_dna = alt_var
                         if is_cds:
@@ -780,7 +781,7 @@ def add_gene_inference(selected_kmers, ref_seq, ref_id, reference_info, trans_ta
                     if is_cds:
                         alt_seq = list(aln_gene_seq)
                         #print("{}\t{}\t{}\t{}\t{}\t{}\t{}".format(gene_name,alt_seq,len(alt_seq),start,end,rel_alt_start,rel_alt_end))
-
+                        rel_alt_start = abs(start - gene_start)
                         for i in range(0, len(alt_var_dna)):
                             pos = i + rel_alt_start
                             alt_seq[pos] = alt_var_dna[i]
@@ -944,8 +945,10 @@ def getSelectedKmerIndicies(selected_kmers):
                     indicies += list(selected_kmers[vType][event][state]["kmers"])
     return sorted(list(set(indicies)))
 
-def populate_fields(uid, mutation_type, vStart, vEnd, state, ref_variant, alt_variant, kmer_info):
+def populate_fields(uid, mutation_type, vStart, vEnd, state, ref_variant, alt_variant, ref_aa,target_aa,kmer_info):
     record = copy.deepcopy(KMER_FIELDS)
+    vStart+=1
+    vEnd+=1
     for field in record:
         if field in kmer_info:
             record[field] = kmer_info[field]
@@ -970,12 +973,13 @@ def populate_fields(uid, mutation_type, vStart, vEnd, state, ref_variant, alt_va
     is_cds = kmer_info['is_cds']
 
     if is_cds:
-        aa_start = kmer_info['aa_start']
+        aa_start = kmer_info['aa_start']+1
         aa_end = kmer_info['aa_end']
         if mutation_type == 'snp':
-            record['aa_name'] = "{}{}{}".format(ref_variant, aa_start, target_variant)
+            record['aa_name'] = "{}{}{}".format(ref_aa, aa_start, target_aa)
         else:
             record['aa_name'] = "{}_{}_{}".format(mutation_type, aa_start, aa_end)
+
     if mutation_type == 'snp':
         record['mutation_key'] = "{}_{}_{}_{}".format(mutation_type, ref_variant, vStart, alt_variant)
         record['dna_name'] = "{}{}{}".format(ref_variant, vStart, target_variant)
@@ -1004,10 +1008,11 @@ def scheme_format(selected_kmers):
                         continue
                     alt_variant = base
                     for kmer in selected_kmers[mutation_type][event]['ref']['kmers'][ref_variant]:
+                        ref_aa = selected_kmers[mutation_type][event]['ref']['kmers'][ref_variant][kmer]['ref_var_aa']
                         kmer_info = selected_kmers[mutation_type][event]['ref']['kmers'][ref_variant][kmer]
                         if not 'target_var' in kmer_info:
                             continue
-                        scheme[uid] = populate_fields(uid, mutation_type, vStart, vEnd, 'ref', ref_variant, alt_variant,
+                        scheme[uid] = populate_fields(uid, mutation_type, vStart, vEnd, 'ref', ref_variant, alt_variant,ref_aa,ref_aa,
                                                       kmer_info)
                         uid += 1
 
@@ -1015,7 +1020,8 @@ def scheme_format(selected_kmers):
                         kmer_info = selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]
                         if not 'target_var' in kmer_info:
                             continue
-                        scheme[uid] = populate_fields(uid, mutation_type, vStart, vEnd, 'alt', ref_variant, alt_variant,
+                        target_aa = selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['alt_var_aa']
+                        scheme[uid] = populate_fields(uid, mutation_type, vStart, vEnd, 'alt', ref_variant, alt_variant,ref_aa,target_aa,
                                                       kmer_info)
                         uid += 1
 
@@ -1036,7 +1042,7 @@ def scheme_format(selected_kmers):
                         kmer_info = selected_kmers[mutation_type][event][state]['kmers'][kmer]
                         if not 'target_var' in kmer_info:
                             continue
-                        scheme[uid] = populate_fields(uid, mutation_type, vStart, vEnd, state, ref_variant, alt_variant,
+                        scheme[uid] = populate_fields(uid, mutation_type, vStart, vEnd, state, ref_variant, alt_variant,'','',
                                                       kmer_info)
                         uid += 1
 
