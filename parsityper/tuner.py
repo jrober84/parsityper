@@ -362,7 +362,7 @@ def updateScheme(scheme_file,scheme_info,outfile):
         mutation_key = row['mutation_key']
         if not mutation_key in scheme_info['mutation_to_uid']:
             continue
-        seq = row['seq']
+        seq = row['kseq']
         if not seq in scheme_info['kseq_to_uids']:
             continue
         entry = {}
