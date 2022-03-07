@@ -7,7 +7,7 @@ from parsityper.constants import  SCHEME_HEADER
 
 def parseScheme(scheme_file):
     scheme = {}
-    df = pd.read_csv(scheme_file,sep="\t",header=0)
+    df = pd.read_csv(scheme_file,sep="\t",header=0,low_memory=False)
     uid = -1
     for row in df.itertuples():
         mutation_key = row.mutation_key

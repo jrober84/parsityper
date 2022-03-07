@@ -1307,7 +1307,7 @@ def run():
 
     logger.info("Kmer searching complete")
     kmer_results_df = create_sample_kmer_profile(kmer_results)
-    kmer_results_df.to_csv(report_sample_kmer_profiles,sep="\t",header=True)
+    kmer_results_df.reset_index(level=0).to_csv(report_sample_kmer_profiles,sep="\t",header=True,index=False)
 
 
     plots = {

@@ -1,14 +1,18 @@
 #!/usr/bin/python
-import sys
-from argparse import (ArgumentParser)
-import logging, os, re, datetime, time
-import pandas as pd
-from parsityper.helpers import init_console_logger,read_fasta, read_samples
+import datetime
+import logging
 import multiprocessing as mp
+import os
+from argparse import (ArgumentParser)
 from multiprocessing import Pool
+
+import pandas as pd
+
 from parsityper.constants import KMER_FIELDS
+from parsityper.helpers import init_console_logger, read_fasta, read_samples
+from parsityper.kmerSearch.kmerSearch import init_automaton_dict, perform_kmerSearch_fasta, perform_kmerSearch_fastq, \
+    process_kmer_results
 from parsityper.scheme import parseScheme, constructSchemeLookups
-from parsityper.kmerSearch.kmerSearch import init_automaton_dict,perform_kmerSearch_fasta,perform_kmerSearch_fastq,process_kmer_results
 from parsityper.version import __version__
 
 if mp.get_start_method(allow_none=True) != 'spawn':
@@ -154,9 +158,9 @@ def process_rawSamples(sampleManifest,scheme_info,nthreads,min_cov,report_sample
 
     logging.info("Kmer searching complete")
     logging.info("Creating kmer profiles")
-    kmer_results_df = pd.DataFrame.from_dict(kmer_results,orient='index').transpose()
+    kmer_results_df = pd.DataFrame.from_dict(kmer_results,orient='index').transpose().reset_index(level=0)
     logging.info("Writting kmer profiles")
-    kmer_results_df.to_csv(report_sample_kmer_profiles, sep="\t", header=True)
+    kmer_results_df.to_csv(report_sample_kmer_profiles, sep="\t", header=True,index=False)
     return kmer_results
 
 def init_sampleManifest(samples,scheme_name,scheme_info,analysis_date):
@@ -288,10 +292,11 @@ def updateSchemeInfo(scheme_info,valid_mutations,valid_uids,valid_genotypes):
 
     return profiles
 
-def updateScheme(scheme_file,scheme_info,outfile):
+def updateScheme(scheme_file,scheme_info,outfile,valid_uids):
     df = pd.read_csv(scheme_file, sep="\t", header=0)
     fh = open(outfile,'w')
-    fh.write("{}\n".format("\t".join(KMER_FIELDS)))
+    fh.write("{}\n".format("\t".join(list(KMER_FIELDS.keys()))))
+    k_fields = list(KMER_FIELDS.keys())
     columns = df.columns.tolist()
     num_fields = len(KMER_FIELDS)
     new_uid_key = 0
@@ -360,6 +365,8 @@ def updateScheme(scheme_file,scheme_info,outfile):
 
     for index,row in df.iterrows():
         uid = row['key']
+        if not uid in valid_uids:
+            continue
         mutation_key = row['mutation_key']
         if not mutation_key in scheme_info['mutation_to_uid']:
             continue
@@ -367,7 +374,7 @@ def updateScheme(scheme_file,scheme_info,outfile):
         if not seq in scheme_info['kseq_to_uids']:
             continue
         entry = {}
-        for field in KMER_FIELDS:
+        for field in k_fields:
             if field in columns:
                 value = str(row[field])
                 if value == 'nan':
@@ -390,12 +397,11 @@ def updateScheme(scheme_file,scheme_info,outfile):
             positive_genotypes = []
             partial_genotypes = []
         entry['positive_genotypes'] = ','.join(positive_genotypes)
-        entry['seq_ids'] = ''
         entry['partial_genotypes'] = ','.join(partial_genotypes)
 
         record = []
         for i in range(0,num_fields):
-            record.append(entry[KMER_FIELDS[i]])
+            record.append(entry[k_fields[i]])
         fh.write("{}\n".format("\t".join([str(x) for x in record])))
         new_uid_key+=1
     fh.close()
@@ -542,12 +548,7 @@ def batch_process_genotype_seqs(sampleManifest, genotypeMap, scheme_info, nthrea
             results.append( pool.apply_async(process_genotype_seqs,
                                              (genotype, subset, scheme_info, nthreads, min_cov, report_sample_kmer_profiles,
                                                 min_cov_frac, min_alt_frac, min_ref_frac, min_partial_frac,aho,sub_n_threads)))
-            occupied_threads+=sub_n_threads
-            if occupied_threads >= n_threads:
-                pool.close()
-                pool.join()
-                pool = Pool(processes=nthreads)
-                occupied_threads=0
+
 
 
     # Extract results in multithreaded mode
@@ -610,7 +611,8 @@ def run():
 
     logger.info("Initializing sample manifest from {}".format(input))
     samples = read_samples(input)
-    logger.info("Read {} samples from  {}".format(len(samples),input))
+    logger.info("Read {} fasta samples from  {}".format(len(samples['fasta']),input))
+    logger.info("Read {} fastq samples from  {}".format(len(samples['fastq']), input))
     sampleManifest = init_sampleManifest(samples,scheme_name,scheme_info,analysis_date)
 
     num_samples = len(sampleManifest )
@@ -698,7 +700,8 @@ def run():
         for genotype in invalid_genotypes:
             if genotype in scheme_info['genotype_rule_sets']:
                 del (scheme_info['genotype_rule_sets'][genotype])
-
+    else:
+        valid_uids = scheme_info['uid_to_state']
     logger.info("Writting updated scheme to {}".format(scheme_outfile))
-    updateScheme(scheme_file, scheme_info, scheme_outfile)
+    updateScheme(scheme_file, scheme_info, scheme_outfile,valid_uids)
 
