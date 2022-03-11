@@ -834,7 +834,7 @@ def add_genotype_info(sampleManifest,scheme_info,mutation_fracs,genotype_assignm
                         if frac == 0:
                             frac = 1
                         fracs.append(frac)
-                ave_frac = statistics.mean(frac)
+                ave_frac = statistics.mean(fracs)
                 genotype_fracs[genotype] = ave_frac
             genotype_fracs = {k: v for k, v in sorted(genotype_fracs.items(), key=lambda item: item[1], reverse=True)}
             genotype = next(iter(genotype_fracs))
