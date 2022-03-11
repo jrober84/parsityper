@@ -7,7 +7,7 @@ from ahocorasick import Automaton
 from itertools import product
 from typing import List, Any, Optional, Tuple, Union
 import time
-import re
+import re, json
 from multiprocessing import Pool, current_process
 from os import fork, getpid
 
@@ -73,6 +73,7 @@ def init_automaton_dict(seqs):
         for idx,seq in enumerate(kmer_list):
             A.add_word(seq, (seq_id, seq, False))
             A.add_word(revcomp(seq), (seq_id, seq, True))
+
     A.make_automaton()
     return A
 
@@ -309,3 +310,24 @@ def process_kmer_results(scheme_info,kmer_results,min_freq,min_cov_frac):
         sample_kmer_results[sample_id]['num_detected_kmers'] = len(kmer_freqs)
         sample_kmer_results[sample_id]['detected_scheme_kmers'] = list(set(sample_kmer_results[sample_id]['detected_scheme_kmers']))
     return sample_kmer_results
+
+
+def ksearch_fasta_lite(aho, num_kmers,seq_dict):
+    sample_results = {}
+    for seq_id in seq_dict:
+        sample_results[seq_id] = [0] * num_kmers
+        seq = seq_dict[seq_id].replace('-', '')
+        for idx, (kIndex, kmer_seq, is_revcomp) in aho.iter(seq):
+            kIndex = int(kIndex)
+            sample_results[seq_id][kIndex] += 1
+    return sample_results
+
+
+def ksearch_fastq_lite(aho, num_kmers, fastqs):
+    sample_results = [0] * num_kmers
+    for fastq in fastqs:
+        for _, sequence in parse_fastq(fastq):
+            for idx, (kIndex, kmer_seq, _) in aho.iter(sequence):
+                sample_results[int(kIndex)] += 1
+
+    return sample_results

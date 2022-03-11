@@ -123,15 +123,16 @@ TYPER_SAMPLE_SUMMARY_HEADER_BASE = [
     'num_detected_scheme_kmers',
     'ave_scheme_kmers_freq',
     'total_scheme_mutations',
-    'detected_scheme_mutations',
+    'num_detected_scheme_mutations',
     'detected_scheme_mixed_mutations',
     'detected_sample_type',
     'compatible_genotypes',
     'detected_sample_type',
     'primary_genotype',
     'primary_genotype_frac',
-    'md5',
-    'md5_phrase',
+    'mutation_profile',
+    'mutation_profile_md5',
+    'mutation_profile_phrase',
     'qc_messages'
 
 ]

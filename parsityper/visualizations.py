@@ -280,6 +280,7 @@ def generate_sample_coverage_plot(sample_kmer_data,target_mapping):
 
 
 
+
 def generate_sample_coverage_plot_summary(positive_kmer_data,negative_kmer_data,sample_kmer_data,target_mapping):
     data = {}
     plots = []
@@ -311,6 +312,9 @@ def generate_sample_coverage_plot_summary(positive_kmer_data,negative_kmer_data,
     # Change the bar mode
     fig.update_layout(barmode='group',)
     return fig
+
+def plotBarChart():
+    return
 
 
 def plot_mds(dis_matrix,labels,outfile):

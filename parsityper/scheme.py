@@ -31,6 +31,7 @@ def parseScheme(scheme_file):
         variant_end = row.variant_end
         ref_state = row.ref_state
         alt_state = row.alt_state
+        entropy = row.entropy
 
         if uid !=-1:
             if row.key - uid != 1:
@@ -54,6 +55,7 @@ def parseScheme(scheme_file):
             'variant_end':variant_end,
             'ref_state':ref_state,
             'alt_state':alt_state,
+            'entropy':entropy,
             'positive_genotypes':positive_genotypes,
             'partial_genotypes':partial_genotypes,
             'seq':seq
@@ -83,6 +85,7 @@ def constructSchemeLookups(scheme):
         'uid_to_dna_name': {},
         'uid_to_aa_name': {},
         'uid_to_gene_feature':{},
+        'uid_to_entropy': {},
         'mutation_to_uid': {},
         'kmer_profiles':{},
         'mutation_profiles': {},
@@ -107,7 +110,7 @@ def constructSchemeLookups(scheme):
                 variant_end = scheme[mutation_key][state][uid]['variant_end']
                 if profiles['max_variant_positions'] < variant_end:
                     profiles['max_variant_positions'] = variant_end
-
+                profiles['uid_to_entropy'][uid] = scheme[mutation_key][state][uid]['entropy']
                 profiles['uid_to_gene_feature'][uid] = feature_name
                 profiles['gene_features'].append(feature_name)
                 profiles['gene_features'] = list(set(profiles['gene_features']))
@@ -137,8 +140,8 @@ def constructSchemeLookups(scheme):
 
     #init the kmer profiles
     for g in kmer_profiles:
-        kmer_profiles[g] = [0] * len(kmers)
-        mutation_profiles[g] = [0] * len(mutations)
+        kmer_profiles[g] = [-1] * len(kmers)
+        mutation_profiles[g] = [-1] * len(mutations)
         profiles['genotype_rule_sets'][g] = {'positive_uids':[],'positive_ref':[],'positive_alt':[],'partial_uids':[],'partial_ref':[],'partial_alt':[]}
 
 

@@ -64,8 +64,6 @@ def parse_args():
                         help='Number of threads to use', default=1)
     parser.add_argument('--no_plots', required=False,
                         help='suppress making plots, required for large datasets', action='store_true')
-    parser.add_argument('--resume', required=False,
-                        help='Restart a previous run using checkpoints', action='store_true')
     parser.add_argument('--seq_batch_size', type=int, required=False,
                         help='Smaller batch sizes require less memory at the expense of longer run times')
     parser.add_argument('-V', '--version', action='version', version='%(prog)s {}'.format(__version__))
@@ -1212,9 +1210,7 @@ def run():
     min_kmer_count = cmd_args.min_kmer_freq
     min_var_freq = cmd_args.min_var_freq
     batch_size = cmd_args.seq_batch_size
-    resume = cmd_args.resume
 
-    batch_size = 1000
     num_stages = 5
     stage = 0
 
@@ -1224,29 +1220,10 @@ def run():
         os.mkdir(out_dir, 0o755)
     if max_homo is None:
         max_homo = kLen
-    params_file = os.path.join(out_dir, "params.pickle")
-    if resume:
-        logging.info("Resuming previous parsityper creator analysis")
-        logging.info("Identifying analysis stage to resume from")
-        if not os.path.isfile(params_file):
-            logging.error(
-                "Error, resume selected but params.pickle is missing, please check the path or run without resume flag")
-            sys.exit()
-        stage = -1
-        for i in range(0, num_stages + 1):
-            if os.path.isfile(os.path.join(out_dir, "stage-{}.pickle".format(i))):
-                stage = i
-        if stage == -1:
-            logging.error(
-                "Error, resume selected but no check point files found, please check the path or run without resume flag")
-            sys.exit()
-    else:
-        logging.info("Performing parsityper creator analysis")
-        # Write parameters for resume functionality
-        logging.info("Creating params file for resume functionality")
-        fh = open(params_file, 'wb')
-        pickle.dump(cmd_args, fh)
-        fh.close()
+
+
+    logging.info("Performing parsityper creator analysis")
+
 
     if min_alt_frac < min_ref_frac:
         min_frac = min_alt_frac
@@ -1296,11 +1273,6 @@ def run():
     num_sequences = len(msa_info['seq_ids'])
     max_kmer_count = num_sequences
 
-    logging.info("Writting check-point pickle stage-{}".format(stage))
-    msa_info_file = os.path.join(out_dir, "stage-{}.pickle".format(stage))
-    fh = open(msa_info_file, 'wb')
-    #pickle.dump(msa_info, fh)
-    fh.close()
 
     stage+=1
 
@@ -1331,23 +1303,9 @@ def run():
     seqKmers = filter_kmers(combine_jellyfish_results(msa_info['unalign_files']), min_kmer_count, max_kmer_count,
                             max_ambig, max_homo)
 
-    logging.info("Writting check-point pickle stage-{}".format(stage))
-    check_point = os.path.join(out_dir, "stage-{}.pickle".format(stage))
-    fh = open(check_point, 'wb')
-    #pickle.dump(seqKmers, fh)
-    fh.close()
-    stage+=1
-
     logging.info("stage-{}: Perfoming k-mer searching using {} threads".format(stage, n_threads))
     aho_results = map_kmers(seqKmers, msa_info['subset_files'], n_threads)
     add_ref_kmer_info(aho_results, seqKmers, msa_info['ref_aln'], kLen)
-
-    logging.info("Writting check-point pickle stage-{}".format(stage))
-    check_point = os.path.join(out_dir, "stage-{}.pickle".format(stage))
-    fh = open(check_point, 'wb')
-    #pickle.dump(aho_results, fh)
-    fh.close()
-    stage+=1
 
     logging.info("stage-{}: Grouping k-mers by start position".format(stage))
     kmer_alignment_positions = group_kmers_by_start_pos(aho_results['kmer'])
@@ -1365,24 +1323,12 @@ def run():
         'del': select_indel_kmers(msa_info['variants']['del'], kLen, kmer_alignment_positions),
         'ins': select_indel_kmers(msa_info['variants']['ins'], kLen, kmer_alignment_positions)}
 
-    logging.info("Writting check-point pickle stage-{}".format(stage))
-    check_point = os.path.join(out_dir, "stage-{}.pickle".format(stage))
-    fh = open(check_point, 'wb')
-    #pickle.dump(selected_kmers, fh)
-    fh.close()
-    stage+=1
-
     kmer_indicies = getSelectedKmerIndicies(selected_kmers)
     logging.info("stage-{}: {} kmers selected".format(stage,len(kmer_indicies)))
     logging.info("stage-{}: associating {} kmers with {} genotypes".format(stage,len(kmer_indicies),len(genotype_counts)))
     genotype_kCounts = get_kmer_genotype_counts(kmer_indicies, aho_results['samples'], genotype_mapping)
     del (seqKmers)
 
-    logging.info("Writting check-point pickle stage-{}".format(stage))
-    check_point = os.path.join(out_dir, "stage-{}.pickle".format(stage))
-    fh = open(check_point, 'wb')
-    #pickle.dump(genotype_kCounts, fh)
-    fh.close()
     stage+=1
 
     logging.info("stage-{}: Calculating kmer entropy by genotype".format(stage))
@@ -1406,11 +1352,6 @@ def run():
                         selected_kmers[mutation_type][pos][state]['kmers'][kmer_id]['total_count'] = \
                         genotype_kCounts[kmer_id]['total']
 
-    logging.info("Writting check-point pickle stage-{}".format(stage))
-    check_point = os.path.join(out_dir, "stage-{}.pickle".format(stage))
-    fh = open(check_point, 'wb')
-    #pickle.dump(selected_kmers, fh)
-    fh.close()
     stage+=1
 
     logging.info("stage-{}: Calculating kmer positivity rate".format(stage))
@@ -1421,11 +1362,6 @@ def run():
     if len(ref_features) > 0:
         add_gene_inference(selected_kmers, msa_info['ref_aln'], ref_id, ref_features, trans_table=1)
 
-    logging.info("Writting check-point pickle stage-{}".format(stage))
-    check_point = os.path.join(out_dir, "stage-{}.pickle".format(stage))
-    fh = open(check_point, 'wb')
-    #pickle.dump(selected_kmers, fh)
-    fh.close()
     stage+=1
 
     logging.info("stage-{}: Formatting scheme".format(stage))
@@ -1437,14 +1373,6 @@ def run():
 
     logging.info("stage-{}: Determining information content of each scheme kmer".format(stage))
     write_genotype_reports(out_dir, genotype_counts, genotype_kCounts, scheme)
-
-    #stage+=1
-    #logging.info("stage-{}: Writing sample kmer profiles".format(stage))
-    #kmer_profile_file = os.path.join(out_dir, "sample.kmer.profile")
-    #pd.DataFrame.from_dict(aho_results['samples'], orient='index').reset_index().transpose().to_csv(
-    #    kmer_profile_file, sep="\t", header=True,
-    #    index=False)
-
 
     logging.info("Cleaning up interim files")
     for i in range(0,stage):

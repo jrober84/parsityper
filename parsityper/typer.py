@@ -1,26 +1,35 @@
 #!/usr/bin/python
+import datetime
 import glob
-from parsityper.version import __version__
-from argparse import (ArgumentParser, FileType)
-import logging, os, sys, re, datetime, statistics
-from pathlib import Path
-import pandas as pd
-from parsityper.helpers import validate_args, init_console_logger, read_tsv, \
-generate_random_phrase, calc_md5, nan_compatible_kmer_pairwise_distmatrix
-import copy
-from parsityper.constants import PRIMER_SCHEMES, TYPING_SCHEMES, TYPER_SAMPLE_SUMMARY_HEADER_BASE, FIGURE_CAPTIONS, BATCH_HTML_REPORT
-from parsityper.visualizations import dendrogram_visualization, plot_mds, create_heatmap
-from jinja2 import Template
-from parsityper.ext_tools.kmc import kmc_summary
-from parsityper.ext_tools.canu import run_canu_correct
-from parsityper.ext_tools.lighter import run_lighter
-from parsityper.ext_tools.fastp import run_fastp
-from parsityper.scheme import parseScheme, constructSchemeLookups, detectAmbigGenotypes
-from parsityper.kmerSearch.kmerSearch import init_automaton_dict,perform_kmerSearch_fasta,perform_kmerSearch_fastq,process_kmer_results
-from parsityper.helpers import read_fasta
+import logging
+import os
+import re
+import statistics
+import sys
+from argparse import (ArgumentParser)
 from multiprocessing import Pool
+from pathlib import Path
+
+import pandas as pd
 import plotly.express as px
+from jinja2 import Template
 from plotly.offline import plot
+
+from parsityper.constants import PRIMER_SCHEMES, TYPING_SCHEMES, TYPER_SAMPLE_SUMMARY_HEADER_BASE, FIGURE_CAPTIONS, \
+    BATCH_HTML_REPORT
+from parsityper.ext_tools.fastp import run_fastp
+from parsityper.ext_tools.kmc import kmc_summary
+from parsityper.ext_tools.lighter import run_lighter
+from parsityper.ext_tools.jellyfish import run_jellyfish_count, parse_jellyfish_counts
+from parsityper.helpers import read_fasta
+from parsityper.helpers import validate_args, init_console_logger, read_tsv, \
+    generate_random_phrase, calc_md5, nan_compatible_kmer_pairwise_distmatrix
+from parsityper.kmerSearch.kmerSearch import init_automaton_dict, perform_kmerSearch_fasta, perform_kmerSearch_fastq, \
+    process_kmer_results
+from parsityper.scheme import parseScheme, constructSchemeLookups, detectAmbigGenotypes
+from parsityper.version import __version__
+from parsityper.visualizations import dendrogram_visualization, plot_mds, create_heatmap
+
 
 def parse_args():
     "Parse the input arguments, use '-h' for help"
@@ -453,7 +462,7 @@ def call_compatible_genotypes(scheme_info, kmer_results, outdir, n_threads=1):
                 assigned_kmers.extend(unassigned)
                 parsiony_genotypes[genotype] = unassigned
 
-                print("{}\n{}\n{}".format(genotype,unassigned,set(geno_rules[genotype]['positive_uids']) & set(unassigned)))
+               # print("{}\n{}\n{}".format(genotype,unassigned,set(geno_rules[genotype]['positive_uids']) & set(unassigned)))
 
         '''
         print(valid_genotypes)
@@ -880,19 +889,25 @@ def calc_genome_size(sampleManifest,outdir,min_cov,kLen=21,n_threads=1):
         pool = Pool(processes=n_threads)
 
     for sample_id in sampleManifest:
+        cov = int(sampleManifest[sample_id]['ave_scheme_kmers_freq'])
+        if cov < 1:
+            cov = min_cov
         fileType = sampleManifest[sample_id]['file_type']
+        if fileType == 'fasta':
+            cov = 1
+
         tmpFile = os.path.join(outdir, "{}.kmc.tmp1".format(sample_id))
         tmpDir = os.path.join(outdir, "{}.kmc.tmp2".format(sample_id))
     # get GenomeSize using KMC based on fwd read or fasta
         if n_threads == 1:
             results[sample_id] = kmc_summary(sampleManifest[sample_id]['raw_seq_files'][0], tmpFile,
                                tmpDir, fileType,
-                               min_cov, kLen, n_threads)
+                               cov, kLen, n_threads)
         else:
             results[sample_id] = pool.apply_async(kmc_summary,
                                                            (sampleManifest[sample_id]['raw_seq_files'][0], tmpFile,
                                tmpDir, fileType,
-                               min_cov, kLen, n_threads))
+                               cov, kLen, n_threads))
 
     if n_threads > 1:
         pool.close()
@@ -1240,8 +1255,6 @@ def run():
 
     #process reads
     if not type_only:
-        logging.info("Calculating genome size for samples")
-        sampleManifest = calc_genome_size(sampleManifest, outdir, min_genome_cov_depth, kLen=21, n_threads=nthreads)
         logging.info("Analysing reads using fastp")
         sampleManifest = process_reads(sampleManifest,perform_read_correction,read_dir,seqTech,fastp_dir,min_read_len,trim_front_bp,trim_tail_bp,perform_read_dedup,n_threads=nthreads)
 
@@ -1388,6 +1401,10 @@ def run():
             sampleManifest[sample_id]['primary_genotype'] = pGenotype
             sampleManifest[sample_id]['primary_genotype_frac'] = pGenotype_frac
         sampleManifest[sample_id]['compatible_genotypes'] = list(sample_genotype_results[sample_id]['called_genotypes'].keys())
+
+    if not type_only:
+        logging.info("Calculating genome size for samples")
+        sampleManifest = calc_genome_size(sampleManifest, outdir, min_genome_cov_depth, kLen=21, n_threads=nthreads)
 
     sampleManifest = QA_results(sampleManifest, min_genome_cov_depth, max_missing_sites, min_genome_size, max_genome_size)
 
