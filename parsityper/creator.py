@@ -1075,6 +1075,8 @@ def select_snp_kmers(snp_variants, kLen, kmer_alignment_positions):
 
 def select_indel_kmers(indel_variants, kLen, kmer_alignment_positions):
     variant_kmers = {}
+    if len(kmer_alignment_positions) == 0:
+        return {}
     max_key = max(list(kmer_alignment_positions.keys()))
     for indel in indel_variants:
         aStart = indel_variants[indel]['start']
