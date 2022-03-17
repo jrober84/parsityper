@@ -451,6 +451,8 @@ def parse_reference_sequence(gbk_file):
 def find_overlaping_gene_feature(start,end,ref_info,ref_name):
     cds_start = start
     cds_end = end
+    if not ref_name in ref_info:
+        return None
     for feat in ref_info[ref_name]['features']['CDS']:
         positions = feat['positions']
         gene_start = -1

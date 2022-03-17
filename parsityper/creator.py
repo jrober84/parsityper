@@ -3,7 +3,6 @@ import copy
 import gzip
 import logging
 import os
-import pickle
 import psutil
 import re
 import sys
@@ -103,7 +102,8 @@ def parseVariants(consensus, all_seq_ids, gaps, ref_seq, min_var_freq):
         for b in bases:
             if pos[b] > 0:
                 if b != ref_base:
-                    alt_bases[b] += 1
+                    alt_bases[b] = pos[b]
+
         for b in alt_bases:
             if alt_bases[b] < min_var_freq:
                 alt_bases[b] = 0
@@ -200,12 +200,14 @@ def preprocess_seqs(fasta_file, ref_id, sample_ids, batch_size, out_dir, prefix,
                 out_unalin = []
                 out_alin = []
                 file_index += 1
-        if not sFH.closed:
-            sFH.write("{}\n".format("\n".join(out_alin)))
-            sFH.close()
-        if not uFH.closed:
-            uFH.write("{}\n".format("\n".join(out_unalin)))
-            uFH.close()
+        if len(out_alin) > 0:
+            if not sFH.closed:
+                sFH.write("{}\n".format("\n".join(out_alin)))
+                sFH.close()
+        if len(out_unalin) > 0:
+            if not uFH.closed:
+                uFH.write("{}\n".format("\n".join(out_unalin)))
+                uFH.close()
 
     variants = parseVariants(consensus, seq_ids, gaps, ref_seq, min_var_freq)
 
@@ -406,7 +408,6 @@ def get_kmer_genotype_counts_bck(kmer_files, genotypeMapping):
 
 def get_kmer_genotype_counts(valid_kmer_indicies, sample_profiles, genotypeMapping):
     genotypes = list(set(genotypeMapping.values()))
-    num_genotypes = len(genotypes)
     genotype_kCounts = {}
     for i in valid_kmer_indicies:
         genotype_kCounts[i] = {'total': 0, 'counts': {}}
@@ -415,21 +416,19 @@ def get_kmer_genotype_counts(valid_kmer_indicies, sample_profiles, genotypeMappi
 
     num_kmers = len(valid_kmer_indicies)
     kmer_range = range(0, num_kmers)
-    profiles = {}
     for sample_id in sample_profiles:
-        profiles[sample_id] = [0] * num_kmers
         genotype = genotypeMapping[sample_id]
         for i in kmer_range:
             index = valid_kmer_indicies[i]
             value = sample_profiles[sample_id][index]
-            profiles[sample_id][i] = value
             genotype_kCounts[index]['counts'][genotype] += value
             genotype_kCounts[index]['total'] += value
-    sample_profiles = profiles
     return genotype_kCounts
 
 def calc_shanon_entropy(value_list):
     total = sum(value_list)
+    if total == 0:
+        return -1
     values = []
     for v in value_list:
         values.append(v / total)
@@ -610,6 +609,209 @@ def get_kmer_positions(ref_id, genotype_kCounts, kLen, fasta_dir, individual_fil
     return positions
 
 def add_gene_inference(selected_kmers, ref_seq, ref_id, reference_info, trans_table=1):
+
+    aln_refLookup = create_aln_pos_from_unalign_pos(ref_seq)
+    for mutation_type in selected_kmers:
+        for event in selected_kmers[mutation_type]:
+            ref_var = ''
+            alt_var = ''
+            aa_name = ''
+            gene_name = 'intergenic'
+            gene_len = 0
+            gene_start = -1
+            gene_end = -1
+            gene_seq = ''
+            positions = ''
+            is_cds = False
+            is_silent = True
+            is_frameshift = False
+
+            if mutation_type == 'snp':
+                start = event
+                end = event
+                for base in selected_kmers[mutation_type][event]['ref']['kmers']:
+                    if len(selected_kmers[mutation_type][event]['ref']['kmers'][base]) > 0:
+                        ref_var = base
+                var_len = 1
+            else:
+                (start, end) = event.split(':')
+                start = int(start)
+                end = int(end)
+                ref_var = ref_seq[start:end + 1]
+                var_len = len(ref_var.replace('-', ''))
+
+            ref_var_dna = ref_var
+            gene_feature = find_overlaping_gene_feature(start, end, reference_info, ref_id)
+            ref_var_aa = ''
+            if gene_feature is not None:
+                is_cds = True
+                if mutation_type != 'snp' and (var_len - 1) % 3 > 0:
+                    is_frameshift = True
+
+                gene_name = gene_feature['gene_name']
+                gene_len = gene_feature['gene_len']
+                positions = gene_feature['positions']
+                for s, e in positions:
+                    if gene_start == -1:
+                        gene_start = s
+                        gene_end = e
+                    else:
+                        if gene_start > s:
+                            gene_start = s
+                        if gene_end < e:
+                            gene_end = e
+                aln_gene_start = aln_refLookup[gene_start]
+                aln_gene_end = aln_refLookup[gene_end]
+                if aln_gene_start == aln_gene_end:
+                    aln_gene_seq = ref_seq[aln_gene_start:aln_gene_end + 1]
+                else:
+                    aln_gene_seq = ref_seq[aln_gene_start:aln_gene_end]
+                rel_var_start = abs(start - aln_gene_start)
+                rel_var_end = abs(end - aln_gene_start)
+                aa_var_start = int(rel_var_start / 3)
+                codon_var_start = aa_var_start * 3
+                var_len = rel_var_end - rel_var_start + 1
+                rem = 3 - var_len % 3
+                codon_var_end = int(codon_var_start + (var_len + rem))
+                aa_var_end = int(codon_var_end / 3)
+                if codon_var_end == 0:
+                    codon_var_end = codon_var_start + 3
+                ref_var_dna = aln_gene_seq[codon_var_start:codon_var_end].replace('-', '')
+                incr=0
+                while len(ref_var_dna) % 3 != 0:
+                    incr += 1
+                    ref_var_dna = ''.join(aln_gene_seq[codon_var_start:codon_var_end + incr]).replace('-', '')
+                    if incr + codon_var_end > gene_len:
+                        break
+                ref_var_aa = str(Seq(ref_var_dna).translate(table=trans_table))
+
+            if mutation_type == 'snp':
+                for kmer in selected_kmers[mutation_type][event]['ref']['kmers'][ref_var]:
+
+                    selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['is_cds'] = is_cds
+                    selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['is_silent'] = is_silent
+                    selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['is_frameshift'] = is_frameshift
+                    selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['gene_name'] = gene_name
+                    selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['gene_len'] = gene_len
+                    selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['ref_var'] = ref_var
+                    selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['target_var'] = ref_var
+                    selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['ref_var_dna'] = ref_var_dna
+                    selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['ref_var_aa'] = ref_var_aa
+                    if is_cds:
+                        selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer][
+                            'cds_start'] = codon_var_start
+                        selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer][
+                            'cds_end'] = codon_var_end - 1
+                        selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['aa_start'] = aa_var_start
+                        selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer]['aa_end'] = aa_var_end - 1
+                        selected_kmers[mutation_type][event]['ref']['kmers'][ref_var][kmer][
+                            'aa_name'] = "{}{}{}".format(ref_var_aa, aa_var_start, ref_var_aa)
+            else:
+                for kmer in selected_kmers[mutation_type][event]['ref']['kmers']:
+                    selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['is_cds'] = is_cds
+                    selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['is_silent'] = is_silent
+                    selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['is_frameshift'] = is_frameshift
+                    selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['gene_name'] = gene_name
+                    selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['gene_len'] = gene_len
+                    selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['ref_var'] = ref_var
+                    selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['target_var'] = ref_var
+                    selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['ref_var_dna'] = ref_var_dna
+                    selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['ref_var_aa'] = ref_var_aa
+                    if is_cds:
+                        selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['cds_start'] = codon_var_start
+                        selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['cds_end'] = codon_var_end - 1
+                        selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['aa_start'] = aa_var_start
+                        selected_kmers[mutation_type][event]['ref']['kmers'][kmer]['aa_end'] = aa_var_end - 1
+                        selected_kmers[mutation_type][event]['ref']['kmers'][kmer][
+                            'aa_name'] = "{}_{}_{}".format(mutation_type, aa_var_start, aa_var_end - 1)
+
+            if mutation_type == 'snp':
+                for base in selected_kmers[mutation_type][event]['alt']['kmers']:
+                    if len(selected_kmers[mutation_type][event]['alt']['kmers'][base]) == 0:
+                        continue
+                    for kmer in selected_kmers[mutation_type][event]['alt']['kmers'][base]:
+                        align_querySeq_kmer = selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['aSeq']
+                        akmer_start = selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['aStart']
+                        akmer_end = selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['aEnd']
+                        rel_alt_start = abs(start - akmer_start)
+                        rel_alt_end = rel_alt_start + var_len
+                        alt_var = align_querySeq_kmer[rel_alt_start:rel_alt_end]
+                        rel_alt_start = abs(start - gene_start)
+                        alt_var_aa = ''
+                        alt_var_dna = alt_var
+                        alt_seq = list(ref_seq)
+
+
+                        if is_cds:
+                            for i in range(akmer_start, akmer_end + 1):
+                                pos = i - akmer_start
+                                alt_seq[i] = align_querySeq_kmer[pos]
+
+                            alt_gene_seq = ''.join(alt_seq)[gene_start:]
+                            alt_gene_seq = alt_gene_seq.replace('-','')[0:gene_len]
+                            alt_gene_aa = str(Seq(alt_gene_seq).translate(table=trans_table))
+                            alt_var_dna = ''.join(alt_gene_seq[codon_var_start:codon_var_end]).replace('-', '')
+                            alt_var_aa = alt_gene_aa[aa_var_start:aa_var_end]
+                            selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['cds_start'] = codon_var_start
+                            selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['cds_end'] = codon_var_end - 1
+                            selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['aa_start'] = aa_var_start
+                            selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['aa_end'] = aa_var_end - 1
+                            selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['aa_name'] = "{}{}{}".format(ref_var_aa, aa_var_start, alt_var_aa)
+                            if alt_var_aa != ref_var_aa:
+                                is_silent = False
+                        selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['is_silent'] = is_silent
+                        selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['is_frameshift'] = is_frameshift
+                        selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['is_cds'] = is_cds
+                        selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['gene_name'] = gene_name
+                        selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['gene_len'] = gene_len
+                        selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['ref_var'] = ref_var
+                        selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['target_var'] = alt_var
+                        selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['alt_var_dna'] = alt_var_dna
+                        selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['alt_var_aa'] = alt_var_aa
+            else:
+                for kmer in selected_kmers[mutation_type][event]['alt']['kmers']:
+                    align_querySeq_kmer = selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['aSeq']
+                    akmer_start = selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['aStart']
+                    akmer_end = selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['aEnd']
+                    rel_alt_start = abs(start - akmer_start)
+                    rel_alt_end = rel_alt_start + var_len
+                    alt_var = align_querySeq_kmer[rel_alt_start:rel_alt_end]
+                    alt_var_aa = ''
+                    alt_var_dna = alt_var
+                    if is_cds:
+                        alt_seq = list(ref_seq)
+                        for i in range(akmer_start, akmer_end + 1):
+                            pos = i - akmer_start
+                            alt_seq[i] = align_querySeq_kmer[pos]
+
+                        alt_gene_seq = ''.join(alt_seq)[gene_start:]
+                        alt_gene_seq = alt_gene_seq.replace('-', '')[0:gene_len]
+                        alt_gene_aa = str(Seq(alt_gene_seq).translate(table=trans_table))
+                        alt_var_dna = ''.join(alt_gene_seq[codon_var_start:codon_var_end]).replace('-', '')
+                        alt_var_aa = alt_gene_aa[aa_var_start:aa_var_end]
+                        selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['cds_start'] = codon_var_start
+                        selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['cds_end'] = codon_var_end - 1
+                        selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['aa_start'] = aa_var_start
+                        selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['aa_end'] = aa_var_end - 1
+                        selected_kmers[mutation_type][event]['alt']['kmers'][kmer][
+                            'aa_name'] = "{}_{}_{}".format(mutation_type, aa_var_start, aa_var_end - 1)
+                        if alt_var_aa != ref_var_aa:
+                            is_silent = False
+
+                    selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['is_silent'] = is_silent
+                    selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['is_frameshift'] = is_frameshift
+                    selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['is_cds'] = is_cds
+                    selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['gene_name'] = gene_name
+                    selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['gene_len'] = gene_len
+                    selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['ref_var'] = ref_var
+                    selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['target_var'] = alt_var
+                    selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['alt_var_dna'] = alt_var_dna
+                    selected_kmers[mutation_type][event]['alt']['kmers'][kmer]['alt_var_aa'] = alt_var_aa
+
+    return selected_kmers
+
+def add_gene_inference_bck(selected_kmers, ref_seq, ref_id, reference_info, trans_table=1):
+
     aln_refLookup = create_aln_pos_from_unalign_pos(ref_seq)
     for mutation_type in selected_kmers:
         for event in selected_kmers[mutation_type]:
@@ -741,9 +943,12 @@ def add_gene_inference(selected_kmers, ref_seq, ref_id, reference_info, trans_ta
                         alt_var_dna = alt_var
                         if is_cds:
                             alt_seq = list(aln_gene_seq)
+
                             for i in range(0, len(alt_var_dna)):
                                 pos = i + rel_alt_start
+
                                 alt_seq[pos] = alt_var_dna[i]
+                                print("{}\t{}\t{}\t{}\t{}".format(pos, i, alt_var_dna, len(alt_seq), ''.join(alt_seq)))
                             alt_var_dna = ''.join(alt_seq[codon_var_start:codon_var_end]).replace('-', '')
                             alt_var_aa = str(Seq(alt_var_dna).translate(table=trans_table))
                             selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer][
@@ -813,6 +1018,7 @@ def add_gene_inference(selected_kmers, ref_seq, ref_id, reference_info, trans_ta
 
     return selected_kmers
 
+
 def select_snp_kmers(snp_variants, kLen, kmer_alignment_positions):
     variant_kmers = {}
     for aln_start in kmer_alignment_positions:
@@ -839,8 +1045,13 @@ def select_snp_kmers(snp_variants, kLen, kmer_alignment_positions):
                     'ref': {'count_var': 0, 'kmers': {'A': {}, 'T': {}, 'C': {}, 'G': {}}},
                     'alt': {'count_var': 0, 'kmers': {'A': {}, 'T': {}, 'C': {}, 'G': {}}}
                 }
-                is_new = True
-
+                #is_new = True
+            else:
+                #prev_count = variant_kmers[pos]['alt']['count_var']
+                #if prev_count > max_count_var:
+                continue
+                #else:
+                #    variant_kmers[pos][state]['kmers'][b] = {}
             ref_base = snp_variants[pos]['ref']
             if ref_base == '-':
                 continue
@@ -856,15 +1067,10 @@ def select_snp_kmers(snp_variants, kLen, kmer_alignment_positions):
                 if b != 'N' and b != ref_base and alt_bases[b] > 0:
                     state = 'alt'
 
-                if is_new:
-                    variant_kmers[pos][state]['count_var'] = max_count_var
-                    variant_kmers[pos][state]['kmers'][b][int(kmer)] = copy.deepcopy(
-                        kmer_alignment_positions[aln_start][kmer])
-                elif variant_kmers[pos][state]['count_var'] < max_count_var:
-                    variant_kmers[pos][state]['kmers'][b] = {}
-                    variant_kmers[pos][state]['count_var'] = max_count_var
-                    variant_kmers[pos][state]['kmers'][b][int(kmer)] = copy.deepcopy(
-                        kmer_alignment_positions[aln_start][kmer])
+                variant_kmers[pos][state]['count_var'] = max_count_var
+                variant_kmers[pos][state]['kmers'][b][int(kmer)] = copy.deepcopy(kmer_alignment_positions[aln_start][kmer])
+
+
     return variant_kmers
 
 def select_indel_kmers(indel_variants, kLen, kmer_alignment_positions):
@@ -1006,7 +1212,10 @@ def scheme_format(selected_kmers):
                         continue
                     alt_variant = base
                     for kmer in selected_kmers[mutation_type][event]['ref']['kmers'][ref_variant]:
-                        ref_aa = selected_kmers[mutation_type][event]['ref']['kmers'][ref_variant][kmer]['ref_var_aa']
+                        ref_aa = ''
+                        if 'ref_var_aa' in selected_kmers[mutation_type][event]['ref']['kmers'][ref_variant][kmer]:
+                            ref_aa = selected_kmers[mutation_type][event]['ref']['kmers'][ref_variant][kmer]['ref_var_aa']
+
                         kmer_info = selected_kmers[mutation_type][event]['ref']['kmers'][ref_variant][kmer]
                         if not 'target_var' in kmer_info:
                             continue
@@ -1018,7 +1227,9 @@ def scheme_format(selected_kmers):
                         kmer_info = selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]
                         if not 'target_var' in kmer_info:
                             continue
-                        target_aa = selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['alt_var_aa']
+                        target_aa = ''
+                        if 'alt_var_aa' in selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]:
+                            target_aa = selected_kmers[mutation_type][event]['alt']['kmers'][base][kmer]['alt_var_aa']
                         scheme[uid] = populate_fields(uid, mutation_type, vStart, vEnd, 'alt', ref_variant, alt_variant,ref_aa,target_aa,
                                                       kmer_info)
                         uid += 1
@@ -1239,6 +1450,7 @@ def run():
     logging.info("Reading genotype assignments from {}".format(input_meta))
     metadata_df = read_tsv(input_meta)
     logging.info("Found {} lines in {}".format(len(metadata_df), input_meta))
+    metadata_df['sample_id'] = metadata_df['sample_id'].astype(str)
     metadata_df['genotype'] = metadata_df['genotype'].astype(str)
     genotype_mapping = get_genotype_mapping(metadata_df)
 
@@ -1249,7 +1461,7 @@ def run():
     perform_annotation = False
     ref_features = {}
 
-    if len(ref_gbk) > 0:
+    if ref_gbk is not None:
         perform_annotation = True
         if os.path.isfile(ref_gbk):
             ref_features = parse_reference_sequence(ref_gbk)
@@ -1359,8 +1571,8 @@ def run():
 
     logging.info("stage-{}: Adding genotyping rules".format(stage))
     associate_genotype_rules(selected_kmers, genotype_kmer_fracs, min_ref_frac, min_alt_frac)
-    if len(ref_features) > 0:
-        add_gene_inference(selected_kmers, msa_info['ref_aln'], ref_id, ref_features, trans_table=1)
+    add_gene_inference(selected_kmers, msa_info['ref_aln'], ref_id, ref_features, trans_table=1)
+
 
     stage+=1
 
