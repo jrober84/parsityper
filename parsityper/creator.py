@@ -332,6 +332,8 @@ def process_aho_kmerResults(aho, num_kmers, seq_file, kLen):
     return {'kmer': kmer_results, 'samples': sample_results}
 
 def map_kmers(kMers, file_manifest, n_threads):
+    if len(kMers) == 0:
+        return {}
     kmer_index = {}
     i = 0
     for kmer in kMers:
@@ -1519,9 +1521,14 @@ def run():
     logging.info("stage-{}: Combining {} jellyfish files".format(stage, len(msa_info['unalign_files'])))
     seqKmers = filter_kmers(combine_jellyfish_results(msa_info['unalign_files']), min_kmer_count, max_kmer_count,
                             max_ambig, max_homo)
-
+    if len(seqKmers) == 0:
+        logging.info("Error something went wrong, no kmers found, try reducing the minimum kmer frequency")
+        sys.exit()
     logging.info("stage-{}: Perfoming k-mer searching using {} threads".format(stage, n_threads))
     aho_results = map_kmers(seqKmers, msa_info['subset_files'], n_threads)
+    if len(aho_results) == 0:
+        logging.info("Error something went wrong, no kmers found")
+        sys.exit()
     add_ref_kmer_info(aho_results, seqKmers, msa_info['ref_aln'], kLen)
 
     logging.info("stage-{}: Grouping k-mers by start position".format(stage))
