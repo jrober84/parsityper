@@ -685,6 +685,9 @@ def add_gene_inference(selected_kmers, ref_seq, ref_id, reference_info, trans_ta
                         break
                 ref_var_aa = str(Seq(ref_var_dna).translate(table=trans_table))
 
+            if ref_var == '':
+                continue
+
             if mutation_type == 'snp':
                 for kmer in selected_kmers[mutation_type][event]['ref']['kmers'][ref_var]:
 
