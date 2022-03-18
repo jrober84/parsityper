@@ -1490,6 +1490,10 @@ def run():
         sys.exit()
     align_len = msa_info['align_len']
     num_sequences = len(msa_info['seq_ids'])
+    if num_sequences < min_kmer_count:
+        logging.info("Error you have specified a min_kmer_freq greater than the number of samples")
+        sys.exit()
+
     max_kmer_count = num_sequences
 
 
