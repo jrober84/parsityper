@@ -183,13 +183,12 @@ def mafft_add_seq(input_ref_seq,input_msa,output,n_threads):
     p = Popen(['mafft', '--add',input_ref_seq,
                '--auto', '--quiet', '--thread',"{}".format(n_threads),
                input_msa],
-              shell=True,
               stdin=PIPE,
               stdout=fh,
               stderr=PIPE)
-
     stdout, stderr = p.communicate()
     stderr = stderr.decode('utf-8')
+    p.wait()
     fh.close()
     return (stderr)
 
