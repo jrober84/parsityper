@@ -33,7 +33,7 @@ def parse_args():
                         default=1)
     parser.add_argument('--max_homo', type=int, required=False,
                         help='Absolute maximum of homopolymer run default=20% of kmer len')
-    parser.add_argument('--max_samples', type=int, required=False, help='Maximum number of samples per genotype',default=296)
+    parser.add_argument('--max_samples', type=int, required=False, help='Maximum number of samples per genotype',default=100)
     parser.add_argument('--min_length', type=int, required=False, help='Minimum sequence length',default=-1)
     parser.add_argument('--max_ambig', type=int, required=False,
                         help='Maximum number of ambiguous characters',default=0)
@@ -739,6 +739,6 @@ def run():
     write_individual_files(datasets, sample_mapping, test_dir, train_dir, iupac_replacement, fasta_file)
 
     #Delete interim files
-    shutil.rmtree(analysis_dir)
+    #shutil.rmtree(analysis_dir)
     print("{}\t{}".format(num_samples,time.time() - stime))
 
