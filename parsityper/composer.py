@@ -189,7 +189,6 @@ def mafft_add_seq(input_ref_seq,input_msa,output,n_threads):
               stderr=PIPE)
 
     stdout, stderr = p.communicate()
-    p.wait()
     stderr = stderr.decode('utf-8')
     fh.close()
     return (stderr)
