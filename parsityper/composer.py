@@ -179,16 +179,16 @@ def parse_mafft(out):
     return seqs
 
 def mafft_add_seq(input_ref_seq,input_msa,output,n_threads):
-    fh = open(output,'w')
     p = Popen(['mafft', '--add',input_ref_seq,
                '--auto', '--quiet', '--thread',"{}".format(n_threads),
                input_msa],
-              stdin=PIPE,
-              stdout=fh,
+              stdout=PIPE,
               stderr=PIPE)
     stdout, stderr = p.communicate()
     stderr = stderr.decode('utf-8')
     p.wait()
+    fh = open(output, 'wb')
+    fh.write(stdout)
     fh.close()
     return (stderr)
 
@@ -681,7 +681,7 @@ def run():
 
     print("Aligning selected sequences with reference sequence")
     stime = time.time()
-    out_fasta_file = os.path.join(analysis_dir,"aln.fasta")
+    out_fasta_file = os.path.join(analysis_dir,"aln.tmp.fasta")
     mafft_add_seq(source_file,target_file, out_fasta_file, n_threads)
     final_fasta = os.path.join(outdir,"selected_seqs.fasta")
     print(time.time() - stime)
