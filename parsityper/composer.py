@@ -742,7 +742,3 @@ def run():
     shutil.rmtree(analysis_dir)
     print("{}\t{}".format(num_samples,time.time() - stime))
 
-
-# call main function
-if __name__ == '__main__':
-    run()
