@@ -1437,7 +1437,7 @@ def run():
         logging.info("Creating analysis directory {}".format(out_dir))
         os.mkdir(out_dir, 0o755)
     if max_homo is None:
-        max_homo = kLen
+        max_homo = int(kLen * 0.2)
 
 
     logging.info("Performing parsityper creator analysis")
