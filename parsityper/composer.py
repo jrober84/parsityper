@@ -179,21 +179,15 @@ def parse_mafft(out):
     return seqs
 
 def mafft_add_seq(input_ref_seq,input_msa,output,n_threads):
+    fh = open(output,'w')
     p = Popen(['mafft', '--add',input_ref_seq,
                '--auto', '--quiet', '--thread',"{}".format(n_threads),
                input_msa],
-              stdout=PIPE,
+              stdin=PIPE,
+              stdout=fh,
               stderr=PIPE)
     stdout, stderr = p.communicate()
-    stderr = stderr.decode('utf-8')
-    print(stdout.decode('utf-8'))
-    print(stderr)
-    p.wait()
-    fh = open(output, 'wb')
-    fh.write(stdout)
-    fh.flush()
     fh.close()
-    sys.stdout.flush()
     return (stderr)
 
 
@@ -670,7 +664,7 @@ def run():
     del(consensus_seqs['spacer'])
     for seq_id in consensus_seqs:
         sourceFH.write(">{}\n{}\n".format(seq_id,consensus_seqs[seq_id]))
-
+    sourceFH.close()
     # Merge genotype sequences to file
     target_file = os.path.join(analysis_dir,"alt.fasta")
     mergeFH = open(target_file ,'w')
