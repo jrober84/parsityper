@@ -1,7 +1,7 @@
 #!/usr/bin/python
 import logging
 import multiprocessing as mp
-import os
+import os, time
 import sys
 from argparse import (ArgumentParser)
 from scipy.stats import entropy
@@ -14,7 +14,7 @@ def parse_args():
     parser = ArgumentParser(description='Parsityper genotype tuning')
     parser.add_argument('--input_meta', type=str, required=True,
                         help='TSV file of sample_id,genotype')
-    parser.add_argument('--input_profile', type=str, required=False,
+    parser.add_argument('--input_profile', type=str, nargs='+',required=True,
                         help='Pre-computed kmer result profile for samples')
     parser.add_argument('--scheme', type=str, required=True,
                         help='TSV formated kmer scheme')
@@ -58,30 +58,28 @@ def get_genotype_mapping(metadata_df):
         mapping[sample_id] = genotype
     return mapping
 
-def get_genotype_kmer_counts(sample_mapping,kmer_file,min_cov=1):
+def get_genotype_kmer_counts(sample_mapping,kmer_file,num_kmers,min_cov=1):
     genotypes = sorted(list(set(list(sample_mapping.values()))))
     genotype_kmer_counts = {}
     for genotype in genotypes:
-        genotype_kmer_counts[genotype] = []
-    uid = 0
+        genotype_kmer_counts[genotype] = [0] * num_kmers
+
     kmer_counts = {}
+    for i in range(0,num_kmers):
+        kmer_counts[i] = 0
     kmer_FH = open(kmer_file,'r')
     samples = next(kmer_FH).rstrip().split("\t")[1:]
     sample_range = range(1,len(samples))
+    uid = 0
     for line in kmer_FH:
-        if not uid in kmer_counts:
-            kmer_counts[uid] = 0
-        for genotype in genotypes:
-            genotype_kmer_counts[genotype].append(0)
-        row = line.rstrip().split(0)
+        row = line.rstrip().split("\t")
         for i in sample_range:
             sample_id = samples[i]
             genotype = sample_mapping[sample_id]
-            value = row[i]
-            if value > min_cov:
+            value = int(row[i])
+            if value >= min_cov:
                 genotype_kmer_counts[genotype][uid]+=1
                 kmer_counts[uid]+=1
-
         uid+=1
     return {'genotype_kmer_counts':genotype_kmer_counts,'kmer_counts':kmer_counts}
 
@@ -110,7 +108,15 @@ def determine_genotype_kmer_assoc(genotype_kmer_counts,genotype_counts,scheme_in
     rules = {}
     sEntropy = {}
     min_par_frac = max([1 - min_alt_frac, 1 - min_ref_frac])
+    uid_range = range(0,len(scheme_info['uid_to_state']))
+    uid_geno_counts = {}
+    for uid in uid_range:
+        uid_geno_counts[uid] = {}
+        for genotype in genotype_kmer_counts:
+            uid_geno_counts[uid][genotype] = 0
     for genotype in genotype_kmer_counts:
+        if not genotype in genotype_counts:
+            continue
         genotype_count = genotype_counts[genotype]
         rules[genotype] = {'positive_uids':[],
                            'positive_ref':[],
@@ -118,17 +124,21 @@ def determine_genotype_kmer_assoc(genotype_kmer_counts,genotype_counts,scheme_in
                            'partial_uids':[],
                            'partial_ref':[],
                            'partial_alt':[]}
-        for uid,value in enumerate(genotype_kmer_counts[genotype]):
+        for uid in uid_range:
+            value = genotype_kmer_counts[genotype][uid]
             if value == 0:
                 continue
+            uid_geno_counts[uid][genotype] = value
             state = scheme_info['uid_to_state'][uid]
+
             frac = value / genotype_count
+
             if frac < min_par_frac:
                 continue
             if state == 'ref' and frac >= min_ref_frac:
                 rules[genotype]['positive_uids'].append(uid)
                 rules[genotype]['positive_ref'].append(uid)
-            elif state == 'alt' and frac >= min_alt_freq:
+            elif state == 'alt' and frac >= min_alt_frac:
                 rules[genotype]['positive_uids'].append(uid)
                 rules[genotype]['positive_alt'].append(uid)
             elif state == 'ref' and frac >= min_par_frac:
@@ -138,10 +148,11 @@ def determine_genotype_kmer_assoc(genotype_kmer_counts,genotype_counts,scheme_in
                 rules[genotype]['partial_uids'].append(uid)
                 rules[genotype]['partial_alt'].append(uid)
 
-        sEntropy[uid] = calc_shanon_entropy(list(genotype_kmer_counts[genotype].values()))
+
+            #sEntropy[uid] = calc_shanon_entropy(genotype_kmer_counts[genotype])
 
     kmer_rules = {}
-    for uid,value in enumerate(genotype_kmer_counts[genotype]):
+    for uid in scheme_info['uid_to_state']:
         kmer_rules[uid] = {
             'positive_genotypes': [],
             'partial_genotypes':[]
@@ -152,6 +163,9 @@ def determine_genotype_kmer_assoc(genotype_kmer_counts,genotype_counts,scheme_in
             kmer_rules[uid]['positive_genotypes'].append(genotype)
         for uid in rules[genotype]['partial_uids']:
             kmer_rules[uid]['partial_genotypes'].append(genotype)
+
+    for uid in uid_geno_counts:
+        sEntropy[uid] = calc_shanon_entropy( list(uid_geno_counts[uid].values()))
 
     return {'geno_rules':rules,'entropy':sEntropy,'kmer_rules':kmer_rules}
 
@@ -194,7 +208,8 @@ def filter_missing_sites(kmer_counts,scheme_info,max_missing_count):
 def update_scheme(input_scheme,output_scheme,valid_uids,kmer_geno_rules,kmer_entropies):
     in_FH = open(input_scheme,'r')
     out_FH = open(output_scheme, 'w')
-    header = next(in_FH).rtrim().split('\t')
+    header = next(in_FH).strip().split('\t')
+    header_len = len(header)
     out_FH.write("{}\n".format("\t".join(header)))
     uid_col = 0
     entropy_col = header.index('entropy')
@@ -202,13 +217,18 @@ def update_scheme(input_scheme,output_scheme,valid_uids,kmer_geno_rules,kmer_ent
     par_col = header.index('partial_genotypes')
     uid = 0
     for line in in_FH:
-        row = line.rtrim().split('\t')
+        row = line.strip().split('\t')
+        row_len = len(row)
+        row += ['']* (header_len - row_len)
         row_uid = int(row[uid_col])
         if not row_uid in valid_uids:
             row[uid_col] = uid
-        row[entropy_col] = kmer_entropies[row_uid]
+        if row_uid in kmer_entropies:
+            row[entropy_col] = kmer_entropies[row_uid]
+
         row[pos_col] = ','.join(kmer_geno_rules[row_uid]['positive_genotypes'])
         row[par_col] = ','.join(kmer_geno_rules[row_uid]['partial_genotypes'])
+
         out_FH.write("{}\n".format("\t".join([str(x) for x in row])))
         uid+=1
     out_FH.close()
@@ -219,18 +239,19 @@ def run():
     # input parameters
     cmd_args = parse_args()
     input_meta = cmd_args.input_meta
-    input_profile = cmd_args.in_profile
+    input_profile = cmd_args.input_profile
     scheme_file = cmd_args.scheme
     prefix = cmd_args.prefix
     min_cov = int(cmd_args.min_cov)
     only_update = cmd_args.update
     min_alt_frac = cmd_args.min_alt_frac
     min_ref_frac = cmd_args.min_ref_frac
-    min_alt_freq = cmd_args.min_positive_freq
+    min_alt_freq = cmd_args.min_alt_freq
 
     max_frac_missing = cmd_args.max_frac_missing
     outdir = cmd_args.outdir
     logger = init_console_logger(2)
+
 
     #result files
     scheme_outfile = os.path.join(outdir,"{}-scheme.txt".format(prefix))
@@ -262,15 +283,26 @@ def run():
     scheme = parseScheme(scheme_file)
     scheme_info = constructSchemeLookups(scheme)
 
-    #Read Kmer header
-    if not os.path.isfile(input_profile):
-        logger.error("Error profile {} does not exist".format(input_profile))
-        sys.exit()
+    # Read Kmer header
+    profile_samples = []
+    for file in input_profile:
+        if not os.path.isfile(file):
+            logger.error("Error profile {} does not exist".format(file))
+            sys.exit()
 
-    kmer_FH = open(input_profile,'r')
-    header = next(kmer_FH).rstrip().split("\t")
-    kmer_FH.close()
-    profile_samples = header[1:]
+        kmer_FH = open(file,'r')
+        header = next(kmer_FH).rstrip().split("\t")
+        kmer_FH.close()
+        profile_samples += header[1:]
+
+    filt = {}
+    for sample_id in profile_samples:
+        if sample_id in sample_mapping:
+            filt[sample_id] = sample_mapping[sample_id]
+    sample_mapping = filt
+    genotype_counts = get_genotype_counts(sample_mapping)
+    num_genotypes = len(genotype_counts)
+
 
     #Confirm all samples in profile exist in metadata
     ovl = set(profile_samples) & set(list(sample_mapping.keys()))
@@ -278,22 +310,34 @@ def run():
         logger.error("Sample id's in profile are not present in metadata {}".format(set(profile_samples) - set(list(sample_mapping.keys()))))
         sys.exit()
 
-    logger.info("Found {} samples in profile {}".format(len(profile_samples),input_profile))
+    num_kmers = len(scheme_info['uid_to_state'])
+    logger.info("Found {} samples in all profiles".format(len(profile_samples)))
+    kdata = {'genotype_kmer_counts':{},'kmer_counts':{}}
+    for genotype in genotype_counts:
+        kdata['genotype_kmer_counts'][genotype] = [0] * num_kmers
+    for uid in range(0,num_kmers):
+        kdata['kmer_counts'][uid] = 0
+    stime = time.time()
+    for file in input_profile:
+        logging.info("Reading profile from {}".format(file))
+        data = get_genotype_kmer_counts(sample_mapping, file, num_kmers, min_cov)
+        for genotype in data['genotype_kmer_counts']:
+            for uid,value in enumerate(data['genotype_kmer_counts'][genotype]):
+                kdata['genotype_kmer_counts'][genotype][uid]+= value
+                kdata['kmer_counts'][uid]+=value
+    print(time.time() - stime)
 
-    kdata = get_genotype_kmer_counts(sample_mapping, input_profile, min_cov)
-
-    genotype_counts = get_genotype_counts(sample_mapping)
-    num_genotypes = len(genotype_counts)
+    stime = time.time()
+    logger.info("Associating kmers")
     assoc_data = determine_genotype_kmer_assoc(kdata['genotype_kmer_counts'], genotype_counts, scheme_info, min_ref_frac, min_alt_frac,
                                   min_alt_freq)
-
-    assoc_data['kmer_rules'] = blank_invalid_rules(assoc_data['kmer_rules'], num_genotypes, scheme_info)
+    print(time.time() - stime)
     valid_uids = list(assoc_data['kmer_rules'].keys())
     if only_update:
         rules = scheme_info['genotype_rule_sets']
         kmer_rules = {}
         for uid in assoc_data['kmer_rules']:
-            kmer_rules[uid] = {'positive_uids':[],'partial_genotypes':[]}
+            kmer_rules[uid] = {'positive_genotypes':[],'partial_genotypes':[]}
         for genotype in rules:
             if genotype not in genotype_counts:
                 for uid in rules[genotype]['positive_uids']:
@@ -310,7 +354,7 @@ def run():
 
     else:
         valid_uids = list( set(valid_uids) - set(filter_missing_sites(kdata['kmer_counts'], scheme_info, max_missing_count)))
-
+        #assoc_data['kmer_rules'] = blank_invalid_rules(assoc_data['kmer_rules'], num_genotypes, scheme_info)
 
     update_scheme(scheme_file, scheme_outfile, valid_uids, assoc_data['kmer_rules'], assoc_data['entropy'])
 

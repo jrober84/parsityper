@@ -156,12 +156,12 @@ def constructSchemeLookups(scheme):
                 for g in pos:
                     profiles['genotype_rule_sets'][g]['positive_uids'].append(uid)
                     if state == 'ref':
-                        mutation_profiles[g][i] = 0
+                        mutation_profiles[g][i] = 0.0
                         profiles['genotype_rule_sets'][g]['positive_ref'].append(uid)
                     else:
                         profiles['genotype_rule_sets'][g]['positive_alt'].append(uid)
-                        mutation_profiles[g][i] = 1
-                    kmer_profiles[g][uid] = 1
+                        mutation_profiles[g][i] = 1.0
+                    kmer_profiles[g][uid] = 1.0
                 for g in par:
                     profiles['genotype_rule_sets'][g]['partial_uids'].append(uid)
                     if state == 'ref':

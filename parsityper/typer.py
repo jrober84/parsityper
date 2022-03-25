@@ -336,6 +336,7 @@ def comp_mutation_profiles(mutation_fracs,scheme_info):
                 qBase = genotype_profiles[genotype][i]
                 if qBase != 0.5 and rBase != -1:
                     total+=1
+
                 if rBase == -1 or qBase == -1 or qBase == 0.5 or rBase == qBase or (rBase > 0 and rBase < 1):
                     continue
                 dist+=1
@@ -344,6 +345,7 @@ def comp_mutation_profiles(mutation_fracs,scheme_info):
                 dists[sample_id][genotype] = dist / total
             else:
                 dists[sample_id][genotype] = -1
+
     return dists
 
 def comp_kmer_profiles(kmer_counts,scheme_info,n_threads=1):
@@ -378,7 +380,6 @@ def comp_kmer_profiles(kmer_counts,scheme_info,n_threads=1):
             uids = mutation_to_uid[mutation_key]
             if len(detected_mut_kmers) == 0:
                 exclude_sites += uids
-                continue
 
         exclude_sites = set(exclude_sites)
         valid_kmers = kmer_set - exclude_sites
@@ -405,11 +406,13 @@ def calc_geno_dist(sample_id,detected_kmers,exclude_sites,valid_kmers,geno_rules
         informative_uids = genotype_inf_kmers[genotype] & valid_kmers
         num_inf = len(informative_uids)
         if num_inf > 0:
-            matched = detected_kmers & informative_uids
-            genotype_req_uids = geno_rules[genotype]['positive_uids'] - exclude_sites
-            mismatched = genotype_req_uids - matched
+
+            genotype_req_uids = geno_rules[genotype]['positive_uids'] & valid_kmers
+            matched = detected_kmers & genotype_req_uids
+            mismatched = (genotype_req_uids - matched)
             dist = len(mismatched) / num_inf
         dists[sample_id][genotype] = dist
+
     return dists
 
 def create_seq_manifest(input_dir):
@@ -1426,8 +1429,9 @@ def run():
         kmer_counts = filter_contam_kmers(kmer_counts, no_template_control, scheme_info, min_cov_frac)
     logger.info("Calculating genotype distances for {} samples accross {} genotypes".format(len(sampleManifest),len(scheme_info['genotypes'])))
 
-    mutation_fracs = calc_site_frac(kmer_counts, scheme_info)
+
     kmer_geno_dists = comp_kmer_profiles(kmer_counts, scheme_info)
+    mutation_fracs = calc_site_frac(kmer_counts, scheme_info)
 
     mutation_geno_dists = comp_mutation_profiles(mutation_fracs, scheme_info)
 
