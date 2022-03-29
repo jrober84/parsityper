@@ -354,7 +354,8 @@ def run():
 
     else:
         valid_uids = list( set(valid_uids) - set(filter_missing_sites(kdata['kmer_counts'], scheme_info, max_missing_count)))
-        #assoc_data['kmer_rules'] = blank_invalid_rules(assoc_data['kmer_rules'], num_genotypes, scheme_info)
+        if num_genotypes > 1:
+            assoc_data['kmer_rules'] = blank_invalid_rules(assoc_data['kmer_rules'], num_genotypes, scheme_info)
 
     update_scheme(scheme_file, scheme_outfile, valid_uids, assoc_data['kmer_rules'], assoc_data['entropy'])
 
