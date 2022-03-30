@@ -406,11 +406,14 @@ def calc_geno_dist(sample_id,detected_kmers,exclude_sites,valid_kmers,geno_rules
         informative_uids = genotype_inf_kmers[genotype] & valid_kmers
         num_inf = len(informative_uids)
         if num_inf > 0:
-
             genotype_req_uids = geno_rules[genotype]['positive_uids'] & valid_kmers
             matched = detected_kmers & genotype_req_uids
             mismatched = (genotype_req_uids - matched)
             dist = len(mismatched) / num_inf
+            if genotype == '21L_(Omicron)' or genotype == '19A':
+                print("{}\n{}\n{}\n{}".format(dist,num_inf,matched,mismatched))
+        if len(matched) == 0:
+            dist = 1
         dists[sample_id][genotype] = dist
 
     return dists
