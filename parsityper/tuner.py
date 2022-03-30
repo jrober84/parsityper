@@ -412,7 +412,12 @@ def run():
         valid_uids = list( set(valid_uids) - set(filter_missing_sites(kdata['kmer_counts'], scheme_info, max_missing_count)))
         if num_genotypes > 1:
             assoc_data['kmer_rules'] = blank_invalid_rules(assoc_data['kmer_rules'], num_genotypes, scheme_info)
-
+        invalid_uids = set(list(scheme_info['uid_to_state'].keys())) - valid_uids
+        for uid in invalid_uids:
+            assoc_data['kmer_rules'][uid] = {
+            'positive_genotypes': [],
+            'partial_genotypes':[]
+        }
     if no_mixed:
         valid_uids = list(set(valid_uids) - set(list(kdata['mixed_sites'].keys())))
 
