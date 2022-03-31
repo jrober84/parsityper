@@ -143,8 +143,8 @@ def perform_kmer_searching(seqManifest,scheme_info,min_cov,n_threads=1):
     fastq_files = []
     for sample_id in seqManifest:
         fileType = seqManifest[sample_id]['file_type']
+        read_set = seqManifest[sample_id]['raw_seq_files']
         if fileType == 'fasta':
-            read_set = seqManifest[sample_id]['raw_seq_files']
             fasta_files.append(read_set[0])
         elif fileType == 'fastq':
             fastq_files.append(read_set)
