@@ -144,6 +144,7 @@ def determine_genotype_kmer_assoc(genotype_kmer_counts,genotype_counts,scheme_in
         uid_geno_counts[uid] = {}
         for genotype in genotype_kmer_counts:
             uid_geno_counts[uid][genotype] = 0
+    stime = time.time()
     for genotype in genotype_kmer_counts:
         if not genotype in genotype_counts:
             continue
@@ -177,23 +178,24 @@ def determine_genotype_kmer_assoc(genotype_kmer_counts,genotype_counts,scheme_in
             elif state == 'alt' and frac >= min_par_frac:
                 rules[genotype]['partial_uids'].append(uid)
                 rules[genotype]['partial_alt'].append(uid)
-
+    print(time.time() - stime)
     kmer_rules = {}
     for uid in scheme_info['uid_to_state']:
         kmer_rules[uid] = {
             'positive_genotypes': [],
             'partial_genotypes':[]
         }
-
+    stime = time.time()
     for genotype in rules:
         for uid in rules[genotype]['positive_uids']:
             kmer_rules[uid]['positive_genotypes'].append(genotype)
         for uid in rules[genotype]['partial_uids']:
             kmer_rules[uid]['partial_genotypes'].append(genotype)
-
+    print(time.time() - stime)
+    stime = time.time()
     for uid in uid_geno_counts:
         sEntropy[uid] = calc_shanon_entropy( list(uid_geno_counts[uid].values()))
-
+    print(time.time() - stime)
     return {'geno_rules':rules,'entropy':sEntropy,'kmer_rules':kmer_rules}
 
 def blank_invalid_rules(kmer_rules,num_genotypes,scheme_info):
@@ -253,9 +255,8 @@ def filter_missing_sites(kmer_counts,scheme_info,max_missing_count):
         count_present = 0
         for uid in uids:
              count_present+= kmer_counts[uid]
-        if count_present > max_missing_count:
+        if count_present < max_missing_count:
             invalid_kmers += uids
-
     return invalid_kmers
 
 
@@ -272,20 +273,24 @@ def update_scheme(input_scheme,output_scheme,valid_uids,kmer_geno_rules,kmer_ent
     uid = 0
     buffer = []
     buffer_lines = 0
+    stime = time.time()
     for line in in_FH:
         row = line.strip().split('\t')
         row_len = len(row)
         row += ['']* (header_len - row_len)
         row_uid = int(row[uid_col])
         if not row_uid in valid_uids:
-            row[uid_col] = uid
+            continue
         if row_uid in kmer_entropies:
             row[entropy_col] = kmer_entropies[row_uid]
-
+        row[0] = uid
         row[pos_col] = ','.join(kmer_geno_rules[row_uid]['positive_genotypes'])
         row[par_col] = ','.join(kmer_geno_rules[row_uid]['partial_genotypes'])
         buffer.append("{}\n".format("\t".join([str(x) for x in row])))
         buffer_lines+=1
+        if buffer_lines % 100000 == 0:
+            print(time.time() - stime)
+            stime = time.time()
         if buffer_lines == 1000000:
             out_FH.write("".join(buffer))
             buffer = []
@@ -412,8 +417,6 @@ def run():
             if not uid in kdata['mixed_sites']:
                 kdata['mixed_sites'][uid] = 0
             kdata['mixed_sites'][uid]+= data['mixed_sites'][uid]
-
-    print(time.time() - stime)
     out_str = []
     for uid in kdata['mixed_sites']:
         row = []
@@ -433,7 +436,7 @@ def run():
     logger.info("Associating kmers")
     assoc_data = determine_genotype_kmer_assoc(kdata['genotype_kmer_counts'], genotype_counts, scheme_info, min_ref_frac, min_alt_frac,
                                   min_alt_freq)
-
+    logger.info("Populating rule sets")
     valid_uids = list(assoc_data['kmer_rules'].keys())
     if only_update:
         rules = scheme_info['genotype_rule_sets']
@@ -455,6 +458,7 @@ def run():
         assoc_data['kmer_rules'] = kmer_rules
 
     else:
+        logger.info("Filtering scheme sites which are present in less than {} samples".format(max_missing_count))
         valid_uids = list( set(valid_uids) - set(filter_missing_sites(kdata['kmer_counts'], scheme_info, max_missing_count)))
         if num_genotypes > 1:
             assoc_data['kmer_rules'] = blank_invalid_rules(assoc_data['kmer_rules'], num_genotypes, scheme_info)
