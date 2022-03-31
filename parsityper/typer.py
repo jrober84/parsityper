@@ -168,9 +168,9 @@ def perform_kmer_searching(seqManifest,scheme_info,min_cov,n_threads=1):
         if fileType == 'fasta':
             continue
         if n_threads > 1:
-            res.append( pool.apply_async(ksearch_fastq_lite, (aho, num_kmers, read_set)))
+            res.append( pool.apply_async(ksearch_fastq_lite, (aho, num_kmers, sample_id, read_set)))
         else:
-            kmer_counts.update( ksearch_fastq_lite(aho, num_kmers, read_set))
+            kmer_counts.update( ksearch_fastq_lite(aho, num_kmers, sample_id, read_set))
 
     if n_threads > 1:
         pool.close()
