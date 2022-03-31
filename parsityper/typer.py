@@ -86,7 +86,7 @@ def parse_args():
                         default=-1)
     parser.add_argument('--min_genome_cov_depth', type=int, required=False,
                         help='Flag samples where the raw sequencing depth is too low',
-                        default=40)
+                        default=200)
     parser.add_argument('--min_cov', type=int, required=False,
                         help='Absolute minimum kmer coverage for fastq read detection default=auto determine coverage',
                         default=50)
@@ -165,6 +165,10 @@ def perform_kmer_searching(seqManifest,scheme_info,min_cov,n_threads=1):
 
     for sample_id in seqManifest:
         fileType = seqManifest[sample_id]['file_type']
+        if len(seqManifest[sample_id]['processed_reads']) == 0:
+            read_set = seqManifest[sample_id]['raw_seq_files']
+        else:
+            read_set = seqManifest[sample_id]['processed_reads']
         if fileType == 'fasta':
             continue
         if n_threads > 1:
@@ -410,8 +414,6 @@ def calc_geno_dist(sample_id,detected_kmers,exclude_sites,valid_kmers,geno_rules
             matched = detected_kmers & genotype_req_uids
             mismatched = (genotype_req_uids - matched)
             dist = len(mismatched) / num_inf
-            if genotype == '21L_(Omicron)' or genotype == '19A':
-                print("{}\n{}\n{}\n{}".format(dist,num_inf,matched,mismatched))
         if len(matched) == 0:
             dist = 1
         dists[sample_id][genotype] = dist
@@ -749,9 +751,9 @@ def QA_results(sampleManifest,min_coverage_depth,max_missing_sites,min_genome_si
 
         if cov < min_coverage_depth and sampleManifest[sample_id]['file_type'] == 'fastq':
             sampleManifest[sample_id]['qc_messages'].append('Fail: low sequencing coverage {}'.format(cov))
+        else:
+            sampleManifest[sample_id]['estimated_genome_cov'] = 1
 
-        #print(sampleManifest[sample_id]['total_scheme_mutations'] )
-        #print(sampleManifest[sample_id]['num_detected_scheme_mutations'])
         missing = sampleManifest[sample_id]['total_scheme_mutations'] - sampleManifest[sample_id]['num_detected_scheme_mutations']
 
         if missing > max_missing_sites:
@@ -824,6 +826,7 @@ def process_reads(sampleManifest,perform_read_correction,read_dir,seqTech,fastp_
         if genomeSize > 0:
             sampleManifest[sampleID]['estimated_genome_cov'] = sampleManifest[sampleID]['total_bases_pre'] / genomeSize
 
+
         if len(read_set) == 2:
             sampleManifest[sampleID]['read_mean_len_pre'] = (
             fastp_results['summary']["before_filtering"]["read1_mean_length"])
@@ -878,7 +881,7 @@ def calc_genome_size(sampleManifest,outdir,min_cov,kLen=21,n_threads=1):
     for sample_id in results:
         for field in results[sample_id]:
             sampleManifest[sample_id][field] = results[sample_id][field]
-
+        sampleManifest[sample_id]['estimated_genome_cov'] = sampleManifest[sample_id]['total_bases_pre'] / sampleManifest[sample_id]['est_genome_size']
     return sampleManifest
 
 def add_genotype_info(sampleManifest,scheme_info,mutation_fracs,genotype_assignments):
@@ -932,7 +935,8 @@ def add_kmer_count_data(sampleManifest,mutation_fracs,scheme_info,kmer_counts):
                 detected_kmers_vals.append(val)
         sampleManifest[sample_id]['detected_scheme_kmers'] = detected_kmers_ids
         sampleManifest[sample_id]['num_detected_scheme_kmers'] = len(detected_kmers_ids)
-        sampleManifest[sample_id]['ave_scheme_kmers_freq'] = statistics.mean(detected_kmers_vals)
+        if len(detected_kmers_vals) > 0:
+            sampleManifest[sample_id]['ave_scheme_kmers_freq'] = statistics.mean(detected_kmers_vals)
         detected_mut = {}
         num_detected_mut = 0
         for idx,frac in enumerate(mutation_fracs[sample_id]):
@@ -1460,8 +1464,10 @@ def run():
 
     logging.info("Adding kmer results to manifest")
     sampleManifest = add_kmer_count_data(sampleManifest, mutation_fracs, scheme_info, kmer_counts)
+
     logging.info("Adding genotyping results to manifest")
     sampleManifest = add_genotype_info(sampleManifest, scheme_info, mutation_fracs, genotype_assignments)
+
     logging.info("Performing QA on samples")
     sampleManifest = QA_results(sampleManifest, min_genome_cov_depth, max_missing_sites, min_genome_size, max_genome_size,max_mixed_sites)
 

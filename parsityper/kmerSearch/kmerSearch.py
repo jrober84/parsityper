@@ -329,5 +329,4 @@ def ksearch_fastq_lite(aho, num_kmers, seq_id,fastqs):
         for _, sequence in parse_fastq(fastq):
             for idx, (kIndex, kmer_seq, _) in aho.iter(sequence):
                 sample_results[int(kIndex)] += 1
-
     return {seq_id: sample_results}
