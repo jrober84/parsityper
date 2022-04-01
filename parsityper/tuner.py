@@ -94,6 +94,7 @@ def get_genotype_kmer_counts(sample_mapping,kmer_file,scheme_info,num_kmers,min_
                 genotype_kmer_counts[genotype][uid]+=1
                 kmer_counts[uid]+=1
         uid+=1
+
     if num_kmers != uid:
         logging.error("The number of rows in the profile do not match the number of scheme kmers. Check that it is not truncated")
         logging.error(
@@ -241,7 +242,6 @@ def calc_site_frac(kmer_counts, scheme_info):
                     count_alt += kmer_counts[sample_id][uid]
             if site_total_freq == 0:
                 continue
-
             frac = count_alt / site_total_freq
             fracs[sample_id][i] = frac
 
@@ -260,7 +260,7 @@ def filter_missing_sites(kmer_counts,scheme_info,max_missing_count):
     return invalid_kmers
 
 
-def update_scheme(input_scheme,output_scheme,valid_uids,kmer_geno_rules,kmer_entropies):
+def update_scheme_valid_slow(input_scheme,output_scheme,valid_uids,kmer_geno_rules,kmer_entropies):
     in_FH = open(input_scheme,'r')
     out_FH = open(output_scheme, 'w')
     header = next(in_FH).strip().split('\t')
@@ -319,7 +319,25 @@ def update_scheme_bck(input_scheme,output_scheme,valid_uids,kmer_geno_rules,kmer
     out_df = pd.DataFrame.from_dict(out_rows,orient='index')
     out_df.to_csv(output_scheme,sep="\t",header=True,index=False)
 
+def update_scheme(input_scheme,output_scheme,valid_uids,kmer_geno_rules,kmer_entropies):
+    df = read_tsv(input_scheme)
+    positive_genotypes = []
+    partial_genotypes = []
+    entropies = []
+    for uid in kmer_geno_rules:
+        positive_genotypes.append(','.join(kmer_geno_rules[uid]['positive_genotypes']))
+        partial_genotypes.append(','.join(kmer_geno_rules[uid]['partial_genotypes']))
+        if uid in kmer_entropies:
+            entropies.append(kmer_entropies[uid])
+        else:
+            entropies.append(-1)
 
+    df['positive_genotypes'] = positive_genotypes
+    df['partial_genotypes'] = partial_genotypes
+    df['entropy'] = partial_genotypes
+    df = df[df['key'].isin(valid_uids)].reset_index(drop=True)
+    df['key'] = df.index
+    df.to_csv(output_scheme,sep="\t",header=True,index=False)
 
 def run():
     # input parameters
@@ -488,7 +506,7 @@ def run():
     out_fh = open(os.path.join(outdir, "{}-removed-kmers.txt".format(prefix)), 'w')
     out_fh.write("{}".format("\n".join(out_str)))
     out_fh.close()
-
+    stime = time.time()
     update_scheme(scheme_file, scheme_outfile, valid_uids, assoc_data['kmer_rules'], assoc_data['entropy'])
-
+    print(time.time() - stime)
 
