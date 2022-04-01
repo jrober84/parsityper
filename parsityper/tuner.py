@@ -378,7 +378,7 @@ def run():
     metadata_df['sample_id'] = metadata_df['sample_id'].astype(str)
     metadata_df['genotype'] = metadata_df['genotype'].astype(str)
     sample_mapping = get_genotype_mapping(metadata_df)
-    max_missing_count = int(max_frac_missing * len(sample_mapping))
+
 
     #Read scheme
     logger.info("Initializing scheme data structure from {}".format(scheme_file))
@@ -407,7 +407,7 @@ def run():
     sample_mapping = filt
     genotype_counts = get_genotype_counts(sample_mapping)
     num_genotypes = len(genotype_counts)
-
+    max_missing_count = int(max_frac_missing * len(sample_mapping))
 
     #Confirm all samples in profile exist in metadata
     ovl = set(profile_samples) & set(list(sample_mapping.keys()))
