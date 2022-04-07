@@ -97,8 +97,7 @@ def get_genotype_kmer_counts(sample_mapping,kmer_file,scheme_info,num_kmers,min_
                 kmer_counts[uid] += 1
         uid += 1
     kmer_FH.close()
-    print(time.time() - stime)
-    sys.exit()
+
     if num_kmers != uid:
         logging.error(
             "The number of rows in the profile do not match the number of scheme kmers. Check that it is not truncated")
@@ -107,8 +106,7 @@ def get_genotype_kmer_counts(sample_mapping,kmer_file,scheme_info,num_kmers,min_
         sys.exit()
     stime = time.time()
     fracs = calc_site_frac(sample_kcounts, scheme_info)
-    print(time.time() - stime)
-    sys.exit()
+
 
     mutation_range = range(0, len(scheme_info['mutation_to_uid']))
     mixed_sites = {}
@@ -121,12 +119,6 @@ def get_genotype_kmer_counts(sample_mapping,kmer_file,scheme_info,num_kmers,min_
                 mixed_sites[uid] += 1
 
     return {'genotype_kmer_counts': genotype_kmer_counts, 'mixed_sites': mixed_sites}
-
-
-
-
-    return {'genotype_kmer_counts':genotype_kmer_counts,'mixed_sites':mixed_sites}
-
 
 
 def get_genotype_kmer_counts_bck(sample_mapping,kmer_file,scheme_info,num_kmers,min_cov=1):
@@ -164,8 +156,7 @@ def get_genotype_kmer_counts_bck(sample_mapping,kmer_file,scheme_info,num_kmers,
                 kmer_counts[uid]+=1
         uid+=1
     kmer_FH.close()
-    print(time.time() - stime)
-    sys.exit()
+
     if num_kmers != uid:
         logging.error("The number of rows in the profile do not match the number of scheme kmers. Check that it is not truncated")
         logging.error(
@@ -173,8 +164,7 @@ def get_genotype_kmer_counts_bck(sample_mapping,kmer_file,scheme_info,num_kmers,
         sys.exit()
     stime = time.time()
     fracs = calc_site_frac(sample_kcounts, scheme_info)
-    print(time.time() - stime)
-    sys.exit()
+
 
     mutation_range = range(0,len(scheme_info['mutation_to_uid']))
     mixed_sites = {}
