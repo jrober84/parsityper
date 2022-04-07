@@ -340,7 +340,6 @@ def comp_mutation_profiles(mutation_fracs,scheme_info):
                 qBase = genotype_profiles[genotype][i]
                 if qBase != 0.5 and rBase != -1:
                     total+=1
-
                 if rBase == -1 or qBase == -1 or qBase == 0.5 or rBase == qBase or (rBase > 0 and rBase < 1):
                     continue
                 dist+=1
@@ -349,13 +348,14 @@ def comp_mutation_profiles(mutation_fracs,scheme_info):
                 dists[sample_id][genotype] = dist / total
             else:
                 dists[sample_id][genotype] = -1
-
+            #print("{}\t{}\t{}".format(sample_id,genotype,dists[sample_id][genotype] ))
     return dists
 
 def comp_kmer_profiles(kmer_counts,scheme_info,n_threads=1):
     kmer_list = list(scheme_info['uid_to_kseq'].keys())
     kmer_set = set(kmer_list)
     num_kmers = len(kmer_list)
+    alt_kmers = scheme_info['inf_alt_uids']
     geno_rules = scheme_info['genotype_rule_sets']
     for genotype in geno_rules:
         for key in geno_rules[genotype]:
@@ -388,9 +388,9 @@ def comp_kmer_profiles(kmer_counts,scheme_info,n_threads=1):
         exclude_sites = set(exclude_sites)
         valid_kmers = kmer_set - exclude_sites
         if n_threads == 1:
-            dists.update(calc_geno_dist(sample_id, detected_kmers, exclude_sites, valid_kmers, geno_rules, genotype_inf_kmers))
+            dists.update(calc_geno_dist(sample_id, detected_kmers, alt_kmers, valid_kmers, geno_rules, genotype_inf_kmers))
         else:
-            res.append(pool.apply_async(calc_geno_dist,(sample_id, detected_kmers, exclude_sites, valid_kmers, geno_rules, genotype_inf_kmers)))
+            res.append(pool.apply_async(calc_geno_dist,(sample_id, detected_kmers, alt_kmers, valid_kmers, geno_rules, genotype_inf_kmers)))
 
     if n_threads > 1:
         pool.close()
@@ -402,7 +402,7 @@ def comp_kmer_profiles(kmer_counts,scheme_info,n_threads=1):
 
     return dists
 
-def calc_geno_dist(sample_id,detected_kmers,exclude_sites,valid_kmers,geno_rules,genotype_inf_kmers):
+def calc_geno_dist(sample_id,detected_kmers,alt_kmers,valid_kmers,geno_rules,genotype_inf_kmers):
     dists = {}
     dists[sample_id] ={}
     for genotype in geno_rules:
@@ -412,10 +412,12 @@ def calc_geno_dist(sample_id,detected_kmers,exclude_sites,valid_kmers,geno_rules
         if num_inf > 0:
             genotype_req_uids = geno_rules[genotype]['positive_uids'] & valid_kmers
             matched = detected_kmers & genotype_req_uids
-            mismatched = (genotype_req_uids - matched)
-            dist = len(mismatched) / num_inf
+            atypical = ((detected_kmers - informative_uids ) & alt_kmers)
+            mismatched = (genotype_req_uids - matched) | atypical
+            dist = len(mismatched) / (num_inf + len(atypical))
         if len(matched) == 0:
             dist = 1
+        print("{}\t{}\t{}".format(sample_id,genotype,dist))
         dists[sample_id][genotype] = dist
 
     return dists

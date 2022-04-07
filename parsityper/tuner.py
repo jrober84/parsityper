@@ -72,16 +72,85 @@ def get_genotype_kmer_counts(sample_mapping,kmer_file,scheme_info,num_kmers,min_
         sample_kcounts[sample_id] = [0] * num_kmers
 
     kmer_counts = {}
+    for i in range(0, num_kmers):
+        kmer_counts[i] = 0
+    kmer_FH = open(kmer_file, 'r')
+    samples = next(kmer_FH).rstrip().split("\t")
+    valid_cols_range = []
+    genotype_cols = [0] * len(samples)
+    for i in range(0, len(samples)):
+        sample_id = samples[i]
+        if sample_id in sample_mapping:
+            valid_cols_range.append(i)
+            genotype_cols[i] = sample_mapping[sample_id]
+    stime = time.time()
+    uid = 0
+    for line in kmer_FH:
+        row = line.rstrip().split("\t")
+        for i in valid_cols_range:
+            sample_id = samples[i]
+            genotype = genotype_cols[i]
+            value = int(row[i])
+            if value >= min_cov:
+                #sample_kcounts[sample_id][uid] = value
+                genotype_kmer_counts[genotype][uid] += 1
+                kmer_counts[uid] += 1
+        uid += 1
+    kmer_FH.close()
+    print(time.time() - stime)
+    sys.exit()
+    if num_kmers != uid:
+        logging.error(
+            "The number of rows in the profile do not match the number of scheme kmers. Check that it is not truncated")
+        logging.error(
+            "File: {}, Scheme Kmers:{}, Profile Kmers:{}".format(kmer_file, num_kmers, uid))
+        sys.exit()
+    stime = time.time()
+    fracs = calc_site_frac(sample_kcounts, scheme_info)
+    print(time.time() - stime)
+    sys.exit()
+
+    mutation_range = range(0, len(scheme_info['mutation_to_uid']))
+    mixed_sites = {}
+    for sample_id in fracs:
+        for uid in mutation_range:
+            value = fracs[sample_id][uid]
+            if value > 0 and value < 1:
+                if not uid in mixed_sites:
+                    mixed_sites[uid] = 0
+                mixed_sites[uid] += 1
+
+    return {'genotype_kmer_counts': genotype_kmer_counts, 'mixed_sites': mixed_sites}
+
+
+
+
+    return {'genotype_kmer_counts':genotype_kmer_counts,'mixed_sites':mixed_sites}
+
+
+
+def get_genotype_kmer_counts_bck(sample_mapping,kmer_file,scheme_info,num_kmers,min_cov=1):
+    genotypes = sorted(list(set(list(sample_mapping.values()))))
+    genotype_kmer_counts = {}
+    for genotype in genotypes:
+        genotype_kmer_counts[genotype] = [0] * num_kmers
+    sample_kcounts = {}
+    for sample_id in sample_mapping:
+        sample_kcounts[sample_id] = [0] * num_kmers
+
+    kmer_counts = {}
     for i in range(0,num_kmers):
         kmer_counts[i] = 0
     kmer_FH = open(kmer_file,'r')
     samples = next(kmer_FH).rstrip().split("\t")
     valid_cols_range = []
+    genotype_cols = []
     for i in range(0,len(samples)):
         sample_id = samples[i]
         if sample_id in sample_mapping:
             valid_cols_range.append(i)
-
+            genoytpe_cols.append(sample_mapping[sample_id])
+    stime = time.time()
     uid = 0
     for line in kmer_FH:
         row = line.rstrip().split("\t")
@@ -94,14 +163,19 @@ def get_genotype_kmer_counts(sample_mapping,kmer_file,scheme_info,num_kmers,min_
                 genotype_kmer_counts[genotype][uid]+=1
                 kmer_counts[uid]+=1
         uid+=1
-
+    kmer_FH.close()
+    print(time.time() - stime)
+    sys.exit()
     if num_kmers != uid:
         logging.error("The number of rows in the profile do not match the number of scheme kmers. Check that it is not truncated")
         logging.error(
             "File: {}, Scheme Kmers:{}, Profile Kmers:{}".format(kmer_file,num_kmers,uid))
         sys.exit()
-
+    stime = time.time()
     fracs = calc_site_frac(sample_kcounts, scheme_info)
+    print(time.time() - stime)
+    sys.exit()
+
     mutation_range = range(0,len(scheme_info['mutation_to_uid']))
     mixed_sites = {}
     for sample_id in fracs:
@@ -258,66 +332,6 @@ def filter_missing_sites(kmer_counts,scheme_info,max_missing_count):
         if count_present < max_missing_count:
             invalid_kmers += uids
     return invalid_kmers
-
-
-def update_scheme_valid_slow(input_scheme,output_scheme,valid_uids,kmer_geno_rules,kmer_entropies):
-    in_FH = open(input_scheme,'r')
-    out_FH = open(output_scheme, 'w')
-    header = next(in_FH).strip().split('\t')
-    header_len = len(header)
-    out_FH.write("{}\n".format("\t".join(header)))
-    uid_col = 0
-    entropy_col = header.index('entropy')
-    pos_col = header.index('positive_genotypes')
-    par_col = header.index('partial_genotypes')
-    uid = 0
-    buffer = []
-    buffer_lines = 0
-    stime = time.time()
-    for line in in_FH:
-        row = line.strip().split('\t')
-        row_len = len(row)
-        row += ['']* (header_len - row_len)
-        row_uid = int(row[uid_col])
-        if not row_uid in valid_uids:
-            continue
-        if row_uid in kmer_entropies:
-            row[entropy_col] = kmer_entropies[row_uid]
-        row[0] = uid
-        row[pos_col] = ','.join(kmer_geno_rules[row_uid]['positive_genotypes'])
-        row[par_col] = ','.join(kmer_geno_rules[row_uid]['partial_genotypes'])
-        buffer.append("{}\n".format("\t".join([str(x) for x in row])))
-        buffer_lines+=1
-        if buffer_lines % 100000 == 0:
-            print(time.time() - stime)
-            stime = time.time()
-        if buffer_lines == 1000000:
-            out_FH.write("".join(buffer))
-            buffer = []
-            buffer_lines = 0
-        uid+=1
-    out_FH.write("".join(buffer))
-    out_FH.close()
-    in_FH.close()
-
-def update_scheme_bck(input_scheme,output_scheme,valid_uids,kmer_geno_rules,kmer_entropies):
-    df = read_tsv(input_scheme)
-    uid = 0
-    out_rows = {}
-    for row in df.itertuples():
-        row = row._asdict()
-        index = row['Index']
-        row_uid = int(row['key'])
-        row['positive_genotypes'] = ','.join(kmer_geno_rules[row_uid]['positive_genotypes'])
-        row['partial_genotypes'] = ','.join(kmer_geno_rules[row_uid]['partial_genotypes'])
-        if row_uid in kmer_entropies:
-            row['entropy'] = kmer_entropies[row_uid]
-        if not row_uid in valid_uids:
-            row['key'] = uid
-        out_rows[index] = row
-        uid+=1
-    out_df = pd.DataFrame.from_dict(out_rows,orient='index')
-    out_df.to_csv(output_scheme,sep="\t",header=True,index=False)
 
 def update_scheme(input_scheme,output_scheme,valid_uids,kmer_geno_rules,kmer_entropies):
     df = read_tsv(input_scheme)

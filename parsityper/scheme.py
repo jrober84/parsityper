@@ -79,6 +79,8 @@ def constructSchemeLookups(scheme):
         'genotype_rule_sets':{},
         'kmer_to_genotypes':{},
         'uid_to_state':{},
+        'inf_alt_uids':set(),
+        'inf_ref_uids':set(),
         'uid_to_kseq':{},
         'kseq_to_uids':{},
         'uid_to_mutation':{},
@@ -125,6 +127,11 @@ def constructSchemeLookups(scheme):
                 if not seq in profiles['kseq_to_uids']:
                     profiles['kseq_to_uids'][seq] = []
                 profiles['uid_to_state'][uid] = state
+                if len(scheme[mutation_key][state][uid]['positive_genotypes']) > 0:
+                    if state == 'alt':
+                        profiles['inf_alt_uids'].add(uid)
+                    else:
+                        profiles['inf_ref_uids'].add(uid)
                 profiles['uid_to_dna_name'][uid] = scheme[mutation_key][state][uid]['dna_name']
                 profiles['uid_to_aa_name'][uid] = scheme[mutation_key][state][uid]['aa_name']
                 profiles['kseq_to_uids'][seq].append(uid)
