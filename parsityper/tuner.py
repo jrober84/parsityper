@@ -92,7 +92,7 @@ def get_genotype_kmer_counts(sample_mapping,kmer_file,scheme_info,num_kmers,min_
             genotype = genotype_cols[i]
             value = int(row[i])
             if value >= min_cov:
-                #sample_kcounts[sample_id][uid] = value
+                sample_kcounts[sample_id][uid] = value
                 genotype_kmer_counts[genotype][uid] += 1
                 kmer_counts[uid] += 1
         uid += 1
@@ -430,6 +430,7 @@ def run():
     stime = time.time()
     for file in input_profile:
         logging.info("Reading profile from {}".format(file))
+        sys.stdout.flush()
         data = get_genotype_kmer_counts(sample_mapping, file, scheme_info, num_kmers, min_cov)
         for genotype in data['genotype_kmer_counts']:
             for uid,value in enumerate(data['genotype_kmer_counts'][genotype]):
