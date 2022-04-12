@@ -485,12 +485,12 @@ def run():
     for uid in range(0,num_kmers):
         kdata['kmer_counts'][uid] = 0
 
-
-    stime = time.time()
     for file in input_profile:
         logging.info("Reading profile from {}".format(file))
         sys.stdout.flush()
+        stime = time.time()
         data = get_genotype_kmer_counts(sample_mapping, file, scheme_info, num_kmers, min_cov)
+        print("process time {}".format(time.time() - stime))
         for genotype in data['genotype_kmer_counts']:
             for uid,value in enumerate(data['genotype_kmer_counts'][genotype]):
                 kdata['genotype_kmer_counts'][genotype][uid]+= value
