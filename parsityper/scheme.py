@@ -12,7 +12,6 @@ def parseScheme(scheme_file):
     for row in df.itertuples():
         mutation_key = row.mutation_key
         dna_name = row.dna_name
-       # aa_name = row.aa_name
         positive_genotypes = row.positive_genotypes
         if isinstance(positive_genotypes,float):
             positive_genotypes = []
@@ -46,20 +45,7 @@ def parseScheme(scheme_file):
                 'alt':{}
             }
 
-        scheme[mutation_key][state][uid] = {
-            'dna_name':dna_name,
-            'aa_name':aa_name,
-            'is_cds':is_cds,
-            'gene':gene,
-            'variant_start':variant_start,
-            'variant_end':variant_end,
-            'ref_state':ref_state,
-            'alt_state':alt_state,
-            'entropy':entropy,
-            'positive_genotypes':positive_genotypes,
-            'partial_genotypes':partial_genotypes,
-            'seq':seq
-        }
+        scheme[mutation_key][state][uid] = row._asdict()
 
     #clear nan values
     for mutation_key in scheme:
@@ -106,7 +92,7 @@ def constructSchemeLookups(scheme):
         for state in scheme[mutation_key]:
             for uid in scheme[mutation_key][state]:
                 if scheme[mutation_key][state][uid]['is_cds']:
-                    feature_name = scheme[mutation_key][state][uid]['gene']
+                    feature_name = scheme[mutation_key][state][uid]['gene_name']
                 else:
                     feature_name = 'intergenic'
                 variant_end = scheme[mutation_key][state][uid]['variant_end']
@@ -116,7 +102,7 @@ def constructSchemeLookups(scheme):
                 profiles['uid_to_gene_feature'][uid] = feature_name
                 profiles['gene_features'].append(feature_name)
                 profiles['gene_features'] = list(set(profiles['gene_features']))
-                seq = scheme[mutation_key][state][uid]['seq']
+                seq = scheme[mutation_key][state][uid]['kseq']
                 kmers[uid] = seq
                 klen = len(seq)
                 if profiles['min_kmer_len'] > klen:

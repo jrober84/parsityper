@@ -35,9 +35,21 @@ def merge_scheme(files,outfile):
     partial_rules = {}
     files.sort()
     lengths = []
+    kmer_features = {}
     for scheme_file in files:
         logging.info("processing file: {}".format(scheme_file))
-        scheme_info = constructSchemeLookups(parseScheme(scheme_file))
+        scheme = parseScheme(scheme_file)
+        for mutation_key in scheme:
+            for state in scheme[mutation_key]:
+                for uid in scheme[mutation_key][state]:
+                    seq = scheme[mutation_key][state][uid]['kseq']
+                    if seq not in kmer_features:
+                        kmer_features[seq] = {}
+                    if not mutation_key in kmer_features[seq]:
+                        kmer_features[seq][mutation_key] = []
+                    kmer_features[seq][mutation_key].append(scheme[mutation_key][state][uid])
+
+        scheme_info = constructSchemeLookups(scheme)
         lengths.append(len(scheme_info['uid_to_kseq']))
         for genotype in scheme_info['genotype_rule_sets']:
             uids = scheme_info['genotype_rule_sets'][genotype]['positive_uids']
@@ -60,8 +72,11 @@ def merge_scheme(files,outfile):
     num_fields = len(SCHEME_HEADER)
     logging.info("Writing results to : {}".format(outfile))
     new_uid_key = 0
+
+
+
     for index,row in df.iterrows():
-        seq = row['unalign_kseq']
+        seq = row['kseq']
         entry = {}
         for field in SCHEME_HEADER:
             if field in columns:

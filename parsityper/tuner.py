@@ -62,14 +62,72 @@ def get_genotype_mapping(metadata_df):
         mapping[sample_id] = genotype
     return mapping
 
+def identify_mixed_sites(sample_mapping,kmer_file,mixed_mutations,scheme_info,min_cov):
+    select_uids = []
+    select_geno = []
+    for uid in mixed_mutations:
+        select_uids.append(uid)
+        select_geno += mixed_mutations[uid]
+    select_uids = sorted(list(set(select_uids)))
+    select_geno = sorted(list(set(select_uids)))
+
+
+    kmer_FH = open(kmer_file, 'r')
+    samples = next(kmer_FH).rstrip().split("\t")
+    valid_cols_range = []
+    sample_kcounts = {}
+    for i in range(0, len(samples)):
+        sample_id = samples[i]
+        if sample_id in sample_mapping:
+            genotype = sample_mapping[sample_id]
+            if genotype in select_geno:
+                valid_cols_range.append(i)
+                sample_kcounts[sample_id] = {}
+                for uid in select_uids:
+                    sample_kcounts[sample_id][uid] = 0
+    uid = 0
+    for line in kmer_FH:
+        #skip rows not involved in potential conflicts
+        if uid not in select_uids:
+            uid+=1
+            continue
+        row = line.rstrip().split("\t")
+        for i in valid_cols_range:
+            sample_id = samples[i]
+            value = int(row[i])
+            if value >= min_cov:
+                sample_kcounts[sample_id][uid] = value
+        uid += 1
+    kmer_FH.close()
+
+    stime = time.time()
+    print("Calculating frac {}".format(time.time() - stime))
+    sample_mixed_sites = set()
+    for sample_id in sample_kcounts:
+        for uid in mixed_mutations:
+            if uid in sample_mixed_sites:
+                continue
+            mutation = scheme_info['uid_to_mutation'][uid]
+            uids = scheme_info['mutation_to_uid'][mutation]
+            is_alt_present = False
+            is_ref_present = False
+            for uid in uids:
+                value = sample_kcounts[sample_id][uid]
+                if value < min_cov:
+                    continue
+                if scheme_info['uid_to_state'][uid] == 'alt':
+                    is_alt_present = True
+                else:
+                    is_ref_present = True
+            if is_ref_present and is_alt_present:
+                sample_mixed_sites = sample_mixed_sites | set(uids)
+    return sample_mixed_sites
+
 def get_genotype_kmer_counts(sample_mapping,kmer_file,scheme_info,num_kmers,min_cov=1):
     genotypes = sorted(list(set(list(sample_mapping.values()))))
     genotype_kmer_counts = {}
     for genotype in genotypes:
         genotype_kmer_counts[genotype] = [0] * num_kmers
-    sample_kcounts = {}
-    for sample_id in sample_mapping:
-        sample_kcounts[sample_id] = [0] * num_kmers
 
     kmer_counts = {}
     for i in range(0, num_kmers):
@@ -88,11 +146,9 @@ def get_genotype_kmer_counts(sample_mapping,kmer_file,scheme_info,num_kmers,min_
     for line in kmer_FH:
         row = line.rstrip().split("\t")
         for i in valid_cols_range:
-            sample_id = samples[i]
             genotype = genotype_cols[i]
             value = int(row[i])
             if value >= min_cov:
-                sample_kcounts[sample_id][uid] = value
                 genotype_kmer_counts[genotype][uid] += 1
                 kmer_counts[uid] += 1
         uid += 1
@@ -104,21 +160,24 @@ def get_genotype_kmer_counts(sample_mapping,kmer_file,scheme_info,num_kmers,min_
         logging.error(
             "File: {}, Scheme Kmers:{}, Profile Kmers:{}".format(kmer_file, num_kmers, uid))
         sys.exit()
-    stime = time.time()
-    fracs = calc_site_frac(sample_kcounts, scheme_info)
 
-
+    #Look for potentially mixed sites based on genotype counts
+    geno_fracs = calc_site_frac(genotype_kmer_counts, scheme_info)
     mutation_range = range(0, len(scheme_info['mutation_to_uid']))
-    mixed_sites = {}
-    for sample_id in fracs:
-        for uid in mutation_range:
-            value = fracs[sample_id][uid]
+    mixed_mutations = {}
+    for genotype in geno_fracs:
+        for mutation in mutation_range:
+            value = geno_fracs[genotype][mutation]
             if value > 0 and value < 1:
-                if not uid in mixed_sites:
-                    mixed_sites[uid] = 0
-                mixed_sites[uid] += 1
+                if not mutation in mixed_mutations:
+                    mixed_mutations[mutation] = []
+                mixed_mutations[mutation].append(genotype)
 
-    return {'genotype_kmer_counts': genotype_kmer_counts, 'mixed_sites': mixed_sites}
+    mixed_uids = set()
+    if len(mixed_mutations) > 0:
+        mixed_uids = identify_mixed_sites(sample_mapping,kmer_file,mixed_mutations,scheme_info,min_cov)
+
+    return {'genotype_kmer_counts': genotype_kmer_counts, 'mixed_sites': mixed_uids}
 
 
 def get_genotype_kmer_counts_bck(sample_mapping,kmer_file,scheme_info,num_kmers,min_cov=1):
@@ -338,7 +397,7 @@ def update_scheme(input_scheme,output_scheme,valid_uids,kmer_geno_rules,kmer_ent
 
     df['positive_genotypes'] = positive_genotypes
     df['partial_genotypes'] = partial_genotypes
-    df['entropy'] = partial_genotypes
+    df['entropy'] = entropies
     df = df[df['key'].isin(valid_uids)].reset_index(drop=True)
     df['key'] = df.index
     df.to_csv(output_scheme,sep="\t",header=True,index=False)
@@ -420,7 +479,7 @@ def run():
 
     num_kmers = len(scheme_info['uid_to_state'])
     logger.info("Found {} samples in all profiles".format(len(profile_samples)))
-    kdata = {'genotype_kmer_counts':{},'kmer_counts':{},'mixed_sites':{}}
+    kdata = {'genotype_kmer_counts':{},'kmer_counts':{},'mixed_sites':set()}
     for genotype in genotype_counts:
         kdata['genotype_kmer_counts'][genotype] = [0] * num_kmers
     for uid in range(0,num_kmers):
@@ -436,10 +495,8 @@ def run():
             for uid,value in enumerate(data['genotype_kmer_counts'][genotype]):
                 kdata['genotype_kmer_counts'][genotype][uid]+= value
                 kdata['kmer_counts'][uid]+=value
-        for uid in data['mixed_sites']:
-            if not uid in kdata['mixed_sites']:
-                kdata['mixed_sites'][uid] = 0
-            kdata['mixed_sites'][uid]+= data['mixed_sites'][uid]
+        kdata['mixed_sites'] = kdata['mixed_sites'] | data['mixed_sites']
+
     out_str = []
     for uid in kdata['mixed_sites']:
         row = []
