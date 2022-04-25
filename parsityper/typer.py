@@ -418,7 +418,7 @@ def calc_geno_dist(sample_id,detected_kmers,alt_kmers,valid_kmers,geno_rules,gen
             dist = len(mismatched) / (num_inf + len(atypical))
         if len(matched) == 0:
             dist = 1
-        print("{}\t{}\t{}".format(sample_id,genotype,dist))
+        #print("{}\t{}\t{}".format(sample_id,genotype,dist))
         dists[sample_id][genotype] = dist
 
     return dists
