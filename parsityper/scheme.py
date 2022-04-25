@@ -58,6 +58,7 @@ def parseScheme(scheme_file):
     return scheme
 
 def constructSchemeLookups(scheme):
+
     profiles = {
         'max_variant_positions':0,
         'gene_features':[],
@@ -123,9 +124,11 @@ def constructSchemeLookups(scheme):
                 profiles['kseq_to_uids'][seq].append(uid)
                 profiles['uid_to_mutation'][uid] = mutation_key
                 profiles['mutation_to_uid'][mutation_key].append(uid)
-                genotypes = scheme[mutation_key][state][uid]['positive_genotypes'] + scheme[mutation_key][state][uid]['partial_genotypes']
+                genotypes = scheme[mutation_key][state][uid]['positive_genotypes'].split(',') + scheme[mutation_key][state][uid]['partial_genotypes'].split(',')
                 profiles['kmer_to_genotypes'][uid] = genotypes
                 for g in genotypes:
+                    if len(g) == 0:
+                        continue
                     kmer_profiles[g] = []
                     mutation_profiles[g] = []
 
@@ -144,9 +147,11 @@ def constructSchemeLookups(scheme):
         profiles['mutation_positions'][mutation_key] = i
         for state in scheme[mutation_key]:
             for uid in scheme[mutation_key][state]:
-                pos = scheme[mutation_key][state][uid]['positive_genotypes']
-                par = scheme[mutation_key][state][uid]['partial_genotypes']
+                pos = scheme[mutation_key][state][uid]['positive_genotypes'].split(',')
+                par = scheme[mutation_key][state][uid]['partial_genotypes'].split(',')
                 for g in pos:
+                    if g == '':
+                        continue
                     profiles['genotype_rule_sets'][g]['positive_uids'].append(uid)
                     if state == 'ref':
                         mutation_profiles[g][i] = 0.0
@@ -156,6 +161,8 @@ def constructSchemeLookups(scheme):
                         mutation_profiles[g][i] = 1.0
                     kmer_profiles[g][uid] = 1.0
                 for g in par:
+                    if g == '':
+                        continue
                     profiles['genotype_rule_sets'][g]['partial_uids'].append(uid)
                     if state == 'ref':
                         profiles['genotype_rule_sets'][g]['partial_ref'].append(uid)

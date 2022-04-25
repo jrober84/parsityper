@@ -483,6 +483,7 @@ def calc_kmer_associations(query_genotype, kmer, genotype_kCounts, genotypeCount
     sample_padding = sample_count * (len(genotypeCounts) - 1)
     kVec = []
     genotypeVec = {}
+
     # Init the kmer presence vector accross all samples
     for genotype in genotype_kCounts[kmer]['counts']:
         total = genotypeCounts[genotype]

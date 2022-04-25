@@ -409,6 +409,7 @@ def calc_geno_dist(sample_id,detected_kmers,alt_kmers,valid_kmers,geno_rules,gen
         dist = 0
         informative_uids = genotype_inf_kmers[genotype] & valid_kmers
         num_inf = len(informative_uids)
+        matched = []
         if num_inf > 0:
             genotype_req_uids = geno_rules[genotype]['positive_uids'] & valid_kmers
             matched = detected_kmers & genotype_req_uids
@@ -1151,7 +1152,7 @@ def write_run_summary(run_summary,outdir,num_samples,prefix):
                          'mutation_freq':'Average mutation kmer frequency',
                          'sample_count':'Number of samples with mutation site present'},
                  color_continuous_scale=px.colors.sequential.Viridis)
-    fig.show()
+    fig.write_html(os.path.join(outdir,"kmer-coverage.run.html"))
 
     df = df.sort_values(by=['sample_count'],ascending=False)
 
@@ -1163,7 +1164,7 @@ def write_run_summary(run_summary,outdir,num_samples,prefix):
                          'sample_count':'Count of samples with feature present',
                          'mixed_sample_count':'Count of samples with mixed kmer states'},
                  color_continuous_scale=px.colors.sequential.Viridis)
-    fig.show()
+    fig.write_html(os.path.join(outdir,"kmer-mixed.run.html"))
 
 def calc_sample_kmer_distMat(kmer_results_df):
     return nan_compatible_kmer_pairwise_distmatrix(kmer_results_df)
@@ -1275,6 +1276,7 @@ def run():
     scheme = parseScheme(scheme_file)
     logger.info("Initializing scheme data structure from {}".format(scheme_file))
     scheme_info = constructSchemeLookups(scheme)
+
     num_kmers = len(scheme_info['uid_to_kseq'])
     logger.info("Scheme interogates {} mutations".format(len(scheme)))
     logger.info("Scheme contains {} kmers".format(len(scheme_info['uid_to_kseq'])))
@@ -1480,7 +1482,7 @@ def run():
     kmer_df = pd.DataFrame(kmer_counts)
     kmer_df.reset_index().to_csv(os.path.join(outdir,"{}-kmer.profile".format(prefix)),index=False,sep="\t")
 
-    if not type_only:
+    if not type_only and len(sampleManifest) > 1:
         # create run summary table
         run_summary = create_run_summary(sampleManifest, kmer_counts, scheme_info)
 
