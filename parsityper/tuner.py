@@ -550,7 +550,7 @@ def run():
         }
 
     if no_mixed:
-        valid_uids = list(set(valid_uids) - set(list(kdata['mixed_sites'].keys())))
+        valid_uids = list(set(valid_uids) - kdata['mixed_sites'])
 
     invalid_uids = list(set(list(scheme_info['uid_to_state'].keys())) - set(valid_uids))
 

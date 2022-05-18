@@ -156,6 +156,7 @@ def perform_kmer_searching(seqManifest,scheme_info,min_cov,n_threads=1):
         batches = [fasta_files[i:i + n] for i in range(0, len(fasta_files), n)]
         for batch in batches:
             seqs = {}
+            #Hack for multifasta so it works consistently with the rest of the design
             for file in batch:
                 sample_id = Path(file).stem
                 seqs[sample_id] = "NNNNNNNNNNNNNNN".join(list(read_fasta(file).values()))
