@@ -407,6 +407,7 @@ def run():
     cmd_args = parse_args()
     input_meta = cmd_args.input_meta
     input_profile = cmd_args.input_profile
+    print(input_profile)
     scheme_file = cmd_args.scheme
     prefix = cmd_args.prefix
     min_cov = int(cmd_args.min_cov)
