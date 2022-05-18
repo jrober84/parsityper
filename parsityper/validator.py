@@ -60,6 +60,7 @@ def pariwise_cmp_genotype(sample_id_1,profiles,i,num_genotypes,genotypes):
             if not sample_id_1 in issues:
                 issues[sample_id_1] = []
             issues[sample_id_1].append(sample_id_2)
+            print("{}\t{}\t{}".format(sample_id_1,sample_id_2,dist))
     return issues
 
 def validate_genotype_rules(profiles,n_threads=1):
@@ -147,6 +148,58 @@ def process_kmer_profile(df):
     for sample_id in samples:
         return
 
+def count_pos_kmers(geno_rules):
+    counts = {}
+    for genotype in geno_rules:
+        counts[genotype] = len(geno_rules[genotype]['positive_uids'])
+    return counts
+
+def get_unique_kmers(geno_rules):
+    unique = {}
+    pos_kmers = set()
+    for genotype in geno_rules:
+        pos_kmers = pos_kmers | set(geno_rules[genotype]['positive_uids'])
+    for genotype in geno_rules:
+        unique[genotype] = set(geno_rules[genotype]['positive_uids']) - pos_kmers
+    return unique
+
+def validate_genotypes(geno_rules):
+    pos_counts = count_pos_kmers(geno_rules)
+    unique_kmers = get_unique_kmers(geno_rules)
+    filt = set()
+    for genotype in unique_kmers:
+        if len(unique_kmers[genotype]) > 0:
+            filt.add(genotype)
+    genotypes = list(set(geno_rules.keys()) - filt)
+    num_genotypes = len(genotypes)
+    error_genotypes = {}
+    for i in range(0,num_genotypes):
+        genotype_1 = genotypes[i]
+        genotype_1_pos = set(geno_rules[genotype_1]['positive_uids'])
+        genotype_1_par = set(geno_rules[genotype_1]['partial_uids'])
+        for k in range(i+1,num_genotypes):
+            genotype_2 = genotypes[k]
+            genotype_2_pos = set(geno_rules[genotype_2]['positive_uids'])
+            genotype_2_par = set(geno_rules[genotype_2]['partial_uids'])
+            inf = (genotype_1_pos - genotype_2_par) | (genotype_2_pos - genotype_1_par)
+            if len(inf) > 0:
+                dist = 1 - len(inf & genotype_1_pos) / len(inf)
+
+            else:
+                dist = 0
+            if dist == 0:
+                if not genotype_1 in error_genotypes:
+                    error_genotypes[genotype_1] = {}
+                error_genotypes[genotype_1][genotype_2] = len(inf)
+                print("{}\t{}\t{}\t{}".format(genotype_1, genotype_2, dist, len(inf)))
+    return error_genotypes
+
+
+
+
+
+
+
 
 
 
@@ -179,6 +232,10 @@ def run():
     logger.info("Initializing scheme data structure from {}".format(scheme_file))
     scheme_info = constructSchemeLookups(scheme)
 
+    logger.info("Determining if genotype scheme rules are valid {}".format(scheme_file))
+    validate_genotypes(scheme_info['genotype_rule_sets'])
+    sys.exit()
+
     #Identify genotypes which cannot be identified unambiguously from the scheme
     genotype_collision_report = os.path.join(outdir, "{}.genotype.collisions.txt".format(prefix))
     collisions = validate_genotype_rules(scheme_info['kmer_profiles'],n_threads)
@@ -191,6 +248,7 @@ def run():
     fh.close()
     del(collisions)
     sys.exit()
+
     #validate typer files
     profile_file = os.path.join(input_dir, "{}_analysis.sample.kmer.profiles.txt".format(prefix))
     typer_file  = os.path.join(input_dir,"{}_analysis.sample_composition.report.summary.txt".format(prefix))

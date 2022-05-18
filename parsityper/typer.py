@@ -157,7 +157,9 @@ def perform_kmer_searching(seqManifest,scheme_info,min_cov,n_threads=1):
         for batch in batches:
             seqs = {}
             for file in batch:
-                seqs.update(read_fasta(file))
+                sample_id = Path(file).stem
+                seqs[sample_id] = "NNNNNNNNNNNNNNN".join(list(read_fasta(file).values()))
+
             if n_threads > 1:
                 res.append(pool.apply_async(ksearch_fasta_lite, (aho, num_kmers, seqs)))
             else:
@@ -1221,6 +1223,7 @@ def create_sample_comparison_plots(scheme_info,kmer_results_df,labels,mds_outfil
 
 
 def run():
+    stime = time.time()
     cmd_args = parse_args()
 
     analysis_parameters = vars(cmd_args)
@@ -1441,7 +1444,8 @@ def run():
     logger.info("Calculating genotype distances for {} samples accross {} genotypes".format(len(sampleManifest),len(scheme_info['genotypes'])))
 
 
-    kmer_geno_dists = comp_kmer_profiles(kmer_counts, scheme_info)
+    kmer_geno_dists = comp_kmer_profiles(kmer_counts, scheme_info,n_threads)
+    logger.info("Calculating site ratios of alt / ref ")
     mutation_fracs = calc_site_frac(kmer_counts, scheme_info)
 
     mutation_geno_dists = comp_mutation_profiles(mutation_fracs, scheme_info)
@@ -1496,3 +1500,4 @@ def run():
             feature_outfile = os.path.join(outdir, "{}-feature.heatmap.html".format(prefix))
             create_sample_comparison_plots(scheme_info, kmer_df, labels, mds_outfile, dendro_outfile, feature_outfile)
 
+    print(time.time() - stime)

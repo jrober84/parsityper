@@ -1,6 +1,7 @@
 #!/usr/bin/python
 import copy
 import gzip
+import json
 import logging
 import os
 import psutil
@@ -169,6 +170,7 @@ def preprocess_seqs(fasta_file, ref_id, sample_ids, batch_size, out_dir, prefix,
             seq = str(seq_record.seq).upper()
             seq = seq.translate(trans)
             seq_len = len(seq)
+
             if id == ref_id:
                 ref_seq = seq
 
@@ -210,7 +212,9 @@ def preprocess_seqs(fasta_file, ref_id, sample_ids, batch_size, out_dir, prefix,
                 uFH.close()
 
     variants = parseVariants(consensus, seq_ids, gaps, ref_seq, min_var_freq)
-
+    if ref_seq == '':
+        logging.error("Reference sequence was not found in alignment")
+        sys.exit()
     return {'seq_ids': seq_ids, 'is_align_ok': is_align_ok, 'consensus': consensus, 'subset_files': subset_files,
             'unalign_files': unalign_files, 'align_len': align_len,
             'sample_batch_index': sample_batch_index, 'gaps': gaps, 'variants': variants, 'ref_aln': ref_seq}
@@ -375,12 +379,19 @@ def combine_aho_results(results):
     return {'kmer': kmers, 'samples': samples}
 
 def add_ref_kmer_info(kmer_results, kmer_counts, ref_seq, kLen):
+
     kmer_base_range = range(0, kLen)
+    invalid_indexes = []
     for i in kmer_results['kmer']:
         aStart = kmer_results['kmer'][i]['aStart']
         aEnd = kmer_results['kmer'][i]['aEnd']
         kmer_results['kmer'][i]['rSeq'] = ref_seq[aStart:aEnd + 1]
+
         count_var = 0
+        if len(kmer_results['kmer'][i]['rSeq']) < kLen or len(kmer_results['kmer'][i]['aSeq']) < kLen:
+            invalid_indexes.append(i)
+            continue
+
         for k in kmer_base_range:
             if kmer_results['kmer'][i]['rSeq'][k] != kmer_results['kmer'][i]['aSeq'][k]:
                 count_var += 1
@@ -388,6 +399,9 @@ def add_ref_kmer_info(kmer_results, kmer_counts, ref_seq, kLen):
         kmer_results['kmer'][i]['total_count'] = kmer_counts[kmer_results['kmer'][i]['kSeq']]
         kmer_results['kmer'][i]['positive_genotypes'] = []
         kmer_results['kmer'][i]['partial_genotypes'] = []
+    for i in invalid_indexes:
+        del(kmer_results['kmer'][i])
+
 
 def get_kmer_genotype_counts_bck(kmer_files, genotypeMapping):
     genotypes = list(set(genotypeMapping.values()))
@@ -1484,6 +1498,9 @@ def run():
         os.mkdir(fasta_dir, 0o755)
 
     logging.info("stage-{}: Processing sequences from MSA {}".format(stage,input_alignment))
+    if not ref_id in genotype_mapping:
+        logging.error("Ref id {} is not in genotype mapping, please add it and continue".format(ref_id))
+        sys.exit()
     msa_info = preprocess_seqs(input_alignment, ref_id, list(genotype_mapping.keys()), batch_size, fasta_dir, 'stage-0',
                                iupac_replacement, min_var_freq)
     if not msa_info['is_align_ok']:
@@ -1534,6 +1551,7 @@ def run():
     if len(aho_results) == 0:
         logging.info("Error something went wrong, no kmers found")
         sys.exit()
+
     add_ref_kmer_info(aho_results, seqKmers, msa_info['ref_aln'], kLen)
 
     logging.info("stage-{}: Grouping k-mers by start position".format(stage))
