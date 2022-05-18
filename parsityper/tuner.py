@@ -454,6 +454,7 @@ def run():
     # Read Kmer header
     profile_samples = []
     for file in input_profile:
+        print(file)
         if not os.path.isfile(file):
             logger.error("Error profile {} does not exist".format(file))
             sys.exit()
