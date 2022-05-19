@@ -350,19 +350,18 @@ def blank_invalid_rules(kmer_rules,num_genotypes,scheme_info):
     return kmer_rules
 
 def identify_mutation_sites_without_validStates(invalid_uids,scheme_info):
-    invalid_uids = set()
     for mutation_key in scheme_info['mutation_to_uid']:
         uids = scheme_info['mutation_to_uid'][mutation_key]
         count_alt = 0
         count_ref = 0
         for uid in uids:
             if uid in invalid_uids:
-                count_ref += 1
                 continue
             state = scheme_info['uid_to_state'][uid]
             if state == 'ref':
-                continue
-            count_alt+=1
+                count_ref += 1
+            else:
+                count_alt+=1
 
         if count_alt == 0 or count_ref == 0:
             invalid_uids = invalid_uids | set(uids)
