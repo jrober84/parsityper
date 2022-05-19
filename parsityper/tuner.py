@@ -29,7 +29,9 @@ def parse_args():
     parser.add_argument('--no_mixed', required=False,
                         help='Remove sites where both ref and alt exist in the same sample',action='store_true')
     parser.add_argument('--min_cov', type=int, required=False,
-                        help='Absolute minimum kmer coverage for fastq read detection default=auto determine coverage',default=50)
+                        help='Absolute minimum kmer coverage depth',default=50)
+    parser.add_argument('--max_cov', type=int, required=False,
+                        help='Absolute maximum k kmer coverage depth',default=50)
     parser.add_argument('--min_cov_frac', type=float, required=False,
                         help='Minimum percentage of total pool required for k-mer detection range 0 - 1.0 (default=0.05)', default=0.05)
     parser.add_argument('--min_alt_frac', type=float, required=False,
@@ -123,7 +125,7 @@ def identify_mixed_sites(sample_mapping,kmer_file,mixed_mutations,scheme_info,mi
                 sample_mixed_sites = sample_mixed_sites | set(uids)
     return sample_mixed_sites
 
-def get_genotype_kmer_counts(sample_mapping,kmer_file,scheme_info,num_kmers,min_cov=1):
+def get_genotype_kmer_counts(sample_mapping,kmer_file,scheme_info,num_kmers,min_cov=1,max_cov=1):
     genotypes = sorted(list(set(list(sample_mapping.values()))))
     genotype_kmer_counts = {}
     for genotype in genotypes:
@@ -135,6 +137,7 @@ def get_genotype_kmer_counts(sample_mapping,kmer_file,scheme_info,num_kmers,min_
     kmer_FH = open(kmer_file, 'r')
     samples = next(kmer_FH).rstrip().split("\t")
     valid_cols_range = []
+    duplicated_uids = []
     genotype_cols = [0] * len(samples)
     for i in range(0, len(samples)):
         sample_id = samples[i]
@@ -148,9 +151,11 @@ def get_genotype_kmer_counts(sample_mapping,kmer_file,scheme_info,num_kmers,min_
         for i in valid_cols_range:
             genotype = genotype_cols[i]
             value = int(row[i])
-            if value >= min_cov:
+            if value >= min_cov and value<=max_cov:
                 genotype_kmer_counts[genotype][uid] += 1
                 kmer_counts[uid] += 1
+            elif value > max_cov:
+                duplicated_uids.append(i)
         uid += 1
     kmer_FH.close()
 
@@ -177,7 +182,7 @@ def get_genotype_kmer_counts(sample_mapping,kmer_file,scheme_info,num_kmers,min_
     if len(mixed_mutations) > 0:
         mixed_uids = identify_mixed_sites(sample_mapping,kmer_file,mixed_mutations,scheme_info,min_cov)
 
-    return {'genotype_kmer_counts': genotype_kmer_counts, 'mixed_sites': mixed_uids}
+    return {'genotype_kmer_counts': genotype_kmer_counts, 'mixed_sites': mixed_uids, 'duplicated_uids':duplicated_uids}
 
 
 def get_genotype_kmer_counts_bck(sample_mapping,kmer_file,scheme_info,num_kmers,min_cov=1):
@@ -407,10 +412,10 @@ def run():
     cmd_args = parse_args()
     input_meta = cmd_args.input_meta
     input_profile = cmd_args.input_profile
-    print(input_profile)
     scheme_file = cmd_args.scheme
     prefix = cmd_args.prefix
     min_cov = int(cmd_args.min_cov)
+    max_cov = int(cmd_args.max_cov)
     only_update = cmd_args.update
     min_alt_frac = cmd_args.min_alt_frac
     min_ref_frac = cmd_args.min_ref_frac
@@ -481,7 +486,7 @@ def run():
 
     num_kmers = len(scheme_info['uid_to_state'])
     logger.info("Found {} samples in all profiles".format(len(profile_samples)))
-    kdata = {'genotype_kmer_counts':{},'kmer_counts':{},'mixed_sites':set()}
+    kdata = {'genotype_kmer_counts':{},'kmer_counts':{},'mixed_sites':set(),'duplicated_uids':set()}
     for genotype in genotype_counts:
         kdata['genotype_kmer_counts'][genotype] = [0] * num_kmers
     for uid in range(0,num_kmers):
@@ -491,13 +496,14 @@ def run():
         logging.info("Reading profile from {}".format(file))
         sys.stdout.flush()
         stime = time.time()
-        data = get_genotype_kmer_counts(sample_mapping, file, scheme_info, num_kmers, min_cov)
+        data = get_genotype_kmer_counts(sample_mapping, file, scheme_info, num_kmers, min_cov, max_cov)
         print("process time {}".format(time.time() - stime))
         for genotype in data['genotype_kmer_counts']:
             for uid,value in enumerate(data['genotype_kmer_counts'][genotype]):
                 kdata['genotype_kmer_counts'][genotype][uid]+= value
                 kdata['kmer_counts'][uid]+=value
         kdata['mixed_sites'] = kdata['mixed_sites'] | data['mixed_sites']
+        kdata['duplicated_uids'] = kdata['duplicated_uids'] | set(data['duplicated_uids'])
 
     out_str = []
     for uid in kdata['mixed_sites']:
@@ -511,6 +517,21 @@ def run():
         row.append(str(scheme_info['uid_to_kseq'][uid]))
         out_str.append("{}".format("\t".join(row)))
     out_fh = open(os.path.join(outdir, "{}-mixed-kmers.txt".format(prefix)), 'w')
+    out_fh.write("{}".format("\n".join(out_str)))
+    out_fh.close()
+
+    out_str = []
+    for uid in kdata['duplicated_uids']:
+        row = []
+        row.append(str(uid))
+        row.append(str(scheme_info['uid_to_mutation'][uid]))
+        row.append(str(scheme_info['uid_to_dna_name'][uid]))
+        row.append(str(scheme_info['uid_to_aa_name'][uid]))
+        row.append(str(scheme_info['uid_to_gene_feature'][uid]))
+        row.append(str(scheme_info['uid_to_state'][uid]))
+        row.append(str(scheme_info['uid_to_kseq'][uid]))
+        out_str.append("{}".format("\t".join(row)))
+    out_fh = open(os.path.join(outdir, "{}-duplicated-kmers.txt".format(prefix)), 'w')
     out_fh.write("{}".format("\n".join(out_str)))
     out_fh.close()
 
@@ -550,9 +571,11 @@ def run():
             'positive_genotypes': [],
             'partial_genotypes':[]
         }
+        valid_uids = list(set(valid_uids) - kdata['duplicated_uids'])
 
     if no_mixed:
         valid_uids = list(set(valid_uids) - kdata['mixed_sites'])
+
 
     invalid_uids = list(set(list(scheme_info['uid_to_state'].keys())) - set(valid_uids))
 
