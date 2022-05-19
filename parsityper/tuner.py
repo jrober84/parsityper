@@ -332,6 +332,7 @@ def blank_invalid_rules(kmer_rules,num_genotypes,scheme_info):
         uids = scheme_info['mutation_to_uid'][mutation_key]
         ref_geno = []
         alt_geno = []
+        count_alt = 0
         for uid in uids:
             state = scheme_info['uid_to_state'][uid]
             if state == 'ref':
