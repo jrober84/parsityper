@@ -339,7 +339,6 @@ def blank_invalid_rules(kmer_rules,num_genotypes,scheme_info):
                 ref_geno += kmer_rules[uid]['positive_genotypes'] + kmer_rules[uid]['partial_genotypes']
                 continue
             alt_geno += kmer_rules[uid]['positive_genotypes'] + kmer_rules[uid]['partial_genotypes']
-            count_alt = 0
             if len(kmer_rules[uid]['positive_genotypes']) == 0:
                 count_alt += 1
 
@@ -349,6 +348,27 @@ def blank_invalid_rules(kmer_rules,num_genotypes,scheme_info):
                 kmer_rules[uid]['partial_genotypes'] = []
 
     return kmer_rules
+
+def identify_mutation_sites_without_validStates(invalid_uids,scheme_info):
+    invalid_uids = set()
+    for mutation_key in scheme_info['mutation_to_uid']:
+        uids = scheme_info['mutation_to_uid'][mutation_key]
+        count_alt = 0
+        count_ref = 0
+        for uid in uids:
+            if uid in invalid_uids:
+                count_ref += 1
+                continue
+            state = scheme_info['uid_to_state'][uid]
+            if state == 'ref':
+                continue
+            count_alt+=1
+
+        if count_alt == 0 or count_ref == 0:
+            invalid_uids = invalid_uids | set(uids)
+
+    return list(invalid_uids)
+
 
 def calc_site_frac(kmer_counts, scheme_info):
     sites = list(scheme_info['mutation_to_uid'].keys())
@@ -574,12 +594,13 @@ def run():
         }
         valid_uids = list(set(valid_uids) - kdata['duplicated_uids'])
 
+
     if no_mixed:
         valid_uids = list(set(valid_uids) - kdata['mixed_sites'])
 
-
     invalid_uids = list(set(list(scheme_info['uid_to_state'].keys())) - set(valid_uids))
-
+    invalid_uids = identify_mutation_sites_without_validStates(invalid_uids,scheme_info)
+    valid_uids = list(set(valid_uids) - set(invalid_uids))
     out_str = []
     for uid in invalid_uids:
         row = []
