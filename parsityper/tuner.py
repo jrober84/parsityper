@@ -155,7 +155,7 @@ def get_genotype_kmer_counts(sample_mapping,kmer_file,scheme_info,num_kmers,min_
                 genotype_kmer_counts[genotype][uid] += 1
                 kmer_counts[uid] += 1
             elif value > max_cov:
-                duplicated_uids.append(i)
+                duplicated_uids.append(uid)
         uid += 1
     kmer_FH.close()
 
@@ -320,7 +320,7 @@ def determine_genotype_kmer_assoc(genotype_kmer_counts,genotype_counts,scheme_in
             kmer_rules[uid]['positive_genotypes'].append(genotype)
         for uid in rules[genotype]['partial_uids']:
             kmer_rules[uid]['partial_genotypes'].append(genotype)
-    print(time.time() - stime)
+
     stime = time.time()
     for uid in uid_geno_counts:
         sEntropy[uid] = calc_shanon_entropy( list(uid_geno_counts[uid].values()))
