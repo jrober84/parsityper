@@ -1373,6 +1373,7 @@ def run():
 
     # Gather sequence files in directory if specified
     seqManifest = {}
+    is_compressed = False
     if data_dir:
         logger.info("Identifying sequences in directory {} ".format(data_dir))
         seqManifest = create_seq_manifest(data_dir)
